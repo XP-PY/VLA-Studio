@@ -1,0 +1,49 @@
+2026-06-26 14:42:50,241 INFO Using video codec: libsvtav1
+2026-06-26 14:42:50,241 WARNING Existing dataset features differ from current robot config; appending may fail.
+2026-06-26 14:42:50,241 INFO Appending to existing LeRobot dataset at /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front with 46 episode(s), 11000 frame(s).
+2026-06-26 14:42:50,241 INFO Passive recording mode.
+2026-06-26 14:42:50,241 INFO Move the RM65 with your external/master controller after recording starts.
+2026-06-26 14:42:50,241 INFO LeRobot will only read robot state and camera frames; it will not send arm actions.
+2026-06-26 14:42:50,241 INFO Dataset root: /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front
+2026-06-26 14:42:50,241 INFO Action names: ['joint_1.pos', 'joint_2.pos', 'joint_3.pos', 'joint_4.pos', 'joint_5.pos', 'joint_6.pos', 'gripper.pos']
+2026-06-26 14:42:50,241 INFO Logging to: /home/ubuntu/py/vla_studio/logs/record_rm65_aloha_pick_screwdriver_to_fixed_box_close_front.log
+2026-06-26 14:42:51,612 INFO RealSenseCamera(335222071948) connected.
+2026-06-26 14:42:52,696 INFO RealSenseCamera(335522070090) connected.
+2026-06-26 14:42:52,696 INFO rm65 RM65Robot connected to 192.168.1.18:8080.
+2026-06-26 14:42:53,279 INFO Accepted RM65 realtime push command variant: ms-cycle no-force full-custom.
+2026-06-26 14:42:53,279 INFO Started RM65 realtime aloha_state trigger on 192.168.1.100:8098 cycle_ms=20 accepted_cycle=20.
+2026-06-26 14:42:53,279 INFO Preparing episode 1/4.
+2026-06-26 14:42:53,279 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-26 14:43:00,104 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-26 14:43:02,607 INFO Start recording.
+2026-06-26 14:43:02,608 INFO Waiting for IO2 press to stop.
+2026-06-26 14:43:11,793 INFO Stopping episode: IO2 pressed.
+2026-06-26 14:43:15,296 INFO Saved episode 0 with 274 frames.
+2026-06-26 14:43:15,297 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-26 14:43:20,297 INFO Preparing episode 2/4.
+2026-06-26 14:43:20,297 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-26 14:43:44,132 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-26 14:43:47,736 INFO Start recording.
+2026-06-26 14:43:47,737 INFO Waiting for IO2 press to stop.
+2026-06-26 14:43:55,118 INFO Stopping episode: IO2 pressed.
+2026-06-26 14:43:58,324 INFO Saved episode 1 with 220 frames.
+2026-06-26 14:43:58,324 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-26 14:44:03,324 INFO Preparing episode 3/4.
+2026-06-26 14:44:03,324 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-26 14:44:13,136 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-26 14:44:16,894 INFO Start recording.
+2026-06-26 14:44:16,894 INFO Waiting for IO2 press to stop.
+2026-06-26 14:44:24,811 INFO Stopping episode: IO2 pressed.
+2026-06-26 14:44:28,062 INFO Saved episode 2 with 236 frames.
+2026-06-26 14:44:28,062 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-26 14:44:33,062 INFO Preparing episode 4/4.
+2026-06-26 14:44:33,062 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-26 14:44:40,123 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-26 14:44:43,027 INFO Start recording.
+2026-06-26 14:44:43,027 INFO Waiting for IO2 press to stop.
+2026-06-26 14:44:50,015 INFO Stopping episode: IO2 pressed.
+2026-06-26 14:44:53,030 INFO Saved episode 3 with 208 frames.
+2026-06-26 14:44:54,073 INFO RealSenseCamera(335222071948) disconnected.
+2026-06-26 14:44:54,157 INFO RealSenseCamera(335522070090) disconnected.
+2026-06-26 14:44:55,058 INFO rm65 RM65Robot disconnected.
+2026-06-26 14:44:55,058 INFO Done. Recorded 50 episode(s), 11938 frame(s).

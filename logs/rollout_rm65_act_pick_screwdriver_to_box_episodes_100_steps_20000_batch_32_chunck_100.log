@@ -1,0 +1,108 @@
+INFO 2026-06-26 13:53:00 _rollout.py:210 Building rollout context...
+INFO 2026-06-26 13:53:00 /context.py:177 Loading policy from '/home/ubuntu/py/vla_studio/runs/train/rm65_act_pick_screwdriver_to_box_episodes_100_steps_20000_batch_32_chunck_100/checkpoints/last/pretrained_model'...
+INFO 2026-06-26 13:53:00 /context.py:209 Policy loaded: type=act, device=cuda
+INFO 2026-06-26 13:53:00 /context.py:236 Connecting robot (rm65)...
+INFO 2026-06-26 13:53:01 ealsense.py:206 RealSenseCamera(335222071948) connected.
+INFO 2026-06-26 13:53:03 ealsense.py:206 RealSenseCamera(335522070090) connected.
+INFO 2026-06-26 13:53:03 rm65/rm65.py:81 rm65 RM65Robot connected to 192.168.1.18:8080.
+INFO 2026-06-26 13:53:03 /context.py:239 Robot connected: rm65
+INFO 2026-06-26 13:53:03 /context.py:244 Captured initial robot position (7 keys)
+INFO 2026-06-26 13:53:03 /context.py:408 Creating inference engine (type=sync)...
+INFO 2026-06-26 13:53:03 /factory.py:100 Creating inference engine: sync
+INFO 2026-06-26 13:53:03 ence/sync.py:76 SyncInferenceEngine initialized (device=cuda, action_keys=7)
+INFO 2026-06-26 13:53:03 /context.py:431 Rollout context assembled successfully
+INFO 2026-06-26 13:53:03 _rollout.py:214 Rollout strategy: base
+INFO 2026-06-26 13:53:03 _rollout.py:215 Robot: rm65 | FPS: 10 | Duration: 1000.0s
+INFO 2026-06-26 13:53:03 gies/core.py:65 Starting inference engine...
+INFO 2026-06-26 13:53:03 ence/sync.py:92 Resetting sync inference state (policy + processors)
+INFO 2026-06-26 13:53:03 ence/sync.py:84 SyncInferenceEngine started (inline mode — no background thread)
+INFO 2026-06-26 13:53:03 gies/core.py:70 Inference engine started
+INFO 2026-06-26 13:53:03 gies/base.py:40 Base strategy ready
+INFO 2026-06-26 13:53:03 _rollout.py:224 Rollout setup complete, starting rollout...
+INFO 2026-06-26 13:53:03 gies/base.py:53 Base strategy control loop started
+WARNING 2026-06-26 13:53:03 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 9.710977554321289, 'safe goal_pos': 11.133}}
+WARNING 2026-06-26 13:53:03 gies/base.py:75 Record loop is running slower (4.6 Hz) than the target FPS (10.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-26 13:53:03 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 9.715682983398438,
+                   'safe goal_pos': 11.132000000000001}}
+WARNING 2026-06-26 13:53:03 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 10.563724517822266, 'safe goal_pos': 11.078}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 29.722105026245117, 'safe goal_pos': 28.921}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 32.43671417236328, 'safe goal_pos': 30.773}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 35.30375289916992,
+                   'safe goal_pos': 32.486999999999995}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 38.60490798950195, 'safe goal_pos': 34.11}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 41.87954330444336,
+                   'safe goal_pos': 35.900999999999996}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 45.10874938964844, 'safe goal_pos': 37.579}}
+WARNING 2026-06-26 13:53:04 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 48.39667892456055, 'safe goal_pos': 39.485}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 52.223731994628906, 'safe goal_pos': 41.29}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 56.21021270751953, 'safe goal_pos': 42.89}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 60.16497039794922, 'safe goal_pos': 44.838}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 64.28665161132812, 'safe goal_pos': 46.528}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 68.49653625488281, 'safe goal_pos': 48.376}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 72.45478057861328, 'safe goal_pos': 50.113}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 76.3043212890625, 'safe goal_pos': 51.859}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 79.93657684326172, 'safe goal_pos': 53.578}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 83.11387634277344, 'safe goal_pos': 55.232}}
+WARNING 2026-06-26 13:53:05 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 85.94306945800781, 'safe goal_pos': 57.246}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 88.58343505859375, 'safe goal_pos': 58.976}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 90.7587890625, 'safe goal_pos': 60.618}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 92.35359191894531, 'safe goal_pos': 62.447}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 93.69654846191406,
+                   'safe goal_pos': 64.15899999999999}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.75114440917969, 'safe goal_pos': 65.831}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.40853881835938, 'safe goal_pos': 67.87}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.88197326660156, 'safe goal_pos': 69.512}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 96.04402160644531, 'safe goal_pos': 71.366}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 95.97308349609375,
+                   'safe goal_pos': 72.95400000000001}}
+WARNING 2026-06-26 13:53:06 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.88273620605469, 'safe goal_pos': 74.657}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.62651062011719, 'safe goal_pos': 76.428}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.3696517944336, 'safe goal_pos': 78.312}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.20967102050781, 'safe goal_pos': 80.074}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 95.0826416015625, 'safe goal_pos': 81.798}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.98153686523438, 'safe goal_pos': 83.539}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.87093353271484, 'safe goal_pos': 85.507}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.73599243164062, 'safe goal_pos': 87.031}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.61251068115234, 'safe goal_pos': 88.769}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.50096130371094, 'safe goal_pos': 90.245}}
+WARNING 2026-06-26 13:53:07 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 94.42544555664062, 'safe goal_pos': 92.308}}

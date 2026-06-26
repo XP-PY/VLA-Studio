@@ -1,0 +1,56 @@
+INFO 2026-06-25 11:29:20 _rollout.py:210 Building rollout context...
+INFO 2026-06-25 11:29:20 /context.py:177 Loading policy from '/home/ubuntu/py/vla_studio/runs/train/rm65_act_pick_screwdriver_to_box_episodes_50_steps_20000/checkpoints/last/pretrained_model'...
+INFO 2026-06-25 11:29:21 /context.py:209 Policy loaded: type=act, device=cuda
+INFO 2026-06-25 11:29:21 /context.py:236 Connecting robot (rm65)...
+INFO 2026-06-25 11:29:22 ealsense.py:206 RealSenseCamera(335222071948) connected.
+INFO 2026-06-25 11:29:23 ealsense.py:206 RealSenseCamera(335522070090) connected.
+INFO 2026-06-25 11:29:23 m65/rm65.py:109 rm65 RM65Robot connected to 192.168.1.18:8080.
+INFO 2026-06-25 11:29:23 /context.py:239 Robot connected: rm65
+INFO 2026-06-25 11:29:23 /context.py:244 Captured initial robot position (7 keys)
+INFO 2026-06-25 11:29:23 /context.py:408 Creating inference engine (type=sync)...
+INFO 2026-06-25 11:29:23 /factory.py:100 Creating inference engine: sync
+INFO 2026-06-25 11:29:23 ence/sync.py:76 SyncInferenceEngine initialized (device=cuda, action_keys=7)
+INFO 2026-06-25 11:29:23 /context.py:431 Rollout context assembled successfully
+INFO 2026-06-25 11:29:23 _rollout.py:214 Rollout strategy: base
+INFO 2026-06-25 11:29:23 _rollout.py:215 Robot: rm65 | FPS: 20 | Duration: 100.0s
+INFO 2026-06-25 11:29:23 gies/core.py:65 Starting inference engine...
+INFO 2026-06-25 11:29:23 ence/sync.py:92 Resetting sync inference state (policy + processors)
+INFO 2026-06-25 11:29:23 ence/sync.py:84 SyncInferenceEngine started (inline mode — no background thread)
+INFO 2026-06-25 11:29:23 gies/core.py:70 Inference engine started
+INFO 2026-06-25 11:29:23 gies/base.py:40 Base strategy ready
+INFO 2026-06-25 11:29:23 _rollout.py:224 Rollout setup complete, starting rollout...
+INFO 2026-06-25 11:29:23 gies/base.py:53 Base strategy control loop started
+WARNING 2026-06-25 11:29:24 gies/base.py:75 Record loop is running slower (0.8 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:25 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:26 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:27 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:28 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:29 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:31 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:32 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:33 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:34 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:35 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:36 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:37 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:38 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:39 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:40 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:41 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:42 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:43 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:44 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:44 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 93.39527893066406,
+                   'safe goal_pos': 91.48699951171875},
+    'joint_5': {   'original goal_pos': 64.9198226928711,
+                   'safe goal_pos': 68.20999908447266}}
+WARNING 2026-06-25 11:29:45 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:46 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:47 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:48 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:49 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:50 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:51 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:52 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-25 11:29:53 gies/base.py:75 Record loop is running slower (1.0 Hz) than the target FPS (20.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation

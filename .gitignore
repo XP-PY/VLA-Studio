@@ -1,0 +1,8 @@
+.agents
+.cache
+.codex
+.vscode
+__pycache__/
+runs
+repos/
+!repos/lerobot/
