@@ -4,5 +4,5 @@
 .vscode
 __pycache__/
 runs
-repos/
+repos/*
 !repos/lerobot/
