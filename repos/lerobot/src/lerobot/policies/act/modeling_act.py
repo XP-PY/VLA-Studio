@@ -237,6 +237,7 @@ class ACTTemporalEnsembler:
         else:
             # self.ensembled_actions will have shape (batch_size, chunk_size - 1, action_dim). Compute
             # the online update for those entries.
+            # old_avg = 旧加权和 / 旧权重和 -> 旧加权和 = old_avg × 旧权重和
             self.ensembled_actions *= self.ensemble_weights_cumsum[self.ensembled_actions_count - 1]
             self.ensembled_actions += actions[:, :-1] * self.ensemble_weights[self.ensembled_actions_count]
             self.ensembled_actions /= self.ensemble_weights_cumsum[self.ensembled_actions_count]
@@ -437,6 +438,7 @@ class ACT(nn.Module):
             )  # (bs, seq+1 or 2)
 
             # Forward pass through VAE encoder to get the latent PDF parameters.
+            # PyTorch nn.MultiheadAttention in this code expects sequence-first tensors
             cls_token_out = self.vae_encoder(
                 vae_encoder_input.permute(1, 0, 2),
                 pos_embed=pos_embed.permute(1, 0, 2),
@@ -447,7 +449,10 @@ class ACT(nn.Module):
             # This is 2log(sigma). Done this way to match the original implementation.
             log_sigma_x2 = latent_pdf_params[:, self.config.latent_dim :]
 
-            # Sample the latent with the reparameterization trick.
+            # Reparameterization trick: sample noise separately so gradients still flow through mu/sigma.
+            # z ~ N(mu, sigma)
+            # we sample noise: z = mu + sigma * eps, eps ~ N(0, 1)
+            # In code: log_sigma_x2 means log(sigma^2), log_sigma_x2.div(2).exp() gives sigma
             latent_sample = mu + log_sigma_x2.div(2).exp() * torch.randn_like(mu)
         else:
             # When not using the VAE encoder, we set the latent to be all zeros.

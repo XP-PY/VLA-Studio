@@ -4,5 +4,6 @@
 .vscode
 __pycache__/
 runs
+models
 repos/*
 !repos/lerobot/

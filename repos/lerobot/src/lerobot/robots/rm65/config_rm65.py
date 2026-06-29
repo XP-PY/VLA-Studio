@@ -41,7 +41,7 @@ class RM65RobotConfig(RobotConfig):
     joint_limits: dict[str, tuple[float, float]] = field(
         default_factory=lambda: RM65_JOINT_LIMITS_DEG.copy()
     )
-    max_relative_target: float | dict[str, float] | None = 5.0
+    max_relative_target: float | dict[str, float] | None = 1000.0
 
     use_canfd: bool = True
     canfd_follow: bool = False

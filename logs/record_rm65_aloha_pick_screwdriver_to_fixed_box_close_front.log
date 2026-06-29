@@ -1,49 +1,233 @@
-2026-06-26 14:42:50,241 INFO Using video codec: libsvtav1
-2026-06-26 14:42:50,241 WARNING Existing dataset features differ from current robot config; appending may fail.
-2026-06-26 14:42:50,241 INFO Appending to existing LeRobot dataset at /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front with 46 episode(s), 11000 frame(s).
-2026-06-26 14:42:50,241 INFO Passive recording mode.
-2026-06-26 14:42:50,241 INFO Move the RM65 with your external/master controller after recording starts.
-2026-06-26 14:42:50,241 INFO LeRobot will only read robot state and camera frames; it will not send arm actions.
-2026-06-26 14:42:50,241 INFO Dataset root: /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front
-2026-06-26 14:42:50,241 INFO Action names: ['joint_1.pos', 'joint_2.pos', 'joint_3.pos', 'joint_4.pos', 'joint_5.pos', 'joint_6.pos', 'gripper.pos']
-2026-06-26 14:42:50,241 INFO Logging to: /home/ubuntu/py/vla_studio/logs/record_rm65_aloha_pick_screwdriver_to_fixed_box_close_front.log
-2026-06-26 14:42:51,612 INFO RealSenseCamera(335222071948) connected.
-2026-06-26 14:42:52,696 INFO RealSenseCamera(335522070090) connected.
-2026-06-26 14:42:52,696 INFO rm65 RM65Robot connected to 192.168.1.18:8080.
-2026-06-26 14:42:53,279 INFO Accepted RM65 realtime push command variant: ms-cycle no-force full-custom.
-2026-06-26 14:42:53,279 INFO Started RM65 realtime aloha_state trigger on 192.168.1.100:8098 cycle_ms=20 accepted_cycle=20.
-2026-06-26 14:42:53,279 INFO Preparing episode 1/4.
-2026-06-26 14:42:53,279 INFO Waiting for IO1 active before recording. source=aloha active_low=False
-2026-06-26 14:43:00,104 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
-2026-06-26 14:43:02,607 INFO Start recording.
-2026-06-26 14:43:02,608 INFO Waiting for IO2 press to stop.
-2026-06-26 14:43:11,793 INFO Stopping episode: IO2 pressed.
-2026-06-26 14:43:15,296 INFO Saved episode 0 with 274 frames.
-2026-06-26 14:43:15,297 INFO Reset environment for 5.0s. Recording is paused.
-2026-06-26 14:43:20,297 INFO Preparing episode 2/4.
-2026-06-26 14:43:20,297 INFO Waiting for IO1 active before recording. source=aloha active_low=False
-2026-06-26 14:43:44,132 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
-2026-06-26 14:43:47,736 INFO Start recording.
-2026-06-26 14:43:47,737 INFO Waiting for IO2 press to stop.
-2026-06-26 14:43:55,118 INFO Stopping episode: IO2 pressed.
-2026-06-26 14:43:58,324 INFO Saved episode 1 with 220 frames.
-2026-06-26 14:43:58,324 INFO Reset environment for 5.0s. Recording is paused.
-2026-06-26 14:44:03,324 INFO Preparing episode 3/4.
-2026-06-26 14:44:03,324 INFO Waiting for IO1 active before recording. source=aloha active_low=False
-2026-06-26 14:44:13,136 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
-2026-06-26 14:44:16,894 INFO Start recording.
-2026-06-26 14:44:16,894 INFO Waiting for IO2 press to stop.
-2026-06-26 14:44:24,811 INFO Stopping episode: IO2 pressed.
-2026-06-26 14:44:28,062 INFO Saved episode 2 with 236 frames.
-2026-06-26 14:44:28,062 INFO Reset environment for 5.0s. Recording is paused.
-2026-06-26 14:44:33,062 INFO Preparing episode 4/4.
-2026-06-26 14:44:33,062 INFO Waiting for IO1 active before recording. source=aloha active_low=False
-2026-06-26 14:44:40,123 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
-2026-06-26 14:44:43,027 INFO Start recording.
-2026-06-26 14:44:43,027 INFO Waiting for IO2 press to stop.
-2026-06-26 14:44:50,015 INFO Stopping episode: IO2 pressed.
-2026-06-26 14:44:53,030 INFO Saved episode 3 with 208 frames.
-2026-06-26 14:44:54,073 INFO RealSenseCamera(335222071948) disconnected.
-2026-06-26 14:44:54,157 INFO RealSenseCamera(335522070090) disconnected.
-2026-06-26 14:44:55,058 INFO rm65 RM65Robot disconnected.
-2026-06-26 14:44:55,058 INFO Done. Recorded 50 episode(s), 11938 frame(s).
+2026-06-28 11:10:55,796 INFO Using video codec: libsvtav1
+2026-06-28 11:10:55,797 WARNING Existing dataset features differ from current robot config; appending may fail.
+2026-06-28 11:10:55,797 INFO Appending to existing LeRobot dataset at /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front with 73 episode(s), 17125 frame(s).
+2026-06-28 11:10:55,797 INFO Passive recording mode.
+2026-06-28 11:10:55,797 INFO Move the RM65 with your external/master controller after recording starts.
+2026-06-28 11:10:55,797 INFO LeRobot will only read robot state and camera frames; it will not send arm actions.
+2026-06-28 11:10:55,797 INFO Dataset root: /home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_close_front
+2026-06-28 11:10:55,797 INFO Action names: ['joint_1.pos', 'joint_2.pos', 'joint_3.pos', 'joint_4.pos', 'joint_5.pos', 'joint_6.pos', 'gripper.pos']
+2026-06-28 11:10:55,797 INFO Logging to: /home/ubuntu/py/vla_studio/logs/record_rm65_aloha_pick_screwdriver_to_fixed_box_close_front.log
+2026-06-28 11:10:57,166 INFO RealSenseCamera(335222071948) connected.
+2026-06-28 11:10:58,251 INFO RealSenseCamera(335522070090) connected.
+2026-06-28 11:10:58,251 INFO rm65 RM65Robot connected to 192.168.1.18:8080.
+2026-06-28 11:10:58,798 INFO Accepted RM65 realtime push command variant: ms-cycle no-force full-custom.
+2026-06-28 11:10:58,798 INFO Started RM65 realtime aloha_state trigger on 192.168.1.100:8098 cycle_ms=20 accepted_cycle=20.
+2026-06-28 11:10:58,798 INFO Preparing episode 1/27.
+2026-06-28 11:10:58,798 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:11:02,323 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:11:05,527 INFO Start recording.
+2026-06-28 11:11:05,527 INFO Waiting for IO2 press to stop.
+2026-06-28 11:11:13,147 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:11:16,212 INFO Saved episode 0 with 226 frames.
+2026-06-28 11:11:16,212 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:11:21,212 INFO Preparing episode 2/27.
+2026-06-28 11:11:21,212 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:11:25,019 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:11:27,923 INFO Start recording.
+2026-06-28 11:11:27,923 INFO Waiting for IO2 press to stop.
+2026-06-28 11:11:36,741 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:11:40,095 INFO Saved episode 1 with 263 frames.
+2026-06-28 11:11:40,095 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:11:45,095 INFO Preparing episode 3/27.
+2026-06-28 11:11:45,096 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:11:49,653 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:11:52,358 INFO Start recording.
+2026-06-28 11:11:52,359 INFO Waiting for IO2 press to stop.
+2026-06-28 11:12:01,342 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:12:04,718 INFO Saved episode 2 with 268 frames.
+2026-06-28 11:12:04,719 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:12:09,719 INFO Preparing episode 4/27.
+2026-06-28 11:12:09,719 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:12:16,678 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:12:19,482 INFO Start recording.
+2026-06-28 11:12:19,482 INFO Waiting for IO2 press to stop.
+2026-06-28 11:12:27,564 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:12:30,729 INFO Saved episode 3 with 241 frames.
+2026-06-28 11:12:30,729 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:12:35,730 INFO Preparing episode 5/27.
+2026-06-28 11:12:35,730 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:12:40,939 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:12:43,843 INFO Start recording.
+2026-06-28 11:12:43,843 INFO Waiting for IO2 press to stop.
+2026-06-28 11:12:51,858 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:12:55,159 INFO Saved episode 4 with 239 frames.
+2026-06-28 11:12:55,159 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:13:00,160 INFO Preparing episode 6/27.
+2026-06-28 11:13:00,160 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:13:11,477 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:13:14,282 INFO Start recording.
+2026-06-28 11:13:14,282 INFO Waiting for IO2 press to stop.
+2026-06-28 11:13:22,365 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:13:25,481 INFO Saved episode 5 with 241 frames.
+2026-06-28 11:13:25,482 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:13:30,482 INFO Preparing episode 7/27.
+2026-06-28 11:13:30,482 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:13:46,654 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:13:48,857 INFO Start recording.
+2026-06-28 11:13:48,857 INFO Waiting for IO2 press to stop.
+2026-06-28 11:13:56,137 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:13:59,215 INFO Saved episode 6 with 217 frames.
+2026-06-28 11:13:59,215 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:14:04,215 INFO Preparing episode 8/27.
+2026-06-28 11:14:04,215 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:14:08,771 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:14:11,375 INFO Start recording.
+2026-06-28 11:14:11,376 INFO Waiting for IO2 press to stop.
+2026-06-28 11:14:18,661 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:14:21,577 INFO Saved episode 7 with 217 frames.
+2026-06-28 11:14:21,577 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:14:26,577 INFO Preparing episode 9/27.
+2026-06-28 11:14:26,577 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:14:32,337 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:14:34,940 INFO Start recording.
+2026-06-28 11:14:34,940 INFO Waiting for IO2 press to stop.
+2026-06-28 11:14:42,763 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:14:46,005 INFO Saved episode 8 with 233 frames.
+2026-06-28 11:14:46,005 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:14:51,005 INFO Preparing episode 10/27.
+2026-06-28 11:14:51,005 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:14:56,363 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:14:58,666 INFO Start recording.
+2026-06-28 11:14:58,666 INFO Waiting for IO2 press to stop.
+2026-06-28 11:15:05,548 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:15:08,560 INFO Saved episode 9 with 205 frames.
+2026-06-28 11:15:08,560 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:15:13,560 INFO Preparing episode 11/27.
+2026-06-28 11:15:13,560 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:15:21,171 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:15:23,474 INFO Start recording.
+2026-06-28 11:15:23,474 INFO Waiting for IO2 press to stop.
+2026-06-28 11:15:31,455 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:15:34,739 INFO Saved episode 10 with 236 frames.
+2026-06-28 11:15:34,739 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:15:39,739 INFO Preparing episode 12/27.
+2026-06-28 11:15:39,740 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:15:46,550 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:15:49,053 INFO Start recording.
+2026-06-28 11:15:49,053 INFO Waiting for IO2 press to stop.
+2026-06-28 11:15:56,267 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:15:59,313 INFO Saved episode 11 with 215 frames.
+2026-06-28 11:15:59,313 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:16:04,314 INFO Preparing episode 13/27.
+2026-06-28 11:16:04,314 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:16:09,871 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:16:11,974 INFO Start recording.
+2026-06-28 11:16:11,974 INFO Waiting for IO2 press to stop.
+2026-06-28 11:16:20,160 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:16:23,456 INFO Saved episode 12 with 244 frames.
+2026-06-28 11:16:23,456 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:16:28,456 INFO Preparing episode 14/27.
+2026-06-28 11:16:28,456 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:16:38,169 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:16:40,673 INFO Start recording.
+2026-06-28 11:16:40,673 INFO Waiting for IO2 press to stop.
+2026-06-28 11:16:47,853 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:16:50,859 INFO Saved episode 13 with 214 frames.
+2026-06-28 11:16:50,859 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:16:55,859 INFO Preparing episode 15/27.
+2026-06-28 11:16:55,859 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:17:08,139 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:17:10,943 INFO Start recording.
+2026-06-28 11:17:10,944 INFO Waiting for IO2 press to stop.
+2026-06-28 11:17:17,356 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:17:20,226 INFO Saved episode 14 with 191 frames.
+2026-06-28 11:17:20,226 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:17:25,226 INFO Preparing episode 16/27.
+2026-06-28 11:17:25,226 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:17:31,485 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:17:33,487 INFO Start recording.
+2026-06-28 11:17:33,488 INFO Waiting for IO2 press to stop.
+2026-06-28 11:17:40,567 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:17:43,450 INFO Saved episode 15 with 211 frames.
+2026-06-28 11:17:43,451 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:17:48,451 INFO Preparing episode 17/27.
+2026-06-28 11:17:48,451 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:17:55,162 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:17:58,971 INFO Start recording.
+2026-06-28 11:17:58,971 INFO Waiting for IO2 press to stop.
+2026-06-28 11:18:06,051 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:18:09,124 INFO Saved episode 16 with 211 frames.
+2026-06-28 11:18:09,124 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:18:14,124 INFO Preparing episode 18/27.
+2026-06-28 11:18:14,124 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:18:18,281 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:18:20,685 INFO Start recording.
+2026-06-28 11:18:20,685 INFO Waiting for IO2 press to stop.
+2026-06-28 11:18:27,254 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:18:30,155 INFO Saved episode 17 with 195 frames.
+2026-06-28 11:18:30,155 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:18:35,155 INFO Preparing episode 19/27.
+2026-06-28 11:18:35,155 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:18:46,271 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:18:48,475 INFO Start recording.
+2026-06-28 11:18:48,475 INFO Waiting for IO2 press to stop.
+2026-06-28 11:18:55,258 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:18:58,200 INFO Saved episode 18 with 202 frames.
+2026-06-28 11:18:58,201 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:19:03,201 INFO Preparing episode 20/27.
+2026-06-28 11:19:03,201 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:19:09,061 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:19:10,964 INFO Start recording.
+2026-06-28 11:19:10,964 INFO Waiting for IO2 press to stop.
+2026-06-28 11:19:18,679 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:19:21,980 INFO Saved episode 19 with 230 frames.
+2026-06-28 11:19:21,980 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:19:26,980 INFO Preparing episode 21/27.
+2026-06-28 11:19:26,980 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:19:49,064 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:19:51,067 INFO Start recording.
+2026-06-28 11:19:51,067 INFO Waiting for IO2 press to stop.
+2026-06-28 11:19:57,179 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:19:59,951 INFO Saved episode 20 with 182 frames.
+2026-06-28 11:19:59,951 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:20:04,951 INFO Preparing episode 22/27.
+2026-06-28 11:20:04,951 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:20:08,757 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:20:10,860 INFO Start recording.
+2026-06-28 11:20:10,860 INFO Waiting for IO2 press to stop.
+2026-06-28 11:20:19,077 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:20:22,387 INFO Saved episode 21 with 245 frames.
+2026-06-28 11:20:22,388 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:20:27,388 INFO Preparing episode 23/27.
+2026-06-28 11:20:27,388 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:20:39,856 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:20:42,259 INFO Start recording.
+2026-06-28 11:20:42,259 INFO Waiting for IO2 press to stop.
+2026-06-28 11:20:49,774 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:20:53,019 INFO Saved episode 22 with 224 frames.
+2026-06-28 11:20:53,020 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:20:58,020 INFO Preparing episode 24/27.
+2026-06-28 11:20:58,020 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:21:08,786 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:21:10,889 INFO Start recording.
+2026-06-28 11:21:10,889 INFO Waiting for IO2 press to stop.
+2026-06-28 11:21:18,371 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:21:21,559 INFO Saved episode 23 with 223 frames.
+2026-06-28 11:21:21,559 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:21:26,559 INFO Preparing episode 25/27.
+2026-06-28 11:21:26,559 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:21:31,967 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:21:34,170 INFO Start recording.
+2026-06-28 11:21:34,170 INFO Waiting for IO2 press to stop.
+2026-06-28 11:21:41,887 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:21:45,104 INFO Saved episode 24 with 230 frames.
+2026-06-28 11:21:45,104 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:21:50,104 INFO Preparing episode 26/27.
+2026-06-28 11:21:50,104 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:22:02,372 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:22:04,275 INFO Start recording.
+2026-06-28 11:22:04,275 INFO Waiting for IO2 press to stop.
+2026-06-28 11:22:10,888 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:22:13,714 INFO Saved episode 25 with 197 frames.
+2026-06-28 11:22:13,714 INFO Reset environment for 5.0s. Recording is paused.
+2026-06-28 11:22:18,714 INFO Preparing episode 27/27.
+2026-06-28 11:22:18,714 INFO Waiting for IO1 active before recording. source=aloha active_low=False
+2026-06-28 11:22:28,480 INFO Waiting for IO2 press to start recording. source=aloha active_low=False
+2026-06-28 11:22:30,984 INFO Start recording.
+2026-06-28 11:22:30,984 INFO Waiting for IO2 press to stop.
+2026-06-28 11:22:38,567 INFO Stopping episode: IO2 pressed.
+2026-06-28 11:22:41,770 INFO Saved episode 26 with 226 frames.
+2026-06-28 11:22:42,880 INFO RealSenseCamera(335222071948) disconnected.
+2026-06-28 11:22:43,064 INFO RealSenseCamera(335522070090) disconnected.
+2026-06-28 11:22:43,455 INFO rm65 RM65Robot disconnected.
+2026-06-28 11:22:43,455 INFO Done. Recorded 100 episode(s), 23151 frame(s).

@@ -1,0 +1,599 @@
+INFO 2026-06-29 10:52:49 _rollout.py:210 Building rollout context...
+INFO 2026-06-29 10:52:49 /context.py:177 Loading policy from '/home/ubuntu/py/vla_studio/runs/train/rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_100_steps_20000_batch_32_chunck_100/checkpoints/last/pretrained_model'...
+INFO 2026-06-29 10:52:50 /context.py:209 Policy loaded: type=act, device=cuda
+INFO 2026-06-29 10:52:50 /context.py:236 Connecting robot (rm65)...
+INFO 2026-06-29 10:52:51 ealsense.py:206 RealSenseCamera(335222071948) connected.
+INFO 2026-06-29 10:52:52 ealsense.py:206 RealSenseCamera(335522070090) connected.
+INFO 2026-06-29 10:52:52 rm65/rm65.py:78 rm65 RM65Robot connected to 192.168.1.18:8080.
+INFO 2026-06-29 10:52:52 /context.py:239 Robot connected: rm65
+INFO 2026-06-29 10:52:52 /context.py:244 Captured initial robot position (7 keys)
+INFO 2026-06-29 10:52:52 /context.py:408 Creating inference engine (type=sync)...
+INFO 2026-06-29 10:52:52 /factory.py:100 Creating inference engine: sync
+INFO 2026-06-29 10:52:52 ence/sync.py:76 SyncInferenceEngine initialized (device=cuda, action_keys=7)
+INFO 2026-06-29 10:52:52 /context.py:431 Rollout context assembled successfully
+INFO 2026-06-29 10:52:52 _rollout.py:214 Rollout strategy: base
+INFO 2026-06-29 10:52:52 _rollout.py:215 Robot: rm65 | FPS: 30 | Duration: 20.0s
+INFO 2026-06-29 10:52:52 gies/core.py:65 Starting inference engine...
+INFO 2026-06-29 10:52:52 ence/sync.py:92 Resetting sync inference state (policy + processors)
+INFO 2026-06-29 10:52:52 ence/sync.py:84 SyncInferenceEngine started (inline mode — no background thread)
+INFO 2026-06-29 10:52:52 gies/core.py:70 Inference engine started
+INFO 2026-06-29 10:52:52 gies/base.py:40 Base strategy ready
+INFO 2026-06-29 10:52:52 _rollout.py:224 Rollout setup complete, starting rollout...
+INFO 2026-06-29 10:52:52 gies/base.py:53 Base strategy control loop started
+WARNING 2026-06-29 10:52:53 gies/base.py:75 Record loop is running slower (4.7 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:53 gies/base.py:75 Record loop is running slower (29.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:53 gies/base.py:75 Record loop is running slower (26.4 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:53 gies/base.py:75 Record loop is running slower (25.0 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:53 gies/base.py:75 Record loop is running slower (29.7 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:54 gies/base.py:75 Record loop is running slower (25.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:54 gies/base.py:75 Record loop is running slower (28.6 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 27.66693878173828, 'safe goal_pos': 27.421}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 28.546178817749023, 'safe goal_pos': 28.116}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 29.499967575073242, 'safe goal_pos': 28.734}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 30.390485763549805, 'safe goal_pos': 29.385}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 31.264602661132812, 'safe goal_pos': 30.126}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 32.105674743652344, 'safe goal_pos': 30.717}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 33.000091552734375, 'safe goal_pos': 31.358}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 33.869728088378906, 'safe goal_pos': 32.085}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 34.74700927734375, 'safe goal_pos': 32.683}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 35.54286193847656, 'safe goal_pos': 33.429}}
+WARNING 2026-06-29 10:52:54 gies/base.py:75 Record loop is running slower (27.0 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 36.39267349243164, 'safe goal_pos': 34.162}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 37.26830291748047, 'safe goal_pos': 34.921}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 38.137168884277344, 'safe goal_pos': 35.331}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 39.01531219482422,
+                   'safe goal_pos': 36.221000000000004}}
+WARNING 2026-06-29 10:52:54 gies/base.py:75 Record loop is running slower (28.7 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 39.901973724365234,
+                   'safe goal_pos': 36.849000000000004}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 40.79499435424805,
+                   'safe goal_pos': 37.504999999999995}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 41.723472595214844,
+                   'safe goal_pos': 38.239999999999995}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 42.591285705566406, 'safe goal_pos': 38.667}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 43.466796875, 'safe goal_pos': 39.316}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 44.24683380126953, 'safe goal_pos': 39.919}}
+WARNING 2026-06-29 10:52:54 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 45.08787536621094, 'safe goal_pos': 40.699}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 45.90904235839844,
+                   'safe goal_pos': 41.346000000000004}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 46.72942352294922, 'safe goal_pos': 41.972}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 47.51013946533203, 'safe goal_pos': 42.71}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 48.27159118652344, 'safe goal_pos': 43.354}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 49.01243209838867, 'safe goal_pos': 44.172}}
+WARNING 2026-06-29 10:52:55 gies/base.py:75 Record loop is running slower (25.2 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 49.7415885925293, 'safe goal_pos': 44.781}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 50.42399597167969, 'safe goal_pos': 45.415}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 51.13636016845703, 'safe goal_pos': 46.04}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 51.82170104980469, 'safe goal_pos': 46.648}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 52.484046936035156, 'safe goal_pos': 47.438}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 53.13873291015625, 'safe goal_pos': 47.957}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 53.76094436645508, 'safe goal_pos': 48.675}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 54.33759307861328, 'safe goal_pos': 49.306}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 54.91078567504883, 'safe goal_pos': 49.891}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 55.483638763427734, 'safe goal_pos': 50.663}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 56.00835418701172, 'safe goal_pos': 51.334}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 56.53956604003906, 'safe goal_pos': 51.705}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 57.01213836669922, 'safe goal_pos': 52.657}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 57.459957122802734, 'safe goal_pos': 53.236}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 57.90650177001953, 'safe goal_pos': 53.909}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 58.34834289550781, 'safe goal_pos': 54.435}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 58.7716064453125, 'safe goal_pos': 55.047}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 59.179832458496094, 'safe goal_pos': 55.634}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 88.75650787353516,
+                   'safe goal_pos': 88.697},
+    'joint_6': {   'original goal_pos': 59.555076599121094,
+                   'safe goal_pos': 56.211}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 89.5329360961914, 'safe goal_pos': 89.271},
+    'joint_6': {   'original goal_pos': 59.907325744628906,
+                   'safe goal_pos': 56.873}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 90.27864074707031,
+                   'safe goal_pos': 89.954},
+    'joint_6': {   'original goal_pos': 60.27128601074219,
+                   'safe goal_pos': 57.577}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 91.04280853271484,
+                   'safe goal_pos': 90.695},
+    'joint_6': {   'original goal_pos': 60.61829376220703,
+                   'safe goal_pos': 58.231}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 91.78998565673828,
+                   'safe goal_pos': 91.209},
+    'joint_6': {   'original goal_pos': 60.990447998046875,
+                   'safe goal_pos': 58.762}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 92.52261352539062,
+                   'safe goal_pos': 91.944},
+    'joint_6': {'original goal_pos': 61.32994842529297, 'safe goal_pos': 59.49}}
+WARNING 2026-06-29 10:52:55 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 93.26619720458984,
+                   'safe goal_pos': 92.632},
+    'joint_6': {   'original goal_pos': 61.63829040527344,
+                   'safe goal_pos': 60.228}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 93.9638900756836, 'safe goal_pos': 93.298},
+    'joint_6': {'original goal_pos': 61.95696258544922, 'safe goal_pos': 60.84}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 94.64772033691406,
+                   'safe goal_pos': 93.989},
+    'joint_6': {   'original goal_pos': 62.240570068359375,
+                   'safe goal_pos': 61.549}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 95.31045532226562,
+                   'safe goal_pos': 94.587},
+    'joint_6': {   'original goal_pos': 62.48933410644531,
+                   'safe goal_pos': 62.101}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 95.9330062866211, 'safe goal_pos': 95.161},
+    'joint_6': {   'original goal_pos': 62.722984313964844,
+                   'safe goal_pos': 62.713}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_3': {'original goal_pos': 96.54846954345703, 'safe goal_pos': 95.888}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_3': {'original goal_pos': 97.12905883789062, 'safe goal_pos': 96.595}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_3': {'original goal_pos': 97.66998291015625, 'safe goal_pos': 97.212}}
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_3': {'original goal_pos': 98.1635971069336, 'safe goal_pos': 97.87}}
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (28.2 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_3': {'original goal_pos': 98.6523208618164, 'safe goal_pos': 98.496}}
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (24.6 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (27.0 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (28.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (29.2 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (27.8 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:56 gies/base.py:75 Record loop is running slower (26.5 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:57 gies/base.py:75 Record loop is running slower (29.8 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_5': {'original goal_pos': 80.17497253417969, 'safe goal_pos': 79.614}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_5': {'original goal_pos': 81.38967895507812, 'safe goal_pos': 80.241}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 90.52527618408203,
+                   'safe goal_pos': 91.115},
+    'joint_5': {   'original goal_pos': 82.56214141845703,
+                   'safe goal_pos': 80.986}}
+WARNING 2026-06-29 10:52:58 gies/base.py:75 Record loop is running slower (27.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 89.24883270263672,
+                   'safe goal_pos': 90.748},
+    'joint_5': {   'original goal_pos': 83.69703674316406,
+                   'safe goal_pos': 81.386}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 87.96803283691406,
+                   'safe goal_pos': 90.015},
+    'joint_5': {'original goal_pos': 84.82015228271484, 'safe goal_pos': 82.18}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 86.6435775756836, 'safe goal_pos': 89.378},
+    'joint_5': {'original goal_pos': 85.95654296875, 'safe goal_pos': 82.744}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 85.333984375, 'safe goal_pos': 88.876},
+    'joint_5': {'original goal_pos': 87.0490951538086, 'safe goal_pos': 83.249}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 83.99124145507812,
+                   'safe goal_pos': 87.948},
+    'joint_5': {'original goal_pos': 88.1531753540039, 'safe goal_pos': 84.139}}
+WARNING 2026-06-29 10:52:58 gies/base.py:75 Record loop is running slower (29.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 82.71554565429688,
+                   'safe goal_pos': 87.408},
+    'joint_5': {   'original goal_pos': 89.18516540527344,
+                   'safe goal_pos': 84.727}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 81.47634887695312,
+                   'safe goal_pos': 86.839},
+    'joint_5': {   'original goal_pos': 90.17483520507812,
+                   'safe goal_pos': 85.223}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 80.26776885986328,
+                   'safe goal_pos': 86.192},
+    'joint_5': {   'original goal_pos': 91.13391876220703,
+                   'safe goal_pos': 85.951}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 79.0787353515625, 'safe goal_pos': 85.346},
+    'joint_5': {'original goal_pos': 92.0654525756836, 'safe goal_pos': 86.76}}
+WARNING 2026-06-29 10:52:58 gies/base.py:75 Record loop is running slower (28.7 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 77.95635223388672,
+                   'safe goal_pos': 84.746},
+    'joint_5': {   'original goal_pos': 92.95303344726562,
+                   'safe goal_pos': 87.386}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 76.88811492919922,
+                   'safe goal_pos': 84.178},
+    'joint_5': {'original goal_pos': 93.7767333984375, 'safe goal_pos': 87.858}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 75.82689666748047,
+                   'safe goal_pos': 83.518},
+    'joint_5': {   'original goal_pos': 94.58692932128906,
+                   'safe goal_pos': 88.608}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 74.80952453613281,
+                   'safe goal_pos': 82.889},
+    'joint_5': {   'original goal_pos': 95.35211181640625,
+                   'safe goal_pos': 89.222}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 73.83495330810547,
+                   'safe goal_pos': 82.194},
+    'joint_5': {   'original goal_pos': 96.09271240234375,
+                   'safe goal_pos': 89.873}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 72.90803527832031,
+                   'safe goal_pos': 81.591},
+    'joint_5': {   'original goal_pos': 96.76652526855469,
+                   'safe goal_pos': 90.502}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 72.04464721679688,
+                   'safe goal_pos': 80.992},
+    'joint_5': {   'original goal_pos': 97.40016174316406,
+                   'safe goal_pos': 91.146}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 71.208984375, 'safe goal_pos': 80.266},
+    'joint_5': {   'original goal_pos': 97.97427368164062,
+                   'safe goal_pos': 91.806}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 70.40495300292969,
+                   'safe goal_pos': 79.674},
+    'joint_5': {'original goal_pos': 98.5184555053711, 'safe goal_pos': 92.44}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 69.63584899902344,
+                   'safe goal_pos': 79.055},
+    'joint_5': {   'original goal_pos': 99.04145812988281,
+                   'safe goal_pos': 93.036}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 68.8780746459961, 'safe goal_pos': 78.404},
+    'joint_5': {   'original goal_pos': 99.52220153808594,
+                   'safe goal_pos': 93.728}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 68.16189575195312,
+                   'safe goal_pos': 77.813},
+    'joint_5': {   'original goal_pos': 99.95539855957031,
+                   'safe goal_pos': 94.307}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 67.47261810302734,
+                   'safe goal_pos': 77.019},
+    'joint_5': {   'original goal_pos': 100.35665893554688,
+                   'safe goal_pos': 95.117}}
+WARNING 2026-06-29 10:52:58 gies/base.py:75 Record loop is running slower (29.2 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 66.80934143066406,
+                   'safe goal_pos': 76.268},
+    'joint_5': {   'original goal_pos': 100.71803283691406,
+                   'safe goal_pos': 95.823}}
+WARNING 2026-06-29 10:52:58 gies/base.py:75 Record loop is running slower (28.5 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 66.17229461669922,
+                   'safe goal_pos': 75.799},
+    'joint_5': {   'original goal_pos': 101.05560302734375,
+                   'safe goal_pos': 96.344},
+    'joint_6': {   'original goal_pos': 53.819034576416016,
+                   'safe goal_pos': 54.039}}
+WARNING 2026-06-29 10:52:58 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 65.57398986816406,
+                   'safe goal_pos': 75.046},
+    'joint_5': {   'original goal_pos': 101.33102416992188,
+                   'safe goal_pos': 96.987},
+    'joint_6': {   'original goal_pos': 52.72947692871094,
+                   'safe goal_pos': 53.417}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 64.98031616210938,
+                   'safe goal_pos': 74.449},
+    'joint_5': {   'original goal_pos': 101.56980895996094,
+                   'safe goal_pos': 97.631},
+    'joint_6': {   'original goal_pos': 51.564598083496094,
+                   'safe goal_pos': 52.792}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 64.43653869628906,
+                   'safe goal_pos': 73.795},
+    'joint_5': {   'original goal_pos': 101.7598876953125,
+                   'safe goal_pos': 98.327},
+    'joint_6': {   'original goal_pos': 50.37971496582031,
+                   'safe goal_pos': 52.096}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 63.90033721923828,
+                   'safe goal_pos': 73.155},
+    'joint_5': {   'original goal_pos': 101.93788146972656,
+                   'safe goal_pos': 98.893},
+    'joint_6': {'original goal_pos': 49.215232849121094, 'safe goal_pos': 51.5}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 63.398590087890625,
+                   'safe goal_pos': 72.641},
+    'joint_5': {   'original goal_pos': 102.0425796508789,
+                   'safe goal_pos': 99.454},
+    'joint_6': {   'original goal_pos': 47.938636779785156,
+                   'safe goal_pos': 50.931}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 62.908958435058594,
+                   'safe goal_pos': 72.025},
+    'joint_5': {   'original goal_pos': 102.0945816040039,
+                   'safe goal_pos': 100.074},
+    'joint_6': {   'original goal_pos': 46.617408752441406,
+                   'safe goal_pos': 50.316}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 62.45827102661133,
+                   'safe goal_pos': 71.018},
+    'joint_5': {   'original goal_pos': 102.12967681884766,
+                   'safe goal_pos': 101.071},
+    'joint_6': {   'original goal_pos': 45.343788146972656,
+                   'safe goal_pos': 49.284}}
+WARNING 2026-06-29 10:52:59 gies/base.py:75 Record loop is running slower (26.3 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 62.04095458984375,
+                   'safe goal_pos': 70.299},
+    'joint_5': {   'original goal_pos': 102.16281127929688,
+                   'safe goal_pos': 101.737},
+    'joint_6': {   'original goal_pos': 44.09366989135742,
+                   'safe goal_pos': 48.622}}
+WARNING 2026-06-29 10:52:59 gies/base.py:75 Record loop is running slower (28.6 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 61.628623962402344,
+                   'safe goal_pos': 69.779},
+    'joint_6': {'original goal_pos': 42.85205078125, 'safe goal_pos': 48.061}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 61.232582092285156,
+                   'safe goal_pos': 69.102},
+    'joint_6': {   'original goal_pos': 41.58710479736328,
+                   'safe goal_pos': 47.384}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 60.867042541503906,
+                   'safe goal_pos': 68.526},
+    'joint_6': {   'original goal_pos': 40.324005126953125,
+                   'safe goal_pos': 46.777}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 60.53179931640625,
+                   'safe goal_pos': 67.795},
+    'joint_6': {   'original goal_pos': 39.047428131103516,
+                   'safe goal_pos': 46.06}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 60.21320343017578,
+                   'safe goal_pos': 67.192},
+    'joint_6': {   'original goal_pos': 37.72650909423828,
+                   'safe goal_pos': 45.486}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 59.9080696105957, 'safe goal_pos': 66.519},
+    'joint_6': {   'original goal_pos': 36.43947219848633,
+                   'safe goal_pos': 44.742}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 59.65337371826172,
+                   'safe goal_pos': 65.811},
+    'joint_6': {   'original goal_pos': 35.147056579589844,
+                   'safe goal_pos': 44.01}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 59.413818359375, 'safe goal_pos': 65.16},
+    'joint_6': {   'original goal_pos': 33.83967971801758,
+                   'safe goal_pos': 43.387}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 59.24561309814453,
+                   'safe goal_pos': 64.358},
+    'joint_6': {   'original goal_pos': 32.54688262939453,
+                   'safe goal_pos': 42.551}}
+WARNING 2026-06-29 10:52:59 gies/base.py:75 Record loop is running slower (26.4 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 59.096824645996094,
+                   'safe goal_pos': 63.663},
+    'joint_6': {'original goal_pos': 31.2246150970459, 'safe goal_pos': 41.849}}
+WARNING 2026-06-29 10:52:59 gies/base.py:75 Record loop is running slower (26.3 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.97539520263672,
+                   'safe goal_pos': 63.045},
+    'joint_6': {   'original goal_pos': 29.891992568969727,
+                   'safe goal_pos': 41.262}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.878013610839844,
+                   'safe goal_pos': 62.397000000000006},
+    'joint_6': {   'original goal_pos': 28.59212875366211,
+                   'safe goal_pos': 40.685}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.80386734008789,
+                   'safe goal_pos': 61.653999999999996},
+    'joint_6': {   'original goal_pos': 27.33622932434082,
+                   'safe goal_pos': 39.917}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {'original goal_pos': 58.74919128417969, 'safe goal_pos': 60.94},
+    'joint_6': {   'original goal_pos': 26.016353607177734,
+                   'safe goal_pos': 39.232}}
+WARNING 2026-06-29 10:52:59 gies/base.py:75 Record loop is running slower (28.9 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.75767517089844,
+                   'safe goal_pos': 60.324},
+    'joint_6': {   'original goal_pos': 24.741981506347656,
+                   'safe goal_pos': 38.63}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.74871063232422,
+                   'safe goal_pos': 59.723},
+    'joint_6': {   'original goal_pos': 23.429122924804688,
+                   'safe goal_pos': 37.984}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_3': {   'original goal_pos': 58.739723205566406,
+                   'safe goal_pos': 59.172},
+    'joint_6': {   'original goal_pos': 22.195045471191406,
+                   'safe goal_pos': 37.374}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 20.933469772338867, 'safe goal_pos': 36.657}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 19.71254539489746, 'safe goal_pos': 35.973}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 18.56856918334961, 'safe goal_pos': 35.303}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 17.411691665649414, 'safe goal_pos': 34.745}}
+WARNING 2026-06-29 10:52:59 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 16.26494598388672, 'safe goal_pos': 34.136}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 15.163617134094238, 'safe goal_pos': 33.497}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 14.119516372680664, 'safe goal_pos': 32.714}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 13.113455772399902, 'safe goal_pos': 32.096}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 12.135486602783203, 'safe goal_pos': 31.588}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 11.207893371582031,
+                   'safe goal_pos': 30.767000000000003}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 10.317424774169922,
+                   'safe goal_pos': 30.000999999999998}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (27.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 9.468788146972656, 'safe goal_pos': 29.439}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 8.66423225402832,
+                   'safe goal_pos': 28.805999999999997}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 7.906526565551758,
+                   'safe goal_pos': 28.084000000000003}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 7.196374893188477, 'safe goal_pos': 27.582}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 6.513355255126953,
+                   'safe goal_pos': 26.875999999999998}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 5.870935440063477,
+                   'safe goal_pos': 26.326999999999998}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 5.224384307861328,
+                   'safe goal_pos': 25.543999999999997}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (28.9 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 4.670648574829102, 'safe goal_pos': 24.951}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 4.176694869995117,
+                   'safe goal_pos': 24.209000000000003}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (28.8 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 3.755168914794922,
+                   'safe goal_pos': 23.637999999999998}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (28.0 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 3.3544445037841797,
+                   'safe goal_pos': 22.994999999999997}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 3.0057506561279297,
+                   'safe goal_pos': 22.423000000000002}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 2.7041683197021484, 'safe goal_pos': 21.771}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 2.415966033935547, 'safe goal_pos': 20.92}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (28.7 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 2.1500110626220703, 'safe goal_pos': 20.293}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.8853645324707031, 'safe goal_pos': 19.785}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.6519756317138672, 'safe goal_pos': 18.98}}
+WARNING 2026-06-29 10:53:00 gies/base.py:75 Record loop is running slower (29.3 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.4588394165039062, 'safe goal_pos': 18.374}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.2781658172607422, 'safe goal_pos': 17.678}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.1513481140136719, 'safe goal_pos': 17.11}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 1.0489997863769531, 'safe goal_pos': 16.335}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.9463462829589844,
+                   'safe goal_pos': 15.844999999999999}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.8626308441162109, 'safe goal_pos': 15.085}}
+WARNING 2026-06-29 10:53:00 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.8128280639648438, 'safe goal_pos': 14.517}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.7689437866210938, 'safe goal_pos': 13.834}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.7250175476074219, 'safe goal_pos': 13.102}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.6767063140869141,
+                   'safe goal_pos': 12.495000000000001}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.6523990631103516,
+                   'safe goal_pos': 11.783999999999999}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.6626415252685547,
+                   'safe goal_pos': 11.248000000000001}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.6741828918457031,
+                   'safe goal_pos': 10.469999999999999}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.6792545318603516,
+                   'safe goal_pos': 9.966000000000001}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.7081966400146484, 'safe goal_pos': 9.337}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.7415370941162109, 'safe goal_pos': 8.584}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.7747611999511719,
+                   'safe goal_pos': 7.774000000000001}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.8014755249023438, 'safe goal_pos': 7.148}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.8363704681396484, 'safe goal_pos': 6.506}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.876190185546875, 'safe goal_pos': 5.916}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{'joint_6': {'original goal_pos': 0.9317493438720703, 'safe goal_pos': 5.218}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 0.9838485717773438,
+                   'safe goal_pos': 4.470000000000001}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 1.0635089874267578,
+                   'safe goal_pos': 3.9410000000000007}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 1.1589908599853516,
+                   'safe goal_pos': 3.1289999999999996}}
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 1.2506752014160156,
+                   'safe goal_pos': 2.492000000000001}}
+WARNING 2026-06-29 10:53:01 gies/base.py:75 Record loop is running slower (29.9 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:01 ts/utils.py:125 Relative goal position magnitude had to be clamped to be safe.
+{   'joint_6': {   'original goal_pos': 1.3480072021484375,
+                   'safe goal_pos': 1.9420000000000002}}
+WARNING 2026-06-29 10:53:01 gies/base.py:75 Record loop is running slower (27.1 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:02 gies/base.py:75 Record loop is running slower (26.9 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:02 gies/base.py:75 Record loop is running slower (27.9 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation
+WARNING 2026-06-29 10:53:02 gies/base.py:75 Record loop is running slower (27.2 Hz) than the target FPS (30.0 Hz). Dataset frames might be dropped and robot control might be unstable. Common causes are: 1) Camera FPS not keeping up 2) Policy inference taking too long 3) CPU starvation

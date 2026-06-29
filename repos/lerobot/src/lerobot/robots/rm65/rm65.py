@@ -72,9 +72,6 @@ class RM65Robot(Robot):
         self.client = RM65RawClient(self.config.ip, self.config.port, self.config.socket_timeout_s)
         self.client.connect()
 
-        if self.config.use_gripper:
-            self.client.set_gripper_route(self.config.gripper_min, self.config.gripper_max)
-
         for cam in self.cameras.values():
             cam.connect()
 

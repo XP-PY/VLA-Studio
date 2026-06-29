@@ -2,7 +2,6 @@ TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
 TASK_PROMPT="pick screwdriver and put it in box"
 
 cd /home/ubuntu/py/vla_studio/repos/lerobot
-
 python examples/rm65/passive_record.py \
     --config-path configs/rm65_realsense.yaml \
     --repo-id local/$TASK_NAME \
@@ -10,7 +9,7 @@ python examples/rm65/passive_record.py \
     --task "$TASK_PROMPT" \
     --fps 30 \
     --episode-time-s 30 \
-    --num-episodes 4 \
+    --num-episodes 27 \
     --teleop-active-io 1 \
     --record-button-io 2 \
     --record-button-mode toggle \
