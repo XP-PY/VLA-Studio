@@ -235,6 +235,8 @@ class AlohaStateReader:
         self._started = False
         self._accepted_cycle = cycle_ms
         self._accepted_force_coordinate: int | None = 2
+        self._last_error_log_s = 0.0
+        self._last_joint_clear_s = 0.0
 
     @staticmethod
     def _local_ip_for_robot(robot_ip: str) -> str:
@@ -392,6 +394,23 @@ class AlohaStateReader:
             return default
         return default
 
+    def _handle_realtime_error(self, latest: dict[str, Any]) -> None:
+        now_s = time.monotonic()
+        if now_s - self._last_error_log_s >= 2.0:
+            self._last_error_log_s = now_s
+            logger.warning(
+                "RM65 realtime aloha_state reported err_code=%s, status=%s. "
+                "Using IO values and clearing joint errors.",
+                latest.get("err_code"),
+                latest.get("arm_current_status"),
+            )
+
+        if now_s - self._last_joint_clear_s < 1.0:
+            return
+
+        self._last_joint_clear_s = now_s
+        clear_rm65_joint_errors(self.robot)
+
     def read_io(self, io_num: int, timeout_s: float = 2.0) -> bool:
         if io_num not in (1, 2):
             raise ValueError("Aloha realtime trigger only exposes IO1 and IO2")
@@ -403,7 +422,7 @@ class AlohaStateReader:
                 latest = dict(self._latest)
             if key in latest:
                 if latest.get("err_code") != 0:
-                    raise RuntimeError(f"Realtime aloha_state callback error: {latest}")
+                    self._handle_realtime_error(latest)
                 return bool(latest[key])
             precise_sleep(0.01)
         raise RuntimeError("Timed out waiting for realtime aloha_state callback")
@@ -525,6 +544,50 @@ def wait_for_record_button_release(
         precise_sleep(poll_interval_s)
 
 
+def clear_rm65_joint_errors(robot: RM65Robot) -> None:
+    assert robot.client is not None
+    failures = []
+    for joint_num in range(1, len(robot.config.joint_names) + 1):
+        try:
+            robot.client.set_joint_clear_err(joint_num)
+        except Exception as exc:
+            failures.append(f"joint {joint_num}: {exc}")
+
+    if failures:
+        logger.warning("RM65 joint error clear had failures: %s", "; ".join(failures))
+    else:
+        logger.info("Cleared RM65 joint errors.")
+
+
+def read_observation_with_joint_error_recovery(
+    robot: RM65Robot,
+    max_attempts: int,
+    retry_sleep_s: float,
+) -> dict[str, Any] | None:
+    for attempt_idx in range(max_attempts + 1):
+        try:
+            return robot.get_observation()
+        except Exception as exc:
+            if attempt_idx >= max_attempts:
+                logger.warning(
+                    "Skipping frame after %s failed observation read(s): %s",
+                    attempt_idx + 1,
+                    exc,
+                )
+                return None
+
+            logger.warning(
+                "RM65 observation read failed: %s. Clearing joint errors and retrying (%s/%s).",
+                exc,
+                attempt_idx + 1,
+                max_attempts,
+            )
+            clear_rm65_joint_errors(robot)
+            precise_sleep(retry_sleep_s)
+
+    return None
+
+
 def record_passive_episode(
     robot: RM65Robot,
     dataset: LeRobotDataset,
@@ -538,6 +601,8 @@ def record_passive_episode(
     io_read_source: str,
     io_active_low: bool,
     aloha_reader: AlohaStateReader | None,
+    joint_error_recovery_attempts: int,
+    joint_error_recovery_sleep_s: float,
 ) -> int:
     wait_for_io_start(
         robot=robot,
@@ -576,7 +641,15 @@ def record_passive_episode(
             logger.info("Stopping episode: %s.", reason)
             break
 
-        obs = robot.get_observation()
+        obs = read_observation_with_joint_error_recovery(
+            robot,
+            max_attempts=joint_error_recovery_attempts,
+            retry_sleep_s=joint_error_recovery_sleep_s,
+        )
+        if obs is None:
+            dt_s = time.perf_counter() - loop_start
+            precise_sleep(max(control_interval_s - dt_s, 0.0))
+            continue
 
         if future_offset == 0:
             add_passive_frame(dataset, obs, obs, action_names, task)
@@ -712,6 +785,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--private", action="store_true")
     parser.add_argument("--log-path", default=None, help="Optional file path for recording logs.")
+    parser.add_argument(
+        "--joint-error-recovery-attempts",
+        type=int,
+        default=3,
+        help=(
+            "Observation read retries after clearing RM65 joint errors with set_joint_clear_err. "
+            "Set to 0 to skip failed frames without retrying."
+        ),
+    )
+    parser.add_argument(
+        "--joint-error-recovery-sleep-s",
+        type=float,
+        default=0.05,
+        help="Sleep time between set_joint_clear_err recovery and the next observation read.",
+    )
     return parser.parse_args()
 
 
@@ -727,6 +815,10 @@ def main() -> None:
         raise ValueError("--record-button-mode=toggle requires --record-button-io")
     if args.io_read_source not in IO_READ_SOURCES:
         raise ValueError(f"--io-read-source must be one of {IO_READ_SOURCES}")
+    if args.joint_error_recovery_attempts < 0:
+        raise ValueError("--joint-error-recovery-attempts must be >= 0")
+    if args.joint_error_recovery_sleep_s < 0:
+        raise ValueError("--joint-error-recovery-sleep-s must be >= 0")
     if args.io_set_input and args.io_read_source in ("tool", "aloha"):
         raise ValueError("--io-set-input only applies to controller IO, not tool/aloha IO.")
     if args.io_read_source == "aloha":
@@ -792,6 +884,8 @@ def main() -> None:
                     io_read_source=args.io_read_source,
                     io_active_low=args.io_active_low,
                     aloha_reader=aloha_reader,
+                    joint_error_recovery_attempts=args.joint_error_recovery_attempts,
+                    joint_error_recovery_sleep_s=args.joint_error_recovery_sleep_s,
                 )
                 if frames_added == 0:
                     dataset.clear_episode_buffer()

@@ -223,6 +223,14 @@ class RM65RawClient:
         if response.get("arm_stop") is False:
             raise RuntimeError(f"RM65 set_arm_stop failed: {response}")
 
+    def set_joint_clear_err(self, joint_num: int) -> None:
+        response = self.request(
+            {"command": "set_joint_clear_err", "joint_clear_err": int(joint_num)},
+            expected=lambda data: data.get("command") == "set_joint_clear_err",
+        )
+        if response.get("joint_clear_err") is not True:
+            raise RuntimeError(f"RM65 set_joint_clear_err({joint_num}) failed: {response}")
+
     def set_io_mode(self, io_num: int, io_mode: int) -> None:
         response = self.request(
             {"command": "set_IO_mode", "IO_Num": int(io_num), "IO_mode": int(io_mode)},

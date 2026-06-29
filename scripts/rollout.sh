@@ -1,4 +1,4 @@
-PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_100_steps_20000_batch_32_chunck_100
+PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
 
 cd /home/ubuntu/py/vla_studio/repos/lerobot
 
@@ -10,7 +10,7 @@ lerobot-rollout \
     --policy.temporal_ensemble_coeff=0.01 \
     --policy.n_action_steps=1 \
     --device=cuda \
-    --fps=30 \
+    --fps=20 \
     --duration=20 \
     --task="pick screwdriver and put it in box" \
     --return_to_initial_position=false \

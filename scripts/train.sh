@@ -1,8 +1,8 @@
 export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
 export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
 
-DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_100_steps_20000_batch_8_chunck_50
+DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
@@ -10,9 +10,9 @@ lerobot-train \
     --policy.type act \
     --policy.device cuda \
     --policy.push_to_hub false \
-    --policy.chunk_size 50 \
+    --policy.chunk_size 100 \
     --policy.n_action_steps 1 \
-    --batch_size 8 \
+    --batch_size 32 \
     --steps 20000 \
     --eval_freq 0 \
     --save_freq 5000 \

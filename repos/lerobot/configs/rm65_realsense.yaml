@@ -51,10 +51,10 @@ robot:
     joint_5: [-128.0, 128.0]
     joint_6: [-359.82, 359.82]
 
-  max_relative_target: 10.0
+  max_relative_target: 1000.0
 
   use_canfd: true
-  canfd_follow: false
+  canfd_follow: true
   canfd_expand: 1000
   canfd_trajectory_mode: 0
   canfd_smooth: 0

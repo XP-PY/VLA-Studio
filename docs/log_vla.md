@@ -129,6 +129,23 @@ I used the same training hyperparameters as in [Training Log 1](#training-log-1)
 
 #### Evaluation
 
+- Success rate: TBD / TBD
+
+- Failure statistics:
+
+| Failure situation | Times | Notes |
+| :--- | ---: | :--- |
+| Gripper fails to align with the screwdriver | 0 |  |
+| Gripper aligns but does not close enough | 0 |  |
+| Gripper direction is wrong | 0 |  |
+| Grasp point is too far from the screwdriver | 0 |  |
+| Robot grasps the screwdriver but drops it before reaching the box | 0 |  |
+| Robot picks up the screwdriver but misses the box | 0 |  |
+| Repeated initial motion, weak response to visual input | 0 |  |
+| Motion is too slow or laggy | 0 |  |
+| Rollout stops or robot reports an error | 0 |  |
+| Other | 0 |  |
+
 - Success rate: 0 / 20
 - Experimental phenomena:
 
@@ -167,14 +184,112 @@ I trained three models on the 100-episode dataset:
     1. Model 1 still often fails to align the gripper with the screwdriver. In some cases, depending on the screwdriver's position and orientation, the gripper can align with the screwdriver but does not close enough. Whether the robot can pick up the screwdriver then depends on which part of the screwdriver it grasps. If it grasps the widest part, the pickup can succeed; if it grasps a narrower part, the gripper closure is insufficient and the pickup fails. In some other cases, the behavior is similar to [Training Log 2](#training-log-2): the robotic arm performs a similar initial movement every time it starts.
     2. Although Model 2 has a slightly lower success rate than Model 1, it appears better qualitatively. The repeated-start-motion phenomenon is significantly reduced. In most situations, I can see the robotic arm trying to align with the screwdriver. However, there are still many cases where the gripper fails to align accurately.
     3. Model 3 performs better than Model 1 and Model 2 in some difficult situations. However, in some easier situations where Model 1 or Model 2 can perform reasonably well, Model 3 chooses a grasp point that is too far from the screwdriver. Similar to Model 2, the repeated-start-motion phenomenon is significantly reduced compared with Model 1.
-    4. Across all three models, and also in the previous training logs, the model often predicts joint angles that exceed the configured `max_relative_target` value, which was set to `5`. I wondered whether this setting was limiting the model's behavior. Therefore, I ran another experiment based on Model 2 with `max_relative_target=1000.0`, which almost completely removes this action-clipping constraint. The success rate became 4 / 20, and the behavior became similar to Model 3. This suggests that `max_relative_target` may affect rollout behavior, but the balanced distribution of the newly added 50 episodes may also be an important factor, because those episodes focused more on difficult cases.
+    4. Across all three models, and also in the previous training logs, the model often predicts joint angles that exceed the configured `max_relative_target` value. In an earlier rollout test, `max_relative_target=1000.0` had not been applied to the actual config used by `lerobot-rollout`. After setting `max_relative_target=1000.0` in the correct rollout config, another experiment was run based on Model 2. The success rate became 6 / 20. The behavior became similar to Model 3, but in most situations the gripper could align with the screwdriver. The remaining failures mainly came from insufficient gripper closure or an incorrect gripper direction. This suggests that `max_relative_target` can strongly affect rollout behavior. When the limit is too small, the executed action may be clipped away from the model's intended prediction.
 
 - Thinking:
     1. Increasing the dataset from 50 to 100 episodes did not clearly improve the success rate. This suggests that the problem may not be only the number of episodes. The quality and coverage of the data distribution are likely more important. The policy still needs enough examples for each important screwdriver pose, orientation, approach direction, and grasp point.
     2. The balanced 100-episode dataset seems to reduce the repeated-start-motion failure mode. This suggests that the earlier dataset may have contained a biased initial action distribution, causing the model to learn an average initial movement instead of responding strongly to visual input.
     3. The gripper closure problem may be a separate issue from visual alignment. Even when the model aligns with the screwdriver, the predicted gripper position may not close enough for thinner parts of the screwdriver. This may require checking the gripper action labels in the dataset, verifying the gripper position range, or intentionally collecting more demonstrations that grasp thinner parts of the screwdriver.
-    4. The `max_relative_target` setting appears important during rollout. If it is too small, the executed action may be clipped away from the model's intended prediction, causing slow or inaccurate movement. However, setting it too large may also be risky because it allows large joint jumps. A better next step is to log both the raw predicted action and the clipped sent action during rollout, then choose a reasonable limit based on the real action differences in successful demonstrations.
+    4. The `max_relative_target` setting appears important during rollout. If it is too small, the executed action may be clipped away from the model's intended prediction, causing slow or inaccurate movement. After correctly setting it to `1000.0`, alignment improved, which suggests that action clipping was limiting the policy. However, setting it too large may also be risky because it allows large joint jumps. A better next step is to log both the raw predicted action and the clipped sent action during rollout, then choose a reasonable limit based on the real action differences in successful demonstrations.
     5. A closer front camera view may help if the current image does not provide enough detail about the screwdriver and gripper alignment. However, the camera should still preserve enough context to see the box and the approach path. A useful next experiment is to compare a closer front camera view with the current wrist camera, rather than relying on only one view.
     6. The next experiments should focus on diagnosis rather than only changing ACT hyperparameters: inspect action distributions, visualize predicted versus executed actions, check gripper labels, and evaluate failures by category, such as alignment failure, insufficient gripper closure, wrong grasp point, and poor recovery after missed grasp.
 
 ---
+
+### Training Log 4
+
+#### Dataset Recording
+In this experiment, I moved the front camera closer to the screwdriver and the box to test whether a closer and clearer view could improve picking performance. The new front camera view is:
+
+![Changed front camera view](assets/act/camera_front_2.png)
+
+This dataset was recorded from scratch. I paid close attention to the data distribution. Across these 100 episodes, I tried to cover the whole workspace as evenly as possible. For each area, I also varied the screwdriver orientation as evenly as possible, collecting about 8 to 12 episodes per area.
+
+Corresponding recording script:
+```bash
+TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+TASK_PROMPT="pick screwdriver and put it in box"
+
+cd /home/ubuntu/py/vla_studio/repos/lerobot
+python examples/rm65/passive_record.py \
+    --config-path configs/rm65_realsense.yaml \
+    --repo-id local/$TASK_NAME \
+    --root /home/ubuntu/py/vla_studio/runs/dataset/$TASK_NAME \
+    --task "$TASK_PROMPT" \
+    --fps 30 \
+    --episode-time-s 30 \
+    --num-episodes 100 \
+    --teleop-active-io 1 \
+    --record-button-io 2 \
+    --record-button-mode toggle \
+    --io-read-source aloha \
+    --aloha-target-ip 192.168.1.100 \
+    --log-path /home/ubuntu/py/vla_studio/logs/record_$TASK_NAME.log
+```
+
+#### Training script
+
+I trained ACT with `chunk_size=100`, `batch_size=32`, and 20,000 training steps:
+```bash
+export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
+export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+
+DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 100 \
+    --policy.n_action_steps 1 \
+    --batch_size 32 \
+    --steps 20000 \
+    --eval_freq 0 \
+    --save_freq 5000 \
+    --log_freq 100 \
+    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project rm65_lerobot \
+    --job_name $TRAINING_ID \
+    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+```
+
+#### Evaluation
+
+##### Evaluation 1
+
+In this evaluation, rollout `fps` was set to 20.
+
+- Success rate: 3 / 20
+
+- Failure statistics:
+
+| Failure situation | Times | Notes |
+| :--- | ---: | :--- |
+| Gripper fails to align with the screwdriver | 7 |  |
+| Gripper aligns but does not close enough | 5 |  |
+| Gripper direction is wrong | 1 |  |
+| Gripper does not move down far enough before closing | 4 |  |
+
+##### Evaluation 2
+
+In this evaluation, `canfd_follow` was enabled.
+
+- Success rate: 7 / 20
+
+- Failure statistics:
+
+| Failure situation | Times | Notes |
+| :--- | ---: | :--- |
+| Gripper fails to align with the screwdriver | 4 |  |
+| Gripper aligns but does not close enough | 6 |  |
+| Gripper direction is wrong | 3 |  |
+
+##### Thinking
+
+- The experimental results show that although the grasping success rate is still not high, the robot's behavior has improved significantly. The grasp point is almost never far away from the screwdriver. In most trials, the gripper moves directly toward the screwdriver. Even in the 7 alignment failures recorded in [Evaluation 1](#evaluation-1), the gripper is usually close to the screwdriver. For example, the model sometimes tries to grasp the very end of the screwdriver.
+- The main failure cases are insufficient gripper closure and insufficient downward motion before closing. After enabling `canfd_follow`, the insufficient-downward-motion failure disappears, and the overall success rate increases.
+- The insufficient gripper closure problem may come from the dataset. During recording, I usually grasped the wider part of the screwdriver. When the robot aligns with a thinner part, the gripper may not close enough because the model has not learned enough examples of this situation. Therefore, the next step is to record another 100 episodes focused on grasping the thinner parts of the screwdriver. More data may also help reduce the other failure cases.
