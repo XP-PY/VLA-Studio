@@ -1,4 +1,4 @@
-PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
+PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
 
 cd /home/ubuntu/py/vla_studio/repos/lerobot
 

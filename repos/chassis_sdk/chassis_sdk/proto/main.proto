@@ -1,0 +1,677 @@
+﻿// 2023-06-03 for AlphaX_ros main branch V1.5.2
+// Created by chaosir <chaosir@picasso-robot.com>
+
+syntax = "proto3";
+package proto;
+option optimize_for = LITE_RUNTIME;
+
+enum MessageType {
+    MSG_REQUEST = 0;
+    MSG_RESPONSE = 1;
+    MSG_COMMAND = 2;
+    MSG_NOTIFICATION = 3;
+}
+
+message Message {
+    MessageType type = 1;
+    fixed32 seq = 2;
+    fixed64 session_id = 3;
+
+    Request request = 4;
+    Response response = 5;
+    Command command = 6;
+    Notification notification = 7;
+}
+
+// 1. 请求数据
+message Request {
+    enum RequestType {
+        REQUEST_LOGIN = 0; // 登录
+        REQUEST_INFO = 1; // 获取车辆信息
+        REQUEST_STATE = 2; // 获取10Hz定频上传系统状态+硬件状态
+        REQUEST_SYSTEM_STATE = 3; // 获取PLNS系统状态
+        REQUEST_HARDWARE_STATE = 4; // 获取硬件状态
+        REQUEST_MAP_LIST = 5;
+        REQUEST_LASER_POINTS = 6;
+        REQUEST_TASK_STATE = 7;
+        REQUEST_FILE_OPERATE = 8;
+        REQUEST_LOGOUT = 9;
+        REQUEST_CHANGE_PW = 10;
+        REQUEST_TIMESTAMP = 11;
+        REQUEST_GET_CUR_MAP = 12; // 新地图发布后通知上位机获取地图
+        REQUEST_GET_MAPPING_DATA = 13; // 获取建图过程的点云
+        REQUEST_GET_MAPPING_TRACK = 14; // 获取建图过程的轨迹
+    }
+    RequestType request_type = 1;
+    LoginRequest login_request = 2;
+    
+    enum FileOperateType {
+        FILE_OPERATE_ZERO = 0;
+        IMPORT_MAP_FILE = 1; // 导入地图文件
+        IMPORT_CONFIG_FILE = 2; // 导入配置文件
+        IMPORT_SYSTEM_UPDATE_FILE = 3; // 导入升级包
+        RESTORE_FACTORY_SETTINGS = 4; // 恢复出厂设置/程序
+    }
+    FileOperateType file_op = 3;
+
+    string param_str = 4; // from
+    string param_str1 = 5; // to
+    string param_str2 = 6;
+}
+
+// 2. 响应请求
+message Response {
+    enum ResponseType {
+        RESPONSE_LOGIN = 0; // 登录响应
+        RESPONSE_INFO = 1; // 返回车辆信息
+        RESPONSE_STATE = 2; // 返回10Hz定频上传系统状态+硬件状态
+        RESPONSE_SYSTEM_STATE = 3; // 返回PLNS系统状态
+        RESPONSE_HARDWARE_STATE = 4; // 返回硬件状态
+        RESPONSE_MAP_LIST = 5;
+        RESPONSE_LASER_POINTS = 6;
+        RESPONSE_TASK_STATE = 7;
+        RESPONSE_FILE_OPERATE = 8;
+        RESPONSE_LOGOUT = 9;
+        RESPONSE_CHANGE_PW = 10;
+        RESPONSE_TIMESTAMP = 11;
+        RESPONSE_GET_CUR_MAP = 12; // 响应新地图发布后通知上位机获取地图命令
+        RESPONSE_GET_MAPPING_DATA = 13; // 响应建图过程点云
+        RESPONSE_GET_MAPPING_TRACK = 14; // 响应建图过程轨迹
+        
+        RESPONSE_COMMAND = 20; // 响应Command
+        RESPONSE_NOTIFY = 21; // 响应Notify
+    }
+    ResponseType response_type = 1;
+
+    LoginInfo login_info = 2;
+    Info info = 3;
+    SystemState system_state = 4;
+    HardwareState hardware_state = 5;
+    MapList map_list = 6;
+    LaserPoints laser_points = 7;
+    MovementTask movement_task = 8;
+    ActionTask action_task = 9;
+    OccupancyGridMap occupancy_grid_map = 10;
+    CloudMap mapping_cloud = 11;
+    LaserPoints mapping_trajectory = 12;
+
+    Result result = 13; // ** init this message for every response
+    NotifyResponse notify_response = 14; // ** true if notify received
+
+    FileList list = 20;
+    uint64 timestamp = 21;
+    string retInfo = 22;
+}
+
+// 3. 命令
+enum CommandType {
+    CMD_ZERO = 0;
+    CMD_HEARTBEATS_UPDATE = 0x01; // 心跳信息更新，10s发送一次
+
+    CMD_ENABLE_MANUAL_CONTROL = 0x02; // 手动模式
+    CMD_DISABLE_MANUAL_CONTROL = 0x03; // 自动模式
+    CMD_SET_MANUAL_SPEED = 0x04; // 手动设置PLNS运动速度
+    CMD_SET_SPEED_LEVEL = 0x05; // 自动模式速度等级
+    CMD_SPEED_SLOW_DOWN = 0x06; // 减速命令
+
+    CMD_PAUSE_MOVEMENT = 0x08;
+    CMD_CONTINUE_MOVEMENT = 0x09;
+    CMD_STOP_MOVEMENT = 0x0A;
+    CMD_ENABLE_OBSTACLE_AVOID = 0x0B; // 启用避障
+    CMD_DISABLE_OBSTACLE_AVOID = 0x0C; // 停用避障
+
+    CMD_NEW_MOVEMENT_TASK = 0x10;
+    CMD_CANCEL_MOVEMENT_TASK = 0x11;
+    CMD_NEW_ACTION_TASK = 0x12;
+    CMD_CANCEL_ACTION_TASK = 0x13;
+
+    CMD_CANCEL_EMERGENCY = 0x15; // 解除急停状态
+    CMD_TRIGGER_EMERGENCY = 0x16; // 触发急停
+    CMD_ENABLE_AUTO_CHARGE = 0x17; // 启动自动充电
+    CMD_STOP_CHARGE = 0x18; // 停止充电
+
+    CMD_START_LOCATION = 0x20; // 启动定位
+    CMD_STOP_LOCATION = 0x21; // 休眠定位
+    CMD_SET_LOCATION_MODE = 0x22; // 设置定位模式（激光/GNSS/融合/组合导航）
+    CMD_SET_LOCATION_INITIAL_POSE = 0x23; // 设置定位初始位姿
+
+    CMD_NEW_MAP_START = 0x24; // 开始绘制新地图
+    CMD_NEW_MAP_STOP = 0x25; // 结束绘制新地图（保存）
+    CMD_NEW_MAP_CANCEL = 0x26; // 取消绘制新地图（不保存）
+
+    CMD_SYNC_TIME = 0x30;
+    CMD_CALIBRATION = 0x31;
+    CMD_REBOOT_PLNS = 0x32; // 重新启动PLNS
+    
+    CMD_SET_GENERAL_IO_OUPUT = 0x35; // 设置IO输出状态
+    CMD_SET_SPEAKER_VOLUME = 0x36; // 设置VSC speaker音量
+    CMD_EXTEND_CONTROL = 0x37; // 外设扩展控制命令（如拍照、云台等）
+}
+
+message Command {
+    CommandType command = 1;
+
+    int32 param_int = 2; // 通用，发送手动速度时则为Vx
+    int32 param_int1 = 3; // 通用，发送手动速度时则为W
+    int32 param_int2 = 4; // 通用，可用于发送vy
+
+    Pose pose = 5;
+
+    string param_str = 6;
+    string param_str1 = 7;
+
+    LocationMode location_mode = 8;
+    MovementTask movement_task = 9;
+    ActionTask action_task = 10;
+
+    uint64 general_io_ouput = 11;
+    int32 extend_cmd = 12; // 外设扩展控制命令，自定义
+}
+
+enum LocationMode {
+    LOCATION_MODE_NONE = 0;
+    LOCATION_MODE_LIDAR = 1; // 默认为激光雷达定位
+    LOCATION_MODE_GNSS = 2; // 纯GNSS定位模式
+    LOCATION_MODE_MIX2 = 3; // 激光+GNSS定位
+    LOCATION_MODE_INS = 4; // GNSS+IMU融合惯导
+}
+
+// 4. 通知
+message Notification {
+    enum NotifyType {
+        NOTIFY_MOVE_TASK_FINISHED = 0;
+        NOTIFY_ACTION_TASK_FINISHED = 1;
+        NOTIFY_CALIBRATION_FINISHED = 2;
+        NOTIFY_UPDATE_FINISHED = 3;
+        NOTIFY_MOVE_PATH_SENT = 4;
+        NOTIFY_PASS_THROUGH_STATION = 5;
+    }
+    NotifyType notify_type = 1;
+
+    uint32 reserved_field = 2;
+    uint32 cur_station_no = 3;
+    Pose cur_pose = 4;
+    Result task_result = 5; // 移动任务和动作任务完成结果【成功/失败（原因）】
+
+    MovementTask movement_task = 10;
+    ActionTask action_task = 11;
+    CalibrationResult cal_result = 12;
+    UpdateResult update_result = 13;
+    uint32 pass_station_type = 14;
+}
+
+// ------------------------------------------------- Notification
+message NotifyResponse {
+    bool ack = 1;
+    enum NotifyType {
+        NOTIFY_MOVE_TASK_FINISHED = 0;
+        NOTIFY_ACTION_TASK_FINISHED = 1;
+        NOTIFY_CALIBRATION_FINISHED = 2;
+        NOTIFY_UPDATE_FINISHED = 3;
+        NOTIFY_MOVE_PATH_SENT = 4;
+        NOTIFY_PASS_THROUGH_STATION = 5;
+    }
+    NotifyType type = 2;
+}
+
+message CalibrationResult {
+    double x = 1;
+    double y = 2;
+    double theta = 3;
+    int32 status = 4;
+}
+
+message UpdateResult {
+    enum ResultCode {
+        UPDATE_SUCCESS = 0;
+        UPDATE_FAILED = 1;
+    }
+    ResultCode result_code = 1;
+}
+
+// --------------------------------------------------- Request
+message LoginRequest {
+    string username = 1; // 用户名，明文
+    string password = 2; // 密码，MD5加密后的密文（小写）
+}
+
+message LoginInfo {
+    fixed64 session_id = 1;
+    string result_str = 2;
+}
+
+message Info {
+    string licence_valid = 1; // 授权信息
+    string plns_serial_no = 2; // 主控器硬件序列号
+    string hardware_version = 3; // 硬件版本号
+    string tc_version = 4; // 主控软件版本号
+    string base_version = 5; // 驱动软件版本号
+    string vehicle_serial_no = 6; // 车辆序列号
+}
+
+message FileInfo {
+    string name = 1;
+    int32 size = 2;
+    uint64 last_write_time = 3;
+    bool file_compressed = 4;
+    string md5sum = 5;
+}
+
+message MapList {
+    uint32 req_seq = 1;
+    repeated FileInfo list = 2;
+}
+
+message FileList {
+    uint32 req_seq = 1;
+    repeated FileInfo list = 2;
+}
+
+// --------------------------------------------------- Command
+message Pose {
+    int32 x = 1; // 单位mm
+    int32 y = 2;
+    int32 z = 3;
+
+    int32 roll = 4; // 单位(1/1000)rad
+    int32 pitch = 5;
+    int32 yaw = 6; // 航向角
+
+    int32 confidence = 7; // 置信度
+}
+
+message Path {
+    enum PathType {
+        PATH_ZERO = 0;
+        PATH_LINE = 1;
+        PATH_BEZIER = 2;
+        PATH_ROTATE = 3;
+    }
+    PathType type = 1;
+
+    int32 sx = 2; // 距离单位均为mm
+    int32 sy = 3;
+    int32 ex = 4;
+    int32 ey = 5;
+    int32 cx = 6;
+    int32 cy = 7;
+    int32 dx = 8;
+    int32 dy = 9;
+
+    int32 rotate_angle = 10; // 角度单位为1/1000 rad
+    int32 direction = 11; // 0x01->前进/顺时针；0x02->后退/逆时针
+    int32 obst_stop = 12; // 0：关闭；>0：则为避障距离（mm）
+
+    int32 limit_v = 13;
+    int32 limit_w = 14;
+    int32 limit_acc = 15; // 路径加速度限制，默认0.3m/s^2
+    int32 limit_dec = 16; // 路径减速度限制，默认0.3m/s^2
+}
+
+message MotionControlState {
+    enum MCState {
+        MC_ZERO = 0;
+        MC_INITIALING = 1; // 初始化中
+        MC_IDLE = 2; // 空闲状态
+        MC_PATH_RUNNING = 3; // 正在执行路径
+        MC_VELOCITY_RUNNING = 4; // 正在执行速度
+    }
+    MCState state = 1;
+
+    int32 v_x = 2; // 当前x方向线速度，单位mm/s
+    int32 v_y = 3; // 当前y方向线速度，单位mm/s
+    int32 w = 4; // 当前旋转角速度速度，单位(1/1000)rad/s
+
+    int32 path_no = 5; // 当前执行的路径编号
+}
+
+message MovementTask {
+    enum TaskState {
+        MT_NA = 0;
+        MT_WAIT_FOR_START = 1;
+        MT_RUNNING = 2; // 任务正在执行
+        MT_PAUSED = 3;
+        MT_FINISHED = 4;
+    }
+    TaskState state = 1;
+
+    enum DstStationType {
+        DS_DEFAULT = 0;
+        DS_NO_ROTATE = 1; // 目标站点禁止旋转
+    }
+    DstStationType dst_station_type = 3;
+
+    enum TaskType {
+        MT_ZERO = 0;
+        MT_MOVE_FOLLOW_PATH = 1;
+        MT_MOVE_TO_STATION = 2;
+        MT_MOVE_TO_POSE = 3;
+        MT_MOVE_MIX2 = 4;
+    }
+    TaskType type = 4;
+
+    repeated uint32 stations = 5;
+    repeated Pose poses = 6;
+    repeated Path paths = 7;
+
+    enum AvoidPolicy {
+        AT_ZERO = 0;
+        OBSTACLE_AVOID_WAIT = 1; // 暂停运动直至障碍消失
+        OBSTACLE_AVOID_REPLAN = 2; // 重新规划路径绕过障碍
+        OBSTACLE_AVOID_NONE = 3; // 不处理
+    }
+    AvoidPolicy avoid_policy = 8; // 避障策略
+
+    int32 remain_time = 9; // 剩余执行时间，单位s
+    int32 remain_distance = 10; // 剩余里程，单位mm
+    int32 total_distance = 11; // 路径里程，单位mm
+}
+
+message ActionTask {
+    enum TaskState {
+        AT_NA = 0;
+        AT_WAIT_FOR_START = 1;
+        AT_RUNNING = 2; // 任务正在执行
+        AT_PAUSED = 3;
+        AT_FINISHED = 4;
+    }
+    TaskState state = 1;
+
+    enum TaskType {
+        AT_ZERO = 0;
+        AT_WAITING_TIMEOUT = 1;
+        AT_JACK_UP = 2;
+        AT_JACK_DOWN = 3;
+        AT_TAKE_PHOTOS = 4;
+    }
+    TaskType type = 3;
+
+    int32 timeout = 4; // unit: second
+    int32 id = 5;
+}
+
+// --------------------------------------------------- Response
+message SystemState {
+    uint32 req_seq = 1;
+    enum SysState {
+        SYS_STATE_ZERO = 0x00;
+        SYS_STATE_INITIALING = 0x01; // 系统正在初始化
+        SYS_STATE_IDLE = 0x02; // 系统空闲
+        SYS_STATE_ERROR = 0x03; // 系统出错
+        SYS_STATE_HARDWARE_ERROR = 0x04;
+
+        SYS_STATE_START_LOCATING = 0x05; // 正在启动定位
+        SYS_STATE_TASK_NEWMAP_DRAWING = 0x06; // 正在绘制新地图
+        SYS_STATE_TASK_NEWMAP_SAVING = 0x07; // 正在保存新地图
+        SYS_STATE_TASK_MANUAL_PAUSED = 0x08; // 手动暂停状态
+
+        SYS_STATE_TASK_NAV_INITIALING = 0x09; // 导航正在初始化
+        SYS_STATE_TASK_NAV_FINDING_PATH = 0x0A; // 导航正在寻路
+        SYS_STATE_TASK_NAV_WAITING_FINISH = 0x0B; // 正在等待到达目标位置
+        SYS_STATE_TASK_NAV_WAITING_FINISH_SLOW = 0x0C; // 检测到障碍,减速
+        SYS_STATE_TASK_NAV_REFINDING_PATH = 0x0D; // 导航正在重新寻路
+        SYS_STATE_TASK_NAV_PAUSED = 0x0E; // 遇到障碍暂停运动
+        SYS_STATE_TASK_NAV_NO_WAY = 0x0F; // 无法抵达目标位置
+        SYS_STATE_TASK_NAV_NO_STATION = 0x10; // 无法检测到目标站点
+        SYS_STATE_TASK_NAV_PATH_ERROR = 0x11; // 导航过程中路径出错：如偏离路径
+
+        SYS_STATE_TASK_PATH_NAV_INITIALING = 0x12; // 正在初始化执行固定路径
+        SYS_STATE_TASK_PATH_WAITING_FINISH = 0x13; // 正在等待固定路径执行结束
+        SYS_STATE_TASK_PATH_WAITING_FINISH_SLOW = 0x14; // 检测到障碍，减速前进
+        SYS_STATE_TASK_PATH_PAUSED = 0x15; // 遇到障碍暂停运动
+        SYS_STATE_TASK_PATH_ERROR = 0x16; // 导航过程中路径出错：例偏离路径
+    }
+    SysState sys_state = 2;
+
+    enum LocationState {
+        LOCATION_STATE_ZERO = 0;
+        LOCATION_STATE_NONE = 1;
+        LOCATION_STATE_INITIALING = 2; // 初始化中
+        LOCATION_STATE_RUNNING = 3; // 定位正常
+        LOCATION_STATE_RELOCATING = 4; // 重定位
+        LOCATION_STATE_ERROR = 5; // 出错，定位时为环境变化过大
+    }
+    LocationState location_state = 3;
+    LocationMode location_mode = 4;
+    Pose location_pose = 5;
+
+    enum EmergencyState {
+        STATE_EMERGENCY_NA = 0; // 紧急状态不可用
+        STATE_EMERGENCY_NONE = 1; // 不处于急停状态
+        STATE_EMERGENCY_TRIGER = 2; // 急停状态触发
+        STATE_EMERGENCY_RECOVERABLE = 3; // 可恢复急停状态
+    };
+    EmergencyState emergency_state = 6;
+
+    MotionControlState mc_state = 7;
+    MovementTask movement_state = 8;
+    ActionTask action_state = 9;
+
+    uint32 station_no = 10;
+    string map_name = 11; // 当前系统正在使用的地图
+    int32 map_saving_progress = 12;
+
+    enum OperationState {
+        OPERATION_NONE = 0;
+        OPERATION_AUTO = 1;
+        OPERATION_MANUAL = 2;
+    }
+    OperationState operation_state = 13;
+
+    enum ObaEnableState { // Online Business Account (OBA) Web端使能
+        OBA_NA = 0;
+        OBA_ENABLED = 1;
+        OBA_DISABLED = 2;
+    }
+    ObaEnableState oba_enable_state = 14;
+
+    enum RunState {
+        RUN_NA = 0;
+        RUN_IDLE = 1; // 空闲状态
+        RUN_RUNNING = 2; // 正在运行
+        RUN_BLOCK_SLOWDOWN = 3; // 遇到障碍物减速运行
+        RUN_BLOCK_STOP = 4; // 遇到障碍物暂停运行
+    }
+    RunState run_state = 15; // 车辆运行状态
+    
+    enum LoadState {
+        LOAD_NONE = 0;
+        LOAD_FREE = 1; // 负载空
+        LOAD_FULL = 2; // 负载满
+    }
+    LoadState load_state = 16;
+
+    enum GnssMsgState {
+        GNSS_MSG_INVALID = 0; // 无效
+        GNSS_MSG_SINGLE = 1; // 单点定位
+        GNSS_MSG_DIFF = 4; // 差分定位，有效
+        GNSS_MSG_FLOAT = 5; // 浮点定位
+    }
+    GnssMsgState gnss_msg_state = 18;
+    Pose gnss_pose = 19;
+    uint32 satellite_num = 20;
+
+    uint32 speed_level = 31;
+    uint32 fault_code = 32; // 返回系统当前故障码 正常为0
+    uint32 total_mileage = 33; // 系统开机后总体里程，单位：m
+    UiState uiState = 34;
+}
+
+message HardwareState {
+    uint32 req_seq = 1;
+
+    // 基本硬件状态
+    uint32 cpu_usage = 2; // cpu使用百分比，单位%
+    uint32 memory_usage = 3; // 内存使用百分比，单位%
+    uint32 disk_usage = 4; // 磁盘使用百分比，单位%
+    uint32 remain_disk_space = 5; // 磁盘剩余空间，单位MB
+
+    // 电池状态
+    enum BatteryState {
+        BATTERY_NA = 0; // 状态不可用
+        BATTERY_CHARGING = 1; // 正在充电
+        BATTERY_NO_CHARGING = 2; // 未充电
+    }
+    BatteryState battery_state = 9; // 电池状态
+    uint32 battery_percentage = 10; // 剩余电量，单位%
+    uint32 battery_voltage = 11; // 电池当前电压，单位mV
+    int32 battery_current = 12; // 电池当前电流，单位mA
+    int32 battery_tempreature = 13; // 电池温度，单位℃
+    uint32 battery_remain_time = 14; // 电池预计剩余工作时间，单位min
+
+    // 雷达状态
+    enum LaserState {
+        LASER_NA = 0; // 状态不可用
+        LASER_INITING = 1; // 雷达正在初始化中
+        LASER_OK = 2; // 雷达正常
+        LASER_ERROR = 3; // 雷达出错
+    }
+    LaserState laser_state = 16;
+    
+    // WiFi状态
+    enum WiFiState {
+        WIFI_NA = 0; // 状态不可用
+        WIFI_DISCONNECTED = 1;
+        WIFI_CONNECTED = 2;
+        WIFI_SCANNING = 3;
+    }
+    WiFiState wifi_state = 17; // WiFi状态
+    string wifi_name = 18; // 连接的wifi名称
+    uint32 wifi_strength = 19; // 信号强度，单位%
+    
+    // 抱匝开关状态
+    enum BreakSwitchState {
+        BREAK_SW_NA = 0;
+        BREAK_SW_OFF = 1;
+        BREAK_SW_ON = 2;
+    }
+    BreakSwitchState break_sw_state = 20;
+
+    // 顶升机构当前状态
+    enum JackingState {
+        JACK_NA = 0; // 状态不可用
+        JACK_UP = 1;
+        JACK_DOWN = 2;
+        JACK_MOVING_UP = 3;
+        JACK_MOVING_DOWN = 4;
+    }
+    JackingState jacking_state = 21;
+
+    // GNSS设备连接状态
+    enum GnssState {
+        GNSS_NA = 0;
+        GNSS_DISCONNECTED = 1;
+        GNSS_CONNECTED = 2;
+    }
+    GnssState gnss_state = 22;
+
+    // 其他传感器状态
+    int32 cpu_temperature = 30; // cpu当前的温度，单位℃
+    int32 box_temprature = 31; // 机体内部温度，单位℃
+    uint64 general_io_input = 32; // 输入端点
+    uint64 general_io_output = 33; // 输出端点
+    
+    SRCHardwareState src_hardware_state = 34;
+    enum HState {
+        H_STATE_ZERO = 0;
+        H_STATE_INITIALING = 1;
+        H_STATE_OK = 2;
+        H_STATE_ERROR = 3;
+    }
+    HState hardware_state = 36;
+    uint32 hardware_error_code = 37;
+    
+    int32 co_info = 40; // CO(一氧化碳)浓度值
+    int32 gas_info = 41; // CH4(甲烷)浓度值
+}
+
+message SRCHardwareState {
+    uint32 m1_status_code = 1; // 电机状态
+    uint32 m2_status_code = 2;
+    uint32 m3_status_code = 3;
+    uint32 m4_status_code = 4;
+    uint32 total_power_cycle = 5; // 上电次数
+    uint32 total_poweron_time = 6; // 总开机时间，单位s
+    uint32 total_mileage = 7; // 总运动里
+}
+
+message LaserPoints {
+    uint32 req_seq = 1;
+    repeated int32 xs = 2 [packed = true];
+    repeated int32 ys = 3 [packed = true];
+    repeated int32 zs = 4 [packed = true];
+}
+
+message MapHeader {
+    double stamp = 1; // seconds;
+    string frame_id = 2;
+}
+
+message MapMetaData {
+    double map_load_time = 2;
+    float resolution = 3;
+    uint32 width = 4;
+    uint32 height = 5;
+    Pose origin = 6;
+}
+
+message OccupancyGridMap {
+    MapHeader header = 1;
+    MapMetaData info = 2;
+    uint32 compressed_char_len = 3;
+    repeated uint32 data = 4;
+}
+
+message CloudMap {
+    uint32 req_seq = 1;
+    uint32 cloud_size = 2;
+    uint32 org_char_len = 3;
+    uint32 compressed_char_len = 4;
+    repeated uint32 data = 5;
+}
+
+message Result {
+    enum ResultState {
+        RESPONSE_NONE = 0;
+        RESPONSE_PROCESSING = 1; // 处理中
+        RESPONSE_OK = 2; // 成功
+        RESPONSE_FAILED = 3; // 失败
+    }
+    ResultState result_state = 1;
+
+    enum ResultCode {
+        RESULT_CODE_NONE = 0;
+        RESULT_UNDEFINED = 1; // 无效命令
+        RESULT_INVALID_CMD_PARAM = 2; // 参数错误
+        RESULT_USER_OR_PASSWROD_INVALID = 3; // 用户名或密码错误
+
+        RESULT_SYSTEM_STATE_ERROR = 4;
+        RESULT_OPERATION_MODE_ERROR = 5;
+        RESULT_LOAD_MAP_FILE_ERROR = 6;
+        RESULT_PRE_TASK_RUNNING = 7; // 前一个任务还在运行
+        RESULT_NAV_NO_WAY = 8; // 无法抵达目标位置
+        RESULT_NAV_NO_STATION = 9; // 无法检测到目标站点
+        RESULT_NAV_PATH_PLAN_ERROR = 10; // 路径搜索出错
+        RESULT_NAV_PLAN_STEP_ERROR = 11; // 导航路径生成执行步骤出错
+        RESULT_NAV_MOTION_CONTROL_ERROR = 12; // 导航过程中运控出错：如偏离路径
+    }
+    ResultCode result_code = 2;
+}
+
+message UiState {
+    enum ParentState {
+        PARENT_STATE_NONE = 0;
+        PARENT_STATE_RUNNABLE = 1;
+        PARENT_STATE_MAPPING = 2;
+        PARENT_STATE_LOCALIZATION = 3;
+        PARENT_STATE_HW_FAULT = 4;
+    }
+    ParentState parent_state = 1;
+
+    enum ChildState {
+        CHILD_STATE_NONE = 0;
+        CHILD_STATE_MANUAL = 1;
+        CHILD_STATE_AUTO = 2;
+    }
+    ChildState child_state = 2;
+}

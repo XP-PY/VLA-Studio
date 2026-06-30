@@ -8,6 +8,11 @@ This script reads one LeRobot training batch and prints:
 
 It does not instantiate the full SmolVLA VLM by default, so it is safe for shape inspection
 without downloading model weights.
+
+Usage example:
+python examples/inspect_smolvla_forward_shapes.py \
+    --batch-size 2 \
+    2>&1 | tee /home/ubuntu/py/vla_studio/examples/inspect_smolvla_forward_shapes.log
 """
 
 from __future__ import annotations
@@ -291,7 +296,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--vlm-model-name",
-        default=None,
+        default=WORKSPACE / "models" / "SmolVLM2-500M-Video-Instruct",
         help=(
             "Optional tokenizer/VLM path or repo id. Use this to point at a local "
             "HuggingFaceTB/SmolVLM2-500M-Video-Instruct snapshot if available."

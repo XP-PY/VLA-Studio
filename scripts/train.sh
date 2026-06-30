@@ -2,7 +2,7 @@ export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
 export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
 
 DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
+TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
@@ -13,9 +13,9 @@ lerobot-train \
     --policy.chunk_size 100 \
     --policy.n_action_steps 1 \
     --batch_size 32 \
-    --steps 20000 \
+    --steps 40000 \
     --eval_freq 0 \
-    --save_freq 5000 \
+    --save_freq 10000 \
     --log_freq 100 \
     --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
     --wandb.enable true \

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vla-chassis-sdk"
+version = "0.1.0"
+description = "Python SDK for Picasso PLNS chassis communication"
+requires-python = ">=3.9"
+dependencies = [
+    "protobuf>=3.9,<5",
+    "paramiko>=3",
+
+]
+
+[project.optional-dependencies]
+ui = ["PyQt5>=5.15", "qasync>=0.27"]
+grpcio = ["grpcio-tools>=1.62,<1.63"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chassis_sdk*"]
+
+[tool.setuptools.package-data]
+"chassis_sdk.proto" = ["main.proto"]

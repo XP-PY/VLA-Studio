@@ -129,24 +129,8 @@ I used the same training hyperparameters as in [Training Log 1](#training-log-1)
 
 #### Evaluation
 
-- Success rate: TBD / TBD
-
-- Failure statistics:
-
-| Failure situation | Times | Notes |
-| :--- | ---: | :--- |
-| Gripper fails to align with the screwdriver | 0 |  |
-| Gripper aligns but does not close enough | 0 |  |
-| Gripper direction is wrong | 0 |  |
-| Grasp point is too far from the screwdriver | 0 |  |
-| Robot grasps the screwdriver but drops it before reaching the box | 0 |  |
-| Robot picks up the screwdriver but misses the box | 0 |  |
-| Repeated initial motion, weak response to visual input | 0 |  |
-| Motion is too slow or laggy | 0 |  |
-| Rollout stops or robot reports an error | 0 |  |
-| Other | 0 |  |
-
 - Success rate: 0 / 20
+
 - Experimental phenomena:
 
   1. Regardless of the screwdriver's position or orientation, the robotic arm performs a similar movement every time it starts: the sixth axis rotates clockwise and the gripper opens.
@@ -293,3 +277,62 @@ In this evaluation, `canfd_follow` was enabled.
 - The experimental results show that although the grasping success rate is still not high, the robot's behavior has improved significantly. The grasp point is almost never far away from the screwdriver. In most trials, the gripper moves directly toward the screwdriver. Even in the 7 alignment failures recorded in [Evaluation 1](#evaluation-1), the gripper is usually close to the screwdriver. For example, the model sometimes tries to grasp the very end of the screwdriver.
 - The main failure cases are insufficient gripper closure and insufficient downward motion before closing. After enabling `canfd_follow`, the insufficient-downward-motion failure disappears, and the overall success rate increases.
 - The insufficient gripper closure problem may come from the dataset. During recording, I usually grasped the wider part of the screwdriver. When the robot aligns with a thinner part, the gripper may not close enough because the model has not learned enough examples of this situation. Therefore, the next step is to record another 100 episodes focused on grasping the thinner parts of the screwdriver. More data may also help reduce the other failure cases.
+
+---
+
+### Training Log 5
+
+#### Dataset Recording
+
+In this experiment, I added 100 more episodes based on [Training Log 4](#training-log-4), bringing the dataset to 200 episodes in total. The recording method was the same as in Log 4: I kept the data distribution as balanced as possible across workspace areas and screwdriver orientations. The main difference is that, in the new 100 episodes, I intentionally focused on grasping the thinner parts of the screwdriver.
+
+#### Training script
+
+I trained ACT with `chunk_size=100`, `batch_size=32`, and 40,000 training steps:
+```bash
+export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
+export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+
+DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 100 \
+    --policy.n_action_steps 1 \
+    --batch_size 32 \
+    --steps 40000 \
+    --eval_freq 0 \
+    --save_freq 10000 \
+    --log_freq 100 \
+    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project rm65_lerobot \
+    --job_name $TRAINING_ID \
+    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+```
+
+#### Evaluation
+
+In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
+
+- Success rate: 16 / 25
+
+- Failure statistics:
+
+| Failure situation | Times | Notes |
+| :--- | ---: | :--- |
+| Gripper fails to align with the screwdriver | 1 |  |
+| Gripper aligns but does not close enough | 8 |  |
+
+#### Thinking
+
+- The result improves clearly compared with [Training Log 4](#training-log-4). The success rate increased from 7 / 20 in Log 4 Evaluation 2 to 16 / 25 in this evaluation. This suggests that the additional 100 episodes and the more targeted thin-part grasping demonstrations helped the policy learn a better grasping strategy.
+- The failure distribution also changed in a useful way. There was only 1 alignment failure, which means the policy can now usually move the gripper to the correct area around the screwdriver. This is a strong sign that the closer front camera view, balanced spatial distribution, and larger dataset are helping the visual-action mapping.
+- The main remaining bottleneck is still gripper closure. There were 8 failures where the gripper aligned with the screwdriver but did not close enough. Since the robot often reaches the screwdriver correctly, this failure is less about visual localization and more likely related to the gripper action labels, gripper command range, or insufficient examples of successful tight closure on thin grasp points.
+- The next step should focus on diagnosing the gripper action rather than changing ACT hyperparameters first. A useful check is to compare the predicted `gripper.pos` during failed rollouts with the `gripper.pos` values in successful thin-part demonstrations. If the predicted value is not closed enough, the dataset or action normalization may still bias the policy toward weaker closure. If the predicted value is closed enough but the real gripper does not close sufficiently, the issue is more likely in gripper command execution or gripper calibration.
+- Overall, this is the best result so far. The task is no longer failing mainly because the robot cannot find the screwdriver. It is now mostly failing at the final grasp quality stage, which is a narrower and more actionable problem.

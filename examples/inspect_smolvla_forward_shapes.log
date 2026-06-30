@@ -1,0 +1,66 @@
+
+====================================================================================================
+Dataset / Policy
+====================================================================================================
+dataset.root=/home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+dataset.num_episodes=200
+dataset.num_frames=37214
+dataset.camera_keys=['observation.images.wrist', 'observation.images.front']
+dataset.fps=30
+policy.image_features=['observation.images.wrist', 'observation.images.front']
+policy.robot_state_feature=PolicyFeature(type=<FeatureType.STATE: 'STATE'>, shape=(7,))
+policy.action_feature=PolicyFeature(type=<FeatureType.ACTION: 'ACTION'>, shape=(7,))
+policy.vlm_model_name=models/SmolVLM2-500M-Video-Instruct
+
+====================================================================================================
+Batch Passed To SmolVLAPolicy.forward(batch)
+====================================================================================================
+action: shape=(2, 50, 7) dtype=torch.float32 device=cpu
+action_is_pad: shape=(2, 50) dtype=torch.bool device=cpu
+episode_index: shape=(2,) dtype=torch.int64 device=cpu
+index: shape=(2,) dtype=torch.int64 device=cpu
+info: dict value={}
+next.done: bool value=False
+next.reward: float value=0.0
+next.truncated: bool value=False
+observation.images.front: shape=(2, 3, 480, 640) dtype=torch.float32 device=cpu
+observation.images.front_is_pad: shape=(2, 1) dtype=torch.bool device=cpu
+observation.images.wrist: shape=(2, 3, 480, 640) dtype=torch.float32 device=cpu
+observation.images.wrist_is_pad: shape=(2, 1) dtype=torch.bool device=cpu
+observation.language.attention_mask: shape=(2, 48) dtype=torch.bool device=cpu
+observation.language.tokens: shape=(2, 48) dtype=torch.int64 device=cpu
+observation.state: shape=(2, 1, 7) dtype=torch.float32 device=cpu
+observation.state_is_pad: shape=(2, 1) dtype=torch.bool device=cpu
+task: list value=['pick screwdriver and put it in box\n', 'pick screwdriver and put it in box\n']
+task_index: shape=(2,) dtype=torch.int64 device=cpu
+timestamp: shape=(2,) dtype=torch.float32 device=cpu
+
+====================================================================================================
+Inside SmolVLAPolicy.forward
+====================================================================================================
+original state_dim=7
+original action_dim=7
+max_state_dim=32
+max_action_dim=32
+chunk_size=50
+images[observation.images.wrist]: shape=(2, 3, 512, 512) dtype=torch.float32 device=cpu
+images[observation.images.front]: shape=(2, 3, 512, 512) dtype=torch.float32 device=cpu
+img_masks[observation.images.wrist_mask]: shape=(2,) dtype=torch.bool device=cpu
+img_masks[observation.images.front_mask]: shape=(2,) dtype=torch.bool device=cpu
+lang_tokens: shape=(2, 48) dtype=torch.int64 device=cpu
+lang_masks: shape=(2, 48) dtype=torch.bool device=cpu
+state after prepare_state: shape=(2, 32) dtype=torch.float32 device=cpu
+actions after prepare_action: shape=(2, 50, 32) dtype=torch.float32 device=cpu
+action_is_pad: shape=(2, 50) dtype=torch.bool device=cpu
+
+====================================================================================================
+VLAFlowMatching.forward Receives
+====================================================================================================
+images: list[Tensor], one per camera, each (B, 3, 512, 512) after default resize
+img_masks: list[Tensor], one per camera, each (B,)
+lang_tokens: shape=(2, 48) dtype=torch.int64 device=cpu
+lang_masks: shape=(2, 48) dtype=torch.bool device=cpu
+state: shape=(2, 32) dtype=torch.float32 device=cpu
+actions: shape=(2, 50, 32) dtype=torch.float32 device=cpu
+noise: None by default, otherwise same shape as actions
+time: None by default, otherwise shape=(B,)

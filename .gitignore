@@ -7,3 +7,4 @@ runs
 models
 repos/*
 !repos/lerobot/
+!repos/chassis_sdk/
