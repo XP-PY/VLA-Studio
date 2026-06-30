@@ -26,8 +26,8 @@ from typing import Any
 
 import torch
 
-
-WORKSPACE = Path("/home/ubuntu/py/vla_studio")
+CURRENT_FILE = Path(__file__).resolve()
+WORKSPACE = CURRENT_FILE.parent.parent
 LEROBOT_SRC = WORKSPACE / "repos" / "lerobot" / "src"
 if LEROBOT_SRC.exists() and str(LEROBOT_SRC) not in sys.path:
     sys.path.insert(0, str(LEROBOT_SRC))

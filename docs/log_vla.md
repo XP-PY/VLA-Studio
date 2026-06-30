@@ -45,11 +45,10 @@ Then I recorded a 50-episode dataset with the white box fixed in place:
 TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
 TASK_PROMPT="pick screwdriver and put it in box"
 
-cd /home/ubuntu/py/vla_studio/repos/lerobot
-python examples/rm65/passive_record.py \
+python repos/lerobot/examples/rm65/passive_record.py \
     --config-path configs/rm65_realsense.yaml \
     --repo-id local/$TASK_NAME \
-    --root /home/ubuntu/py/vla_studio/runs/dataset/$TASK_NAME \
+    --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
     --fps 30 \
     --episode-time-s 30 \
@@ -59,7 +58,7 @@ python examples/rm65/passive_record.py \
     --record-button-mode toggle \
     --io-read-source aloha \
     --aloha-target-ip 192.168.1.100 \
-    --log-path /home/ubuntu/py/vla_studio/logs/record_$TASK_NAME.log
+    --log-path ./logs/record_$TASK_NAME.log
 ```
 
 #### Training script
@@ -72,7 +71,7 @@ TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_50_steps
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
-    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
     --policy.type act \
     --policy.device cuda \
     --policy.push_to_hub false \
@@ -83,11 +82,11 @@ lerobot-train \
     --eval_freq 0 \
     --save_freq 5000 \
     --log_freq 100 \
-    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
     --wandb.project rm65_lerobot \
     --job_name $TRAINING_ID \
-    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
 
 #### Evaluation
@@ -192,11 +191,10 @@ Corresponding recording script:
 TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TASK_PROMPT="pick screwdriver and put it in box"
 
-cd /home/ubuntu/py/vla_studio/repos/lerobot
-python examples/rm65/passive_record.py \
+python repos/lerobot/examples/rm65/passive_record.py \
     --config-path configs/rm65_realsense.yaml \
     --repo-id local/$TASK_NAME \
-    --root /home/ubuntu/py/vla_studio/runs/dataset/$TASK_NAME \
+    --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
     --fps 30 \
     --episode-time-s 30 \
@@ -206,22 +204,22 @@ python examples/rm65/passive_record.py \
     --record-button-mode toggle \
     --io-read-source aloha \
     --aloha-target-ip 192.168.1.100 \
-    --log-path /home/ubuntu/py/vla_studio/logs/record_$TASK_NAME.log
+    --log-path ./logs/record_$TASK_NAME.log
 ```
 
 #### Training script
 
 I trained ACT with `chunk_size=100`, `batch_size=32`, and 20,000 training steps:
 ```bash
-export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
-export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
 
 DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
-    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
     --policy.type act \
     --policy.device cuda \
     --policy.push_to_hub false \
@@ -232,11 +230,11 @@ lerobot-train \
     --eval_freq 0 \
     --save_freq 5000 \
     --log_freq 100 \
-    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
     --wandb.project rm65_lerobot \
     --job_name $TRAINING_ID \
-    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
 
 #### Evaluation
@@ -288,15 +286,15 @@ In this experiment, I added 100 more episodes based on [Training Log 4](#trainin
 
 I trained ACT with `chunk_size=100`, `batch_size=32`, and 40,000 training steps:
 ```bash
-export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
-export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
 
 DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
-    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
     --policy.type act \
     --policy.device cuda \
     --policy.push_to_hub false \
@@ -307,11 +305,11 @@ lerobot-train \
     --eval_freq 0 \
     --save_freq 10000 \
     --log_freq 100 \
-    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
     --wandb.project rm65_lerobot \
     --job_name $TRAINING_ID \
-    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
 
 #### Evaluation
@@ -369,15 +367,15 @@ In this experiment, I added 50 more episodes based on [Training Log 5](#training
 
 I trained ACT with `chunk_size=50`, `batch_size=32`, and 40,000 training steps:
 ```bash
-export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
-export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
 
 DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
 
 lerobot-train \
     --dataset.repo_id $DATASET_ID \
-    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
     --policy.type act \
     --policy.device cuda \
     --policy.push_to_hub false \
@@ -388,9 +386,9 @@ lerobot-train \
     --eval_freq 0 \
     --save_freq 10000 \
     --log_freq 100 \
-    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
     --wandb.project rm65_lerobot \
     --job_name $TRAINING_ID \
-    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```

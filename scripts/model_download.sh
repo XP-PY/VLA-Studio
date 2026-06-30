@@ -3,7 +3,7 @@ set -euo pipefail
 
 # export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
-export HF_HOME="${HF_HOME:-/home/ubuntu/py/vla_studio/.cache/huggingface}"
+export HF_HOME="${HF_HOME:-./.cache/huggingface}"
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 usage() {
@@ -13,12 +13,12 @@ Usage:
 
 Examples:
   scripts/model_download.sh lerobot/act_aloha_sim_transfer_cube_human
-  scripts/model_download.sh microsoft/resnet-50 /home/ubuntu/py/vla_studio/models/resnet-50
+  scripts/model_download.sh microsoft/resnet-50 ./models/resnet-50
   scripts/model_download.sh openai/clip-vit-base-patch32 ./models/clip --include "*.json" --include "*.safetensors"
 
 Environment:
   HF_ENDPOINT defaults to https://hf-mirror.com
-  HF_HOME defaults to /home/ubuntu/py/vla_studio/.cache/huggingface
+  HF_HOME defaults to ./.cache/huggingface
   HF_HUB_DISABLE_XET defaults to 1, which helps with mirrors that cannot serve Xet blobs.
 EOF
 }
@@ -31,7 +31,7 @@ fi
 REPO_ID="$1"
 shift
 
-OUTPUT_DIR="${1:-/home/ubuntu/py/vla_studio/models/${REPO_ID##*/}}"
+OUTPUT_DIR="${1:-./models/${REPO_ID##*/}}"
 if [[ $# -gt 0 && "${1:0:2}" != "--" ]]; then
     shift
 fi
