@@ -171,12 +171,10 @@ I trained three models on the 100-episode dataset:
     4. Across all three models, and also in the previous training logs, the model often predicts joint angles that exceed the configured `max_relative_target` value. In an earlier rollout test, `max_relative_target=1000.0` had not been applied to the actual config used by `lerobot-rollout`. After setting `max_relative_target=1000.0` in the correct rollout config, another experiment was run based on Model 2. The success rate became 6 / 20. The behavior became similar to Model 3, but in most situations the gripper could align with the screwdriver. The remaining failures mainly came from insufficient gripper closure or an incorrect gripper direction. This suggests that `max_relative_target` can strongly affect rollout behavior. When the limit is too small, the executed action may be clipped away from the model's intended prediction.
 
 - Thinking:
-    1. Increasing the dataset from 50 to 100 episodes did not clearly improve the success rate. This suggests that the problem may not be only the number of episodes. The quality and coverage of the data distribution are likely more important. The policy still needs enough examples for each important screwdriver pose, orientation, approach direction, and grasp point.
-    2. The balanced 100-episode dataset seems to reduce the repeated-start-motion failure mode. This suggests that the earlier dataset may have contained a biased initial action distribution, causing the model to learn an average initial movement instead of responding strongly to visual input.
-    3. The gripper closure problem may be a separate issue from visual alignment. Even when the model aligns with the screwdriver, the predicted gripper position may not close enough for thinner parts of the screwdriver. This may require checking the gripper action labels in the dataset, verifying the gripper position range, or intentionally collecting more demonstrations that grasp thinner parts of the screwdriver.
-    4. The `max_relative_target` setting appears important during rollout. If it is too small, the executed action may be clipped away from the model's intended prediction, causing slow or inaccurate movement. After correctly setting it to `1000.0`, alignment improved, which suggests that action clipping was limiting the policy. However, setting it too large may also be risky because it allows large joint jumps. A better next step is to log both the raw predicted action and the clipped sent action during rollout, then choose a reasonable limit based on the real action differences in successful demonstrations.
-    5. A closer front camera view may help if the current image does not provide enough detail about the screwdriver and gripper alignment. However, the camera should still preserve enough context to see the box and the approach path. A useful next experiment is to compare a closer front camera view with the current wrist camera, rather than relying on only one view.
-    6. The next experiments should focus on diagnosis rather than only changing ACT hyperparameters: inspect action distributions, visualize predicted versus executed actions, check gripper labels, and evaluate failures by category, such as alignment failure, insufficient gripper closure, wrong grasp point, and poor recovery after missed grasp.
+    1. Increasing the dataset from 50 to 100 episodes did not clearly improve success rate, so data quality and coverage may be more important than episode count alone.
+    2. The balanced dataset reduced the repeated-start-motion failure mode, suggesting that the earlier dataset had a biased initial action distribution.
+    3. Gripper closure appears to be a separate problem from visual alignment. The model may need better gripper labels or more demonstrations that grasp thinner parts of the screwdriver.
+    4. `max_relative_target` strongly affects rollout. If it is too small, actions are clipped and movement becomes slow or inaccurate. A useful next step is to log both raw predicted actions and clipped sent actions.
 
 ---
 
@@ -318,6 +316,8 @@ lerobot-train \
 
 #### Evaluation
 
+##### Evaluation 1
+
 In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
 
 - Success rate: 16 / 25
@@ -329,10 +329,68 @@ In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
 | Gripper fails to align with the screwdriver | 1 |  |
 | Gripper aligns but does not close enough | 8 |  |
 
-#### Thinking
+- Thinking
 
-- The result improves clearly compared with [Training Log 4](#training-log-4). The success rate increased from 7 / 20 in Log 4 Evaluation 2 to 16 / 25 in this evaluation. This suggests that the additional 100 episodes and the more targeted thin-part grasping demonstrations helped the policy learn a better grasping strategy.
-- The failure distribution also changed in a useful way. There was only 1 alignment failure, which means the policy can now usually move the gripper to the correct area around the screwdriver. This is a strong sign that the closer front camera view, balanced spatial distribution, and larger dataset are helping the visual-action mapping.
-- The main remaining bottleneck is still gripper closure. There were 8 failures where the gripper aligned with the screwdriver but did not close enough. Since the robot often reaches the screwdriver correctly, this failure is less about visual localization and more likely related to the gripper action labels, gripper command range, or insufficient examples of successful tight closure on thin grasp points.
-- The next step should focus on diagnosing the gripper action rather than changing ACT hyperparameters first. A useful check is to compare the predicted `gripper.pos` during failed rollouts with the `gripper.pos` values in successful thin-part demonstrations. If the predicted value is not closed enough, the dataset or action normalization may still bias the policy toward weaker closure. If the predicted value is closed enough but the real gripper does not close sufficiently, the issue is more likely in gripper command execution or gripper calibration.
-- Overall, this is the best result so far. The task is no longer failing mainly because the robot cannot find the screwdriver. It is now mostly failing at the final grasp quality stage, which is a narrower and more actionable problem.
+  1. The result improves clearly compared with [Training Log 4](#training-log-4): the success rate increased from 7 / 20 to 16 / 25. The extra 100 episodes, especially the thin-part grasping demonstrations, were useful.
+  2. There was only 1 alignment failure, which suggests that the policy can usually localize the screwdriver and move the gripper to the correct area.
+  3. The main remaining problem is gripper closure. Most failures happen after the gripper has already aligned with the screwdriver but does not close enough. I print out predicted angles when rollout, the gripper does reach the right thin-grasp value, but problem looks more like timing: the arm is still moving while the gripper is closing. From the log, when gripper changes from open to closed: `380 -> 357 -> 329 -> 286 -> 223 -> 176 -> 139 -> 125 -> 116 -> 114`, the joint angles are also changing continuously. That means the model is closing the gripper during a moving transition, not during a stable “stop and grasp” phase.
+  4. I think there are two methods to improve problems mentioned at point 3:
+      - First, we can add more episods which pause when grasp the screwdriver most tinner part to let policy know it shoule slow or even pause when grasp.
+      - Second, our recording dataset is under 30 fps, chuck size is 30 when training which means policy predicts about 3.3 future seconds, and target fps is 20 when rollout which means policy predicts about 5.0 future seconds, considering that calculations may fluctuate, the average actual fps is less than 20. But a episode of grasp and put is about 5-7 seconds which means policy predicts almost whole process of grasp and put each time when rollout. Under temporal ensemble method, it means about 5 seconds ago prediction will influenct present behavior. If 5 seconds ago, policy though robotic arm could grasp screwdriver successfully but actually not, this may cause the situation mentioned in point 3.
+
+##### Evaluation 2
+
+In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
+But I cut the policy predicted chunck size to 50 even though this policy is trained under 100 chunck size setting to quickly test whether too much chunck size obstacles performance.
+
+- Success rate: 13 / 25
+
+- Failure statistics:
+
+| Failure situation | Times | Notes |
+| :--- | ---: | :--- |
+| Gripper fails to align with the screwdriver | 1 |  |
+| Gripper aligns but does not close enough | 10 |  |
+| Drops the screwdriver during transport | 1 |  |
+
+- Thinking
+  1. Even though success rate is lower than `Evaluation 1`, we can see two positive phenomenons:
+      - The robotic arm will pause briefly when preparing to grasp.
+      - When a grasp fails, the policy can react quickly and attempt to grasp again. Although the success rate of retrying to grasp is very low (only succeeding once in this evalution).
+  2. These phenomenons may hints setting smaller chunck size is right and what obstacles performence is this policy is trained with setting chunck size 100.
+
+### Training Log 6
+
+#### Dataset Recording
+
+In this experiment, I added 50 more episodes based on [Training Log 5](#training-log-5), bringing the dataset to 250 episodes in total. The new 50 episodes is all that pause when grasp the screwdriver most tinner part.
+
+#### Training script
+
+I trained ACT with `chunk_size=50`, `batch_size=32`, and 40,000 training steps:
+```bash
+export HF_HOME=/home/ubuntu/py/vla_studio/.cache/huggingface
+export HF_LEROBOT_HOME=/home/ubuntu/py/vla_studio/.cache/lerobot
+
+DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root /home/ubuntu/py/vla_studio/runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 50 \
+    --policy.n_action_steps 1 \
+    --batch_size 32 \
+    --steps 40000 \
+    --eval_freq 0 \
+    --save_freq 10000 \
+    --log_freq 100 \
+    --output_dir /home/ubuntu/py/vla_studio/runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project rm65_lerobot \
+    --job_name $TRAINING_ID \
+    2>&1 | tee /home/ubuntu/py/vla_studio/logs/train_$TRAINING_ID.log
+```

@@ -65,7 +65,8 @@ class ACTPolicy(PreTrainedPolicy):
         self.model = ACT(config)
 
         if config.temporal_ensemble_coeff is not None:
-            self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
+            self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, 50)
+            # self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
 
         self.reset()
 
@@ -108,7 +109,7 @@ class ACTPolicy(PreTrainedPolicy):
         self.eval()  # keeping the policy in eval mode as it could be set to train mode while queue is consumed
 
         if self.config.temporal_ensemble_coeff is not None:
-            actions = self.predict_action_chunk(batch)
+            actions = self.predict_action_chunk(batch)[:, :50]
             action = self.temporal_ensembler.update(actions)
             return action
 

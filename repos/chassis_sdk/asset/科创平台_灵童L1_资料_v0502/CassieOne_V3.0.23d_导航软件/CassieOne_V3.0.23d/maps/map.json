@@ -1,0 +1,90 @@
+{
+    "edge": [
+        {
+            "cost": 2893,
+            "cx": 0,
+            "cy": 0,
+            "direction": 1,
+            "dx": 0,
+            "dy": 0,
+            "e_facing": 5453,
+            "e_node": 2,
+            "ex": 1371,
+            "ey": -321,
+            "id": 1,
+            "limit_acc": 299,
+            "limit_dec": 299,
+            "limit_v": 1000,
+            "limit_w": 500,
+            "obst_stop": 1500,
+            "s_facing": 5453,
+            "s_node": 1,
+            "sx": -580,
+            "sy": 1814,
+            "type": 1
+        },
+        {
+            "cost": 2893,
+            "cx": 0,
+            "cy": 0,
+            "direction": 1,
+            "dx": 0,
+            "dy": 0,
+            "e_facing": 2311,
+            "e_node": 1,
+            "ex": -580,
+            "ey": 1814,
+            "id": 2,
+            "limit_acc": 299,
+            "limit_dec": 299,
+            "limit_v": 1000,
+            "limit_w": 500,
+            "obst_stop": 1500,
+            "s_facing": 2311,
+            "s_node": 2,
+            "sx": 1371,
+            "sy": -321,
+            "type": 1
+        }
+    ],
+    "node": [
+        {
+            "id": 1,
+            "x": -580,
+            "y": 1814,
+            "yaw": 0
+        },
+        {
+            "id": 2,
+            "x": 1371,
+            "y": -321,
+            "yaw": 0
+        }
+    ],
+    "station": [
+        {
+            "direction": 0,
+            "id": 1,
+            "is_rotate": false,
+            "name": "站点1",
+            "node_id": 1,
+            "obst_stop": 1000,
+            "type": 1,
+            "x": -580,
+            "y": 1814,
+            "yaw": 0
+        },
+        {
+            "direction": 0,
+            "id": 2,
+            "is_rotate": false,
+            "name": "站点2",
+            "node_id": 2,
+            "obst_stop": 1000,
+            "type": 1,
+            "x": 1371,
+            "y": -321,
+            "yaw": 0
+        }
+    ]
+}

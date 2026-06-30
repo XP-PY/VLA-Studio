@@ -1,0 +1,53 @@
+# -----------------------------------------------------------------------
+# This yaml contains all args for Picasso PLNS, which can be fixed by UI.
+# It is very important and must be modified carefully!!!
+# All Rights Reserved. Copyright 2024 © PICASSO Technology Co., Ltd.
+# Created by chaosir
+# -----------------------------------------------------------------------
+# All Measuring Unit is "m", "m/s", "rad/s"
+# !!!@@@
+# Version_No : "PICASSO_V2.2.1_20240509A_release_PLNS_PX100"
+
+# Chassis
+agv_base_type               : 1         # 1: diff; 2: maclan; 3: rudder; 4: rudder_fw;
+agv_lidar_type              : 0         # 0: 2d; 1: rslidar; 2: velodyne; 3: vanjee; 4: old-rs;
+agv_base_width              : 0.510     # AGV base width
+agv_base_length             : 0.555     # AGV base length
+agv_wheelbase               : 0.455     # distance between right and left wheel
+agv_wheel_radius            : 0.125     # wheel radius
+agv_gear_ratio              : 25.0      # wheel gear ratio
+motor_max_rpm               : 3000.0    # motor max speed limit (r/min)
+enable_odom_log             : false     # set 'true' when odom calibrating
+
+# Control
+max_linear_speed            : 1.5       # v limit
+max_rotate_speed            : 0.9       # w limit
+lower_speed                 : 0.15      # slow down vel
+nav_acc_up                  : 0.2       # acc up max
+nav_acc_down                : 0.2       # acc down max
+
+pid_kp_y                    : 0.8       # y channel kp
+pid_ki_y                    : 0.2       # y channel ki
+pid_kp_yaw                  : 5.0       # yaw channel kp
+speed_plan_acc_x            : 0.15      # acc plan x
+speed_plan_acc_yaw          : 0.15      # acc plan yaw
+dist_off_route_4MC          : 0.5       # dist min for motion control
+dist_off_route_4PP          : 0.5       # dist min for path plan
+route_discrete_resolution   : 0.05      # route discrete for pure tracking
+
+route_curvity_vel_min       : 0.2       # route curvity limit vel min, m/s
+rotate_finish_delay_cnt     : 75        # rotate step finish delay cnt, 50Hz
+trace_finish_delay_cnt      : 45        # pure trace step finish delay cnt, 50Hz
+enable_feedforward          : false     # feedforward control set
+
+# -----------------------------------------------------------------------
+# Laser mount position
+laser_vector3               : [ 0.217, 0.00, 0.000 ]    # [ x y z ]
+laser_quaternion            : [ 0.0, 0.0, 0.0, 1.0 ]    # pavo2
+
+# Base crop box [ x_min  x_max  y_min  y_max ] remove carbody lidar
+base_crop_box               : [ -0.3, 0.3, -0.3, 0.3 ]
+
+# Laser avoid obstacles range and slow down distance
+# [ x_min  x_max  y_min  y_max  obst_slow_down_dis ]
+obstacle_rect               : [ 0.01, 0.5, -0.4, 0.4, 1.0 ]

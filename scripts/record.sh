@@ -9,7 +9,7 @@ python examples/rm65/passive_record.py \
     --task "$TASK_PROMPT" \
     --fps 30 \
     --episode-time-s 30 \
-    --num-episodes 78 \
+    --num-episodes 50 \
     --teleop-active-io 1 \
     --record-button-io 2 \
     --record-button-mode toggle \

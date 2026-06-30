@@ -1,0 +1,10 @@
+﻿2026-03-15 17:31:34.395 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-15 17:31:34.396 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-15 17:31:36.408 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-15 17:31:40.387 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-15 17:31:40.387 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-15 17:31:42.396 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-15 17:31:42.939 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-15 17:31:42.940 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-15 17:31:44.956 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-15 17:31:48.240 [INFO] 手动退出程序

@@ -1,0 +1,128 @@
+INFO 2026-06-30 17:36:23 ot_train.py:221 {'batch_size': 32,
+ 'checkpoint_path': None,
+ 'cudnn_deterministic': False,
+ 'dataset': {'episodes': None,
+             'image_transforms': {'enable': False,
+                                  'max_num_transforms': 3,
+                                  'random_order': False,
+                                  'tfs': {'affine': {'kwargs': {'degrees': [-5.0,
+                                                                            5.0],
+                                                                'translate': [0.05,
+                                                                              0.05]},
+                                                     'type': 'RandomAffine',
+                                                     'weight': 1.0},
+                                          'brightness': {'kwargs': {'brightness': [0.8,
+                                                                                   1.2]},
+                                                         'type': 'ColorJitter',
+                                                         'weight': 1.0},
+                                          'contrast': {'kwargs': {'contrast': [0.8,
+                                                                               1.2]},
+                                                       'type': 'ColorJitter',
+                                                       'weight': 1.0},
+                                          'hue': {'kwargs': {'hue': [-0.05,
+                                                                     0.05]},
+                                                  'type': 'ColorJitter',
+                                                  'weight': 1.0},
+                                          'saturation': {'kwargs': {'saturation': [0.5,
+                                                                                   1.5]},
+                                                         'type': 'ColorJitter',
+                                                         'weight': 1.0},
+                                          'sharpness': {'kwargs': {'sharpness': [0.5,
+                                                                                 1.5]},
+                                                        'type': 'SharpnessJitter',
+                                                        'weight': 1.0}}},
+             'repo_id': 'rm65_aloha_pick_screwdriver_to_fixed_box_closer_front',
+             'return_uint8': False,
+             'revision': None,
+             'root': '/home/ubuntu/py/vla_studio/runs/dataset/rm65_aloha_pick_screwdriver_to_fixed_box_closer_front',
+             'streaming': False,
+             'use_imagenet_stats': True,
+             'video_backend': 'torchcodec'},
+ 'env': None,
+ 'eval': {'batch_size': 16, 'n_episodes': 50, 'use_async_envs': True},
+ 'eval_freq': 0,
+ 'job_name': 'rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50',
+ 'log_freq': 100,
+ 'num_workers': 4,
+ 'optimizer': {'betas': [0.9, 0.999],
+               'eps': 1e-08,
+               'grad_clip_norm': 10.0,
+               'lr': 1e-05,
+               'type': 'adamw',
+               'weight_decay': 0.0001},
+ 'output_dir': '/home/ubuntu/py/vla_studio/runs/train/rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50',
+ 'peft': None,
+ 'persistent_workers': True,
+ 'policy': {'chunk_size': 50,
+            'device': 'cuda',
+            'dim_feedforward': 3200,
+            'dim_model': 512,
+            'dropout': 0.1,
+            'feedforward_activation': 'relu',
+            'input_features': {},
+            'kl_weight': 10.0,
+            'latent_dim': 32,
+            'license': None,
+            'n_action_steps': 1,
+            'n_decoder_layers': 1,
+            'n_encoder_layers': 4,
+            'n_heads': 8,
+            'n_obs_steps': 1,
+            'n_vae_encoder_layers': 4,
+            'normalization_mapping': {'ACTION': <NormalizationMode.MEAN_STD: 'MEAN_STD'>,
+                                      'STATE': <NormalizationMode.MEAN_STD: 'MEAN_STD'>,
+                                      'VISUAL': <NormalizationMode.MEAN_STD: 'MEAN_STD'>},
+            'optimizer_lr': 1e-05,
+            'optimizer_lr_backbone': 1e-05,
+            'optimizer_weight_decay': 0.0001,
+            'output_features': {},
+            'pre_norm': False,
+            'pretrained_backbone_weights': 'ResNet18_Weights.IMAGENET1K_V1',
+            'pretrained_path': None,
+            'pretrained_revision': None,
+            'private': None,
+            'push_to_hub': False,
+            'replace_final_stride_with_dilation': False,
+            'repo_id': None,
+            'tags': None,
+            'temporal_ensemble_coeff': None,
+            'type': 'act',
+            'use_amp': False,
+            'use_peft': False,
+            'use_vae': True,
+            'vision_backbone': 'resnet18'},
+ 'prefetch_factor': 4,
+ 'rename_map': {},
+ 'resume': False,
+ 'reward_model': None,
+ 'sample_weighting': None,
+ 'save_checkpoint': True,
+ 'save_freq': 10000,
+ 'scheduler': None,
+ 'seed': 1000,
+ 'steps': 40000,
+ 'tolerance_s': 0.0001,
+ 'use_policy_training_preset': True,
+ 'wandb': {'add_tags': True,
+           'disable_artifact': False,
+           'enable': True,
+           'entity': None,
+           'mode': None,
+           'notes': None,
+           'project': 'rm65_lerobot',
+           'run_id': None}}
+INFO 2026-06-30 17:36:40 db_utils.py:121 Logs will be synced with wandb.
+INFO 2026-06-30 17:36:40 db_utils.py:122 Track this run --> https://wandb.ai/xp_py-university/rm65_lerobot/runs/vv6xysgy
+INFO 2026-06-30 17:36:40 ot_train.py:247 Creating dataset
+INFO 2026-06-30 17:36:40 ot_train.py:281 Creating policy
+INFO 2026-06-30 17:36:41 ot_train.py:354 Creating optimizer and scheduler
+INFO 2026-06-30 17:36:41 ot_train.py:386 Output dir: /home/ubuntu/py/vla_studio/runs/train/rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+INFO 2026-06-30 17:36:41 ot_train.py:393 cfg.steps=40000 (40K)
+INFO 2026-06-30 17:36:41 ot_train.py:394 dataset.num_frames=48106 (48K)
+INFO 2026-06-30 17:36:41 ot_train.py:395 dataset.num_episodes=250
+INFO 2026-06-30 17:36:41 ot_train.py:398 Effective batch size: 32 x 1 = 32
+INFO 2026-06-30 17:36:41 ot_train.py:399 num_learnable_params=51573639 (52M)
+INFO 2026-06-30 17:36:41 ot_train.py:400 num_total_params=51573639 (52M)
+Training:   0%|          | 0/40000 [00:00<?, ?step/s]INFO 2026-06-30 17:36:41 ot_train.py:518 Start offline training on a fixed dataset, with effective batch size: 32
+Training:   0%|          | 1/40000 [00:03<39:22:52,  3.54s/step]Training:   0%|          | 2/40000 [00:03<18:35:22,  1.67s/step]Training:   0%|          | 3/40000 [00:04<11:56:19,  1.07s/step]Training:   0%|          | 4/40000 [00:04<8:48:51,  1.26step/s] Training:   0%|          | 5/40000 [00:04<7:05:15,  1.57step/s]Training:   0%|          | 6/40000 [00:05<6:02:45,  1.84step/s]Training:   0%|          | 7/40000 [00:05<5:23:03,  2.06step/s]Training:   0%|          | 8/40000 [00:06<4:57:13,  2.24step/s]Training:   0%|          | 9/40000 [00:06<4:40:18,  2.38step/s]Training:   0%|          | 10/40000 [00:06<4:28:40,  2.48step/s]Training:   0%|          | 11/40000 [00:07<4:20:40,  2.56step/s]Training:   0%|          | 12/40000 [00:07<4:15:05,  2.61step/s]Training:   0%|          | 13/40000 [00:07<4:11:15,  2.65step/s]Training:   0%|          | 14/40000 [00:08<4:08:38,  2.68step/s]Training:   0%|          | 15/40000 [00:08<4:06:47,  2.70step/s]Training:   0%|          | 16/40000 [00:08<4:05:27,  2.71step/s]Training:   0%|          | 17/40000 [00:09<4:04:30,  2.73step/s]Training:   0%|          | 18/40000 [00:09<4:04:16,  2.73step/s]Training:   0%|          | 19/40000 [00:10<4:03:44,  2.73step/s]Training:   0%|          | 20/40000 [00:10<4:03:18,  2.74step/s]Training:   0%|          | 21/40000 [00:10<4:03:00,  2.74step/s]Training:   0%|          | 22/40000 [00:11<4:02:49,  2.74step/s]Training:   0%|          | 23/40000 [00:11<4:02:43,  2.74step/s]Training:   0%|          | 24/40000 [00:11<4:04:18,  2.73step/s]Training:   0%|          | 25/40000 [00:12<4:03:18,  2.74step/s]Training:   0%|          | 26/40000 [00:12<4:04:58,  2.72step/s]Training:   0%|          | 27/40000 [00:13<4:08:55,  2.68step/s]Training:   0%|          | 28/40000 [00:13<4:19:09,  2.57step/s]Training:   0%|          | 29/40000 [00:13<4:28:30,  2.48step/s]Training:   0%|          | 30/40000 [00:14<4:33:09,  2.44step/s]Training:   0%|          | 31/40000 [00:14<4:33:38,  2.43step/s]Training:   0%|          | 32/40000 [00:15<4:36:52,  2.41step/s]Training:   0%|          | 33/40000 [00:15<4:37:43,  2.40step/s]Training:   0%|          | 34/40000 [00:16<4:38:13,  2.39step/s]Training:   0%|          | 35/40000 [00:16<4:39:05,  2.39step/s]Training:   0%|          | 36/40000 [00:16<4:34:18,  2.43step/s]Training:   0%|          | 37/40000 [00:17<4:25:03,  2.51step/s]Training:   0%|          | 38/40000 [00:17<4:19:09,  2.57step/s]Training:   0%|          | 39/40000 [00:17<4:14:49,  2.61step/s]Training:   0%|          | 40/40000 [00:18<4:10:39,  2.66step/s]Training:   0%|          | 41/40000 [00:18<4:09:59,  2.66step/s]Training:   0%|          | 42/40000 [00:19<4:19:10,  2.57step/s]Training:   0%|          | 43/40000 [00:19<4:26:01,  2.50step/s]Training:   0%|          | 44/40000 [00:19<4:27:41,  2.49step/s]Training:   0%|          | 45/40000 [00:20<4:29:42,  2.47step/s]Training:   0%|          | 46/40000 [00:20<4:25:11,  2.51step/s]Training:   0%|          | 47/40000 [00:21<4:18:29,  2.58step/s]Training:   0%|          | 48/40000 [00:21<4:13:29,  2.63step/s]Training:   0%|          | 49/40000 [00:21<4:13:32,  2.63step/s]Training:   0%|          | 50/40000 [00:22<4:11:20,  2.65step/s]Training:   0%|          | 51/40000 [00:22<4:17:37,  2.58step/s]Training:   0%|          | 52/40000 [00:22<4:17:42,  2.58step/s]Training:   0%|          | 53/40000 [00:23<4:14:16,  2.62step/s]Training:   0%|          | 54/40000 [00:23<4:12:37,  2.64step/s]Training:   0%|          | 55/40000 [00:24<4:14:46,  2.61step/s]Training:   0%|          | 56/40000 [00:24<4:13:47,  2.62step/s]Training:   0%|          | 57/40000 [00:24<4:14:49,  2.61step/s]Training:   0%|          | 58/40000 [00:25<4:13:55,  2.62step/s]Training:   0%|          | 59/40000 [00:25<4:13:05,  2.63step/s]Training:   0%|          | 60/40000 [00:25<4:10:04,  2.66step/s]Training:   0%|          | 61/40000 [00:26<4:07:38,  2.69step/s]Training:   0%|          | 62/40000 [00:26<4:05:49,  2.71step/s]Training:   0%|          | 63/40000 [00:27<4:04:21,  2.72step/s]Training:   0%|          | 64/40000 [00:27<4:03:34,  2.73step/s]Training:   0%|          | 65/40000 [00:27<4:03:03,  2.74step/s]Training:   0%|          | 66/40000 [00:28<4:02:40,  2.74step/s]Training:   0%|          | 67/40000 [00:28<4:02:25,  2.75step/s]Training:   0%|          | 68/40000 [00:28<4:02:19,  2.75step/s]Training:   0%|          | 69/40000 [00:29<4:02:06,  2.75step/s]Training:   0%|          | 70/40000 [00:29<4:01:50,  2.75step/s]Training:   0%|          | 71/40000 [00:29<4:02:04,  2.75step/s]Training:   0%|          | 72/40000 [00:30<4:01:44,  2.75step/s]Training:   0%|          | 73/40000 [00:30<4:01:56,  2.75step/s]Training:   0%|          | 74/40000 [00:31<4:09:54,  2.66step/s]Training:   0%|          | 75/40000 [00:31<4:18:04,  2.58step/s]Training:   0%|          | 76/40000 [00:31<4:23:52,  2.52step/s]Training:   0%|          | 77/40000 [00:32<4:28:04,  2.48step/s]Training:   0%|          | 78/40000 [00:32<4:31:24,  2.45step/s]Training:   0%|          | 79/40000 [00:33<4:33:22,  2.43step/s]Training:   0%|          | 80/40000 [00:33<4:23:58,  2.52step/s]Training:   0%|          | 81/40000 [00:33<4:17:40,  2.58step/s]Training:   0%|          | 82/40000 [00:34<4:19:48,  2.56step/s]Training:   0%|          | 83/40000 [00:34<4:19:09,  2.57step/s]Training:   0%|          | 84/40000 [00:35<4:14:49,  2.61step/s]Training:   0%|          | 85/40000 [00:35<4:15:41,  2.60step/s]Training:   0%|          | 86/40000 [00:35<4:15:02,  2.61step/s]Training:   0%|          | 87/40000 [00:36<4:14:49,  2.61step/s]Training:   0%|          | 88/40000 [00:36<4:18:47,  2.57step/s]Training:   0%|          | 89/40000 [00:37<4:18:16,  2.58step/s]Training:   0%|          | 90/40000 [00:37<4:16:56,  2.59step/s]Training:   0%|          | 91/40000 [00:37<4:13:42,  2.62step/s]Training:   0%|          | 92/40000 [00:38<4:21:07,  2.55step/s]Training:   0%|          | 93/40000 [00:38<4:25:31,  2.50step/s]Training:   0%|          | 94/40000 [00:39<4:27:41,  2.48step/s]Training:   0%|          | 95/40000 [00:39<4:50:17,  2.29step/s]Training:   0%|          | 96/40000 [00:39<4:38:00,  2.39step/s]Training:   0%|          | 97/40000 [00:40<4:28:52,  2.47step/s]Training:   0%|          | 98/40000 [00:40<4:22:32,  2.53step/s]Training:   0%|          | 99/40000 [00:41<4:18:07,  2.58step/s]Training:   0%|          | 100/40000 [00:41<4:14:52,  2.61step/s]INFO 2026-06-30 17:37:22 ot_train.py:561 step:100 smpl:3K ep:17 epch:0.07 loss:8.933 grdn:136.915 lr:1.0e-05 updt_s:0.401 data_s:0.012 smp/s:77 mem_gb:12.54
+Training:   0%|          | 101/40000 [00:41<4:12:49,  2.63step/s]Training:   0%|          | 102/40000 [00:42<4:11:14,  2.65step/s]Training:   0%|          | 103/40000 [00:42<4:10:48,  2.65step/s]Training:   0%|          | 104/40000 [00:42<4:10:20,  2.66step/s]Training:   0%|          | 105/40000 [00:43<4:10:01,  2.66step/s]Training:   0%|          | 106/40000 [00:43<4:09:22,  2.67step/s]Training:   0%|          | 107/40000 [00:44<4:10:27,  2.65step/s]Training:   0%|          | 108/40000 [00:44<4:10:02,  2.66step/s]Training:   0%|          | 109/40000 [00:44<4:07:51,  2.68step/s]Training:   0%|          | 110/40000 [00:45<4:06:54,  2.69step/s]Training:   0%|          | 111/40000 [00:45<4:05:56,  2.70step/s]Training:   0%|          | 112/40000 [00:45<4:05:37,  2.71step/s]Training:   0%|          | 113/40000 [00:46<4:05:20,  2.71step/s]Training:   0%|          | 114/40000 [00:46<4:05:05,  2.71step/s]Training:   0%|          | 115/40000 [00:46<4:04:56,  2.71step/s]

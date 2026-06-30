@@ -155,10 +155,15 @@ class RM65Robot(Robot):
         return goal_pos
 
     @check_if_not_connected
-    def send_action(self, action: RobotAction) -> RobotAction:
+    def send_action(self, action: RobotAction, log_angles_info: bool = True) -> RobotAction:
         assert self.client is not None
         goal_pos = self._target_joint_positions(action)
         joint_values = [goal_pos[joint] for joint in self.config.joint_names]
+        if log_angles_info:
+            print("RM65 sent joints=%s gripper=%s" % (
+                [round(v, 3) for v in joint_values],
+                round(float(action["gripper.pos"]), 3) if "gripper.pos" in action else None,
+            ))
 
         if self.config.use_canfd:
             self.client.movej_canfd(

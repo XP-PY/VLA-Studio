@@ -1,0 +1,115 @@
+﻿2026-03-17 18:27:29.832 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:27:29.832 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:27:31.839 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:27:36.195 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:27:36.195 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:27:38.213 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:27:39.224 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:27:40.221 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:27:41.215 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:27:42.227 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:27:43.220 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:27:44.224 [WARNING] 0 秒后自动重连... IP或端口错误
+2026-03-17 18:27:44.224 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:27:44.225 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:27:46.241 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:27:47.249 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:27:48.258 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:27:49.256 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:27:50.253 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:27:51.249 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:27:52.252 [WARNING] 0 秒后自动重连... IP或端口错误
+2026-03-17 18:27:52.252 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:27:52.253 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:27:54.272 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:27:55.266 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:27:56.265 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:27:57.273 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:27:58.273 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:27:59.261 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:28:00.270 [WARNING] 0 秒后自动重连... IP或端口错误
+2026-03-17 18:28:00.271 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:28:00.271 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:28:02.286 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:28:03.281 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:28:04.280 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:28:05.286 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:28:06.285 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:28:07.292 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:28:08.281 [WARNING] 0 秒后自动重连... IP或端口错误
+2026-03-17 18:28:08.282 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:28:08.282 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:28:10.293 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:28:11.304 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:28:12.301 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:28:13.312 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:28:14.320 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:28:15.321 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:28:16.321 [WARNING] 0 秒后自动重连... IP或端口错误
+2026-03-17 18:28:16.322 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:28:16.322 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:28:18.332 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:28:19.329 [WARNING] 5 秒后自动重连... IP或端口错误
+2026-03-17 18:28:20.325 [WARNING] 4 秒后自动重连... IP或端口错误
+2026-03-17 18:28:21.336 [WARNING] 3 秒后自动重连... IP或端口错误
+2026-03-17 18:28:22.327 [WARNING] 2 秒后自动重连... IP或端口错误
+2026-03-17 18:28:23.340 [WARNING] 1 秒后自动重连... IP或端口错误
+2026-03-17 18:28:24.339 [WARNING] 重试次数5, 请检查信息...
+2026-03-17 18:33:10.997 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:33:10.998 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:33:10.999 [INFO] 通信TCP状态改变 SocketState: 3 SocketState::ConnectedState
+2026-03-17 18:33:11.011 [INFO] 通信FileTCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:33:11.012 [INFO] 通信FileTCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:33:11.012 [INFO] 通信FileTCP状态改变 SocketState: 3 SocketState::ConnectedState
+2026-03-17 18:33:11.013 [INFO] 通信FileTCP socket connect ok
+2026-03-17 18:33:11.021 [INFO] 系统连接正常/登录成功
+2026-03-17 18:33:11.025 [INFO] 系统连接正常/登录成功  文件传输连接中...
+2026-03-17 18:33:11.037 [INFO] 车辆信息到达，PLNS主控系统版本: V3.1.8
+2026-03-17 18:33:11.131 [INFO] 系统连接正常/登录成功  文件传输连接成功
+2026-03-17 18:33:11.606 [INFO] 系统连接正常/登录成功  同步地图中...
+2026-03-17 18:33:11.635 [INFO] 地图路网相关文件同步完成
+2026-03-17 18:33:12.188 [INFO] 加载地图中...
+2026-03-17 18:33:12.189 [INFO] 地图配置文件加载成功
+2026-03-17 18:33:12.195 [INFO] 地图数据文件加载成功
+2026-03-17 18:33:12.196 [INFO] 加载地图显示成功
+2026-03-17 18:33:12.196 [INFO] 加载路网信息成功
+2026-03-17 18:33:12.198 [INFO] 设置显示雷达数据
+2026-03-17 18:33:12.198 [INFO] +++ 系统初始化完成!!!
+2026-03-17 18:33:12.270 [INFO] 界面状态改变: 手动控制  定位建图都未启动
+2026-03-17 18:34:57.674 [ERROR] 系统连接正常/登录成功  文件传输连接错误!!!
+2026-03-17 18:34:58.121 [WARNING] 通信FileTCP错误 SocketError: 1
+2026-03-17 18:34:58.121 [INFO] 通信FileTCP状态改变 SocketState: 6 SocketState::ClosingState
+2026-03-17 18:34:58.121 [INFO] 通信FileTCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:34:58.122 [INFO] 通信FileTCP socket connect closed.
+2026-03-17 18:34:58.122 [WARNING] 通信TCP错误 SocketError: 1
+2026-03-17 18:34:58.122 [INFO] 通信TCP状态改变 SocketState: 6 SocketState::ClosingState
+2026-03-17 18:34:58.123 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:34:58.124 [INFO] 系统断开连接
+2026-03-17 18:34:58.125 [INFO] 系统连接断开  文件传输连接断开
+2026-03-17 18:34:58.127 [INFO] 系统断开连接
+2026-03-17 18:34:58.127 [INFO] 系统连接断开  文件传输连接断开
+2026-03-17 18:35:09.180 [INFO] 手动退出程序
+2026-03-17 18:35:34.451 [INFO] 通信TCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:35:34.452 [INFO] 通信TCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:35:34.456 [INFO] 通信TCP状态改变 SocketState: 3 SocketState::ConnectedState
+2026-03-17 18:35:34.480 [INFO] 通信FileTCP状态改变 SocketState: 1 SocketState::HostLookupState
+2026-03-17 18:35:34.480 [INFO] 通信FileTCP状态改变 SocketState: 2 SocketState::ConnectingState
+2026-03-17 18:35:34.480 [INFO] 通信FileTCP状态改变 SocketState: 3 SocketState::ConnectedState
+2026-03-17 18:35:34.481 [INFO] 通信FileTCP socket connect ok
+2026-03-17 18:35:34.486 [INFO] 系统连接正常/登录成功
+2026-03-17 18:35:34.490 [INFO] 系统连接正常/登录成功  文件传输连接中...
+2026-03-17 18:35:34.498 [INFO] 车辆信息到达，PLNS主控系统版本: V3.1.8
+2026-03-17 18:35:34.570 [INFO] 系统连接正常/登录成功  文件传输连接成功
+2026-03-17 18:35:35.055 [INFO] 路网相关文件同步完成
+2026-03-17 18:35:35.598 [INFO] 加载地图中...
+2026-03-17 18:35:35.600 [INFO] 地图配置文件加载成功
+2026-03-17 18:35:35.601 [INFO] 地图数据文件加载成功
+2026-03-17 18:35:35.602 [INFO] 加载地图显示成功
+2026-03-17 18:35:35.603 [INFO] 加载路网信息成功
+2026-03-17 18:35:35.603 [INFO] 设置显示雷达数据
+2026-03-17 18:35:35.604 [INFO] +++ 系统初始化完成!!!
+2026-03-17 18:35:35.715 [INFO] 界面状态改变: 手动控制  定位建图都未启动
+2026-03-17 18:36:45.485 [INFO] 手动退出程序
+2026-03-17 18:36:45.506 [INFO] 通信TCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:36:45.506 [INFO] 通信FileTCP状态改变 SocketState: 0 SocketState::UnconnectedState
+2026-03-17 18:36:45.507 [INFO] 通信FileTCP socket connect closed.
