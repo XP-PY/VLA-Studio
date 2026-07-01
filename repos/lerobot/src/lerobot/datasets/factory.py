@@ -125,6 +125,10 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         )
 
     if cfg.dataset.use_imagenet_stats:
+        # Replaces each camera’s dataset statistics with ImageNet statistics
+        # Meaning image normalization becomes:
+        # image = (image - imagenet_mean) / imagenet_std
+        # better for policies with vision backbones pretrained on ImageNet-like data
         for key in dataset.meta.camera_keys:
             for stats_type, stats in IMAGENET_STATS.items():
                 dataset.meta.stats[key][stats_type] = torch.tensor(stats, dtype=torch.float32)

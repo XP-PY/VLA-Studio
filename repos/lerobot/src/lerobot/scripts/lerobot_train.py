@@ -104,6 +104,8 @@ def update_policy(
     policy.train()
 
     if torch.cuda.is_available():
+        # Resets PyTorch’s recorded peak GPU memory counter before one training update
+        # to track the peak GPU memory used by that step
         torch.cuda.reset_peak_memory_stats()
 
     # Compute sample weights if a weighter is provided
@@ -234,10 +236,17 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
     # Use accelerator's device
     device = accelerator.device
     if cfg.cudnn_deterministic:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        # Pursuit of reproducibility
+        torch.backends.cudnn.deterministic = True   # Forcing cuDNN to use a deterministic convolution algorithm 
+                                                    # ensures that the results are completely consistent every time it runs.
+        torch.backends.cudnn.benchmark = False      # Automated search algorithms are not used 
+                                                    # because the search process itself is random.
     else:
-        torch.backends.cudnn.benchmark = True
+        # Pursuit of speed
+        torch.backends.cudnn.benchmark = True       # cuDNN will automatically test multiple convolution algorithms 
+                                                    # on its first run and select the fastest one.
+
+    # Enable TF32 (TensorFloat-32) acceleration                               
     torch.backends.cuda.matmul.allow_tf32 = True
 
     # Dataset loading synchronization: the global main process downloads once to the shared
@@ -247,7 +256,7 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
         logging.info("Creating dataset")
         dataset = make_dataset(cfg)
 
-    accelerator.wait_for_everyone()
+    accelerator.wait_for_everyone()     # Synchronization Barrier
 
     # Other ranks read from the shared copy populated by the main process.
     if not is_main_process:
@@ -405,13 +414,13 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
         # The order is a pure function of (seed, epoch), so every rank independently produces the
         # same permutation. accelerate then shards it disjointly across ranks via BatchSamplerShard
         # without needing a `generator` attribute to synchronize an RNG, and resume is sample-exact.
-        shuffle = False
+        shuffle = False     # Turn off DataLoader shuffle
         sampler = EpisodeAwareSampler(
             dataset.meta.episodes["dataset_from_index"],
             dataset.meta.episodes["dataset_to_index"],
             episode_indices_to_use=dataset.episodes,
             drop_n_last_frames=getattr(active_cfg, "drop_n_last_frames", 0),
-            shuffle=True,
+            shuffle=True,   # Sampler internally uses deterministic out-of-order delivery
             seed=cfg.seed if cfg.seed is not None else 0,
         )
         if cfg.resume and step > 0:

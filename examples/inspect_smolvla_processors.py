@@ -6,7 +6,7 @@ the data structure before and after each preprocessor/postprocessor step.
 
 Usage example:
 python examples/inspect_smolvla_processors.py \
-    2>&1 | tee /home/ubuntu/py/vla_studio/examples/inspect_smolvla_processors.log
+    2>&1 | tee ./examples/inspect_smolvla_processors.log
 """
 
 from __future__ import annotations

@@ -11,6 +11,10 @@ This mirrors the important data path in ``lerobot_train.py``:
 
 The output is summarized by shape, dtype, device, min/max/mean/std, and a few
 sample values. It intentionally does not print full image tensors by default.
+
+Usage example:
+python examples/inspect_train_batch.py \
+    2>&1 | tee ./examples/inspect_train_batch.log
 """
 
 from __future__ import annotations

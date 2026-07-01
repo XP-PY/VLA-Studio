@@ -1,4 +1,6 @@
-# ACT Training Log
+# [ACT](http://arxiv.org/abs/2304.13705) Training Log
+
+*Last updated: July 1, 2026*
 
 ---
 
@@ -46,7 +48,7 @@ TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
 TASK_PROMPT="grasp screwdriver and place it in box"
 
 python repos/lerobot/examples/rm65/passive_record.py \
-    --config-path repos/lerobot/configs/rm65_realsense.yaml \
+    --config-path configs/rm65_realsense.yaml \
     --repo-id local/$TASK_NAME \
     --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
@@ -192,7 +194,7 @@ TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TASK_PROMPT="grasp screwdriver and place it in box"
 
 python repos/lerobot/examples/rm65/passive_record.py \
-    --config-path repos/lerobot/configs/rm65_realsense.yaml \
+    --config-path configs/rm65_realsense.yaml \
     --repo-id local/$TASK_NAME \
     --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \

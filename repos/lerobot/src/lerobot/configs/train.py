@@ -102,6 +102,7 @@ class TrainPipelineConfig(HubMixin):
     steps: int = 100_000
     eval_freq: int = 20_000
     log_freq: int = 200
+    # Checks whether dataset timestamps match the dataset FPS closely enough
     tolerance_s: float = 1e-4
     save_checkpoint: bool = True
     # Checkpoint is saved every `save_freq` training iterations and after the last training step.
@@ -144,7 +145,10 @@ class TrainPipelineConfig(HubMixin):
             )
             self.reward_model.pretrained_path = str(Path(reward_model_path))
         elif policy_path:
+            # YAML usage: lerobot-train --config_path configs/train_act.yaml
+            # section `policy` from that YAML file
             yaml_overrides = parser.get_yaml_overrides("policy")
+            # CLI usage: lerobot-train --policy.path /path/to/pretrained_model
             cli_overrides = parser.get_cli_overrides("policy") or []
             self.policy = PreTrainedConfig.from_pretrained(
                 policy_path, cli_overrides=yaml_overrides + cli_overrides

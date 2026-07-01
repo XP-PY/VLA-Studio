@@ -533,10 +533,12 @@ def make_policy(
 
     # Store action feature names for relative_exclude_joints support
     if ds_meta is not None and hasattr(cfg, "action_feature_names"):
+        # Policy-specific key
         action_names = ds_meta.features.get(ACTION, {}).get("names")
         if action_names is not None:
             cfg.action_feature_names = list(action_names)
     if ds_meta is not None:
+        # Policy-specific key
         set_dataset_feature_metadata = getattr(cfg, "set_dataset_feature_metadata", None)
         if callable(set_dataset_feature_metadata):
             set_dataset_feature_metadata(ds_meta.features)

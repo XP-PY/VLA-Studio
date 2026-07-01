@@ -201,6 +201,7 @@ def rollout(cfg: RolloutConfig):
     init_logging()
 
     if cfg.display_data:
+        # Initializes a Rerun visualization session
         logger.info("Initializing Rerun visualization (ip=%s, port=%s)", cfg.display_ip, cfg.display_port)
         init_rerun(session_name="rollout", ip=cfg.display_ip, port=cfg.display_port)
 
