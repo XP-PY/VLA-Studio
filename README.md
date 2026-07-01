@@ -1,5 +1,3 @@
-* [ ] 
-
 # VLA Studio
 
 ## What I add
@@ -25,6 +23,13 @@ Dataset recording script:
 ```text
 repos/lerobot/examples/rm65/passive_record.py
 ```
+
+---
+
+## Documentation
+
+- [VLA training logs](docs/README.md)
+- [ACT training log](docs/ACT.md)
 
 ---
 
@@ -60,7 +65,7 @@ pip install -e ".[all]"
 ./scripts/train.sh
 ```
 
-### Evalution
+### Evaluation
 
 ```bash
 ./scripts/rollout.sh
@@ -73,4 +78,3 @@ pip install -e ".[all]"
 ```
 
 ---
-

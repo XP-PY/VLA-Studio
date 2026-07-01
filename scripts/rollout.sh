@@ -1,7 +1,7 @@
-PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
+PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
 
 lerobot-rollout \
-    --config_path=configs/rm65_realsense.yaml \
+    --config_path=repos/lerobot/configs/rm65_realsense.yaml \
     --strategy.type=base \
     --inference.type=sync \
     --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
