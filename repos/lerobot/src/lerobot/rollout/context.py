@@ -222,11 +222,14 @@ def build_rollout_context(
             logger.warning("Failed to apply torch.compile: %s", e)
 
     # --- 2. Robot-side processors (user-supplied or defaults) --------
+    # Robot-side processors means the processor pipelines that transform data between 
+    # the real robot/teleoperator side and LeRobot’s internal format
     if (
         teleop_action_processor is None
         or robot_action_processor is None
         or robot_observation_processor is None
     ):
+        # The default processors are just identity processors
         _t, _r, _o = make_default_processors()
         teleop_action_processor = teleop_action_processor or _t
         robot_action_processor = robot_action_processor or _r

@@ -97,11 +97,14 @@ class SmolVLMWithExpertModel(nn.Module):
             config = AutoConfig.from_pretrained(model_id)
             self.vlm = SmolVLMForConditionalGeneration(config=config)
         self.processor = AutoProcessor.from_pretrained(model_id)
+
+        # Optionally reduce VLM layer count
         if num_vlm_layers > 0:
             print(f"Reducing the number of VLM layers to {num_vlm_layers} ...")
             self.get_vlm_model().text_model.layers = self.get_vlm_model().text_model.layers[:num_vlm_layers]
         self.num_vlm_layers = len(self.get_vlm_model().text_model.layers)
         self.config = config
+
         # Smaller lm expert
         lm_expert_config = copy.deepcopy(config.text_config)
         hidden_size = lm_expert_config.hidden_size
@@ -109,19 +112,26 @@ class SmolVLMWithExpertModel(nn.Module):
         lm_expert_config.intermediate_size = get_intermediate_size(int(hidden_size * expert_width_multiplier))
         lm_expert_config.num_hidden_layers = self.num_vlm_layers
         if num_expert_layers > 0:
+            # Optionally reduce expert layer count
             assert len(self.get_vlm_model().text_model.layers) % num_expert_layers == 0, (
                 f"Number of layers in the VLM {len(self.get_vlm_model().text_model.layers)} are not multiple of num_expert_layers {num_expert_layers}"
             )
             lm_expert_config.num_hidden_layers = num_expert_layers
-        self.lm_expert = AutoModel.from_config(lm_expert_config)
+        self.lm_expert = AutoModel.from_config(lm_expert_config)    # Action expert
 
+        # Modify expert attention for cross-attention mode
         self.num_expert_layers = len(self.lm_expert.layers)
         self.self_attn_every_n_layers = self_attn_every_n_layers
         if "cross" in attention_mode:
             # Reshape qkv projections to have the same input dimension as the vlm
+            # In cross-attention mode, the expert queries come from the expert
+            # hidden size, but keys/values may come from the VLM hidden size. 
+            # So k_proj and v_proj must accept VLM-sized inputs and project them into
+            # expert-sized key/value heads.
             for layer_idx in range(len(self.lm_expert.layers)):
                 if self.self_attn_every_n_layers > 0 and layer_idx % self.self_attn_every_n_layers == 0:
                     continue
+                
                 self.lm_expert.layers[layer_idx].self_attn.k_proj = nn.Linear(
                     config.text_config.num_key_value_heads * config.text_config.head_dim,
                     lm_expert_config.num_key_value_heads * lm_expert_config.head_dim,
@@ -132,7 +142,10 @@ class SmolVLMWithExpertModel(nn.Module):
                     lm_expert_config.num_key_value_heads * lm_expert_config.head_dim,
                     bias=lm_expert_config.attention_bias,
                 )
+
         # Remove unused embed_tokens
+        # The expert does not receive token ids. It receives action embeddings from SmolVLA.
+        # So token embeddings are unnecessary.
         self.lm_expert.embed_tokens = None
 
         self.num_attention_heads = self.config.text_config.num_attention_heads
@@ -189,8 +202,26 @@ class SmolVLMWithExpertModel(nn.Module):
             self.vlm.eval()
 
     def embed_image(self, image: torch.Tensor):
+        """Encode image pixels into VLM-compatible image token embeddings.
+
+        Args:
+            image: Preprocessed image tensor with shape
+                `(batch_size, channels, height, width)`. In SmolVLA this is
+                normally produced by `SmolVLAPolicy.prepare_images`, which
+                resizes/pads images and maps pixel values from `[0, 1]` to
+                `[-1, 1]` before calling this method.
+
+        Returns:
+            Image token embeddings with shape
+            `(batch_size, num_image_tokens, vlm_hidden_size)`. The vision
+            encoder first converts pixels into patch features, then the
+            connector projects/resamples those patch features into the hidden
+            size expected by the SmolVLM text transformer.
+        """
         patch_attention_mask = None
+
         # Get sequence from the vision encoder
+        # Encodes the image into visual patch embeddings
         image_hidden_states = (
             self.get_vlm_model()
             .vision_model(
@@ -199,7 +230,8 @@ class SmolVLMWithExpertModel(nn.Module):
             )
             .last_hidden_state
         )
-        # Modality projection & resampling
+
+        # Modality projection & resampling (pixel shuffle)
         image_hidden_states = self.get_vlm_model().connector(image_hidden_states)
         return image_hidden_states
 
@@ -219,10 +251,55 @@ class SmolVLMWithExpertModel(nn.Module):
         fill_kv_cache: bool = True,
         past_key_values=None,
     ) -> list[torch.Tensor]:
+        """Run one transformer layer in shared self-attention mode.
+
+        This path concatenates all active streams in `inputs_embeds`, computes
+        query/key/value projections with their corresponding layers, applies
+        RoPE, and runs one attention operation over the concatenated sequence.
+        It is used when the model is not in cross-attention mode, when filling
+        the prefix cache, or on layers configured to use expert self-attention.
+
+        Args:
+            model_layers: Two-element list `[vlm_layers, expert_layers]` from
+                `get_model_layers`. Each entry at `layer_idx` is either a
+                transformer layer or `None`.
+            inputs_embeds: List of hidden-state tensors for the active streams.
+                Typical entries are:
+
+                - prefix/VLM stream:
+                  `(batch_size, prefix_seq_len, vlm_hidden_size)`.
+                - suffix/expert stream:
+                  `(batch_size, suffix_seq_len, expert_hidden_size)`.
+
+                Entries can be `None`; they are skipped.
+            layer_idx: Index of the VLM layer currently being executed.
+            position_ids: Position ids with shape `(batch_size, total_seq_len)`.
+                If only a shorter concatenated sequence is active, this method
+                slices `position_ids` to the active sequence length.
+            attention_mask: 2D attention mask with shape
+                `(batch_size, total_seq_len, total_seq_len)`. It is sliced to
+                the active sequence length when needed.
+            batch_size: Current batch size.
+            head_dim: Attention head dimension from the SmolVLM text config.
+            use_cache: Whether to read/write key/value cache entries.
+            fill_kv_cache: If true, store the computed key/value states for
+                `layer_idx`. If false, append current key/value states after
+                the cached key/value states.
+            past_key_values: Optional dictionary-like cache indexed by layer.
+
+        Returns:
+            A tuple `([att_output], past_key_values)`, where `att_output` has
+            shape `(batch_size, active_seq_len, vlm_hidden_size)` after grouped
+            attention output assembly, and `past_key_values` is the updated
+            cache.
+        """
         query_states = []
         key_states = []
         value_states = []
         for i, hidden_states in enumerate(inputs_embeds):
+            # i = 0, hidden_states: VLM/prefix embeddings
+            # i = 1, hidden_states: expert/suffix embeddings
+
             layer = model_layers[i][layer_idx]
             if hidden_states is None or layer is None:
                 continue
@@ -245,6 +322,7 @@ class SmolVLMWithExpertModel(nn.Module):
         query_states = torch.cat(query_states, dim=1)
         key_states = torch.cat(key_states, dim=1)
         value_states = torch.cat(value_states, dim=1)
+        
         seq_len = query_states.shape[1]
         if seq_len < position_ids.shape[1]:
             _position_ids = position_ids[:, :seq_len]
@@ -296,6 +374,51 @@ class SmolVLMWithExpertModel(nn.Module):
         fill_kv_cache: bool = True,
         past_key_values=None,
     ) -> list[torch.Tensor]:
+        """Run one transformer layer in cross-attention mode.
+
+        This mode keeps the VLM prefix stream and the action-expert suffix
+        stream separate. The VLM layer processes prefix tokens to produce
+        prefix key/value states. The expert layer then uses action suffix
+        queries to attend over those prefix key/value states.
+
+        Args:
+            model_layers: Two-element list `[vlm_layers, expert_layers]` from
+                `get_model_layers`. `model_layers[0][layer_idx]` is the VLM
+                text layer. `model_layers[1][layer_idx]` is the aligned expert
+                layer or `None`.
+            inputs_embeds: Two-element list of current hidden states:
+
+                - `inputs_embeds[0]`: Prefix/VLM hidden states with shape
+                  `(batch_size, prefix_seq_len, vlm_hidden_size)`.
+                - `inputs_embeds[1]`: Suffix/expert hidden states with shape
+                  `(batch_size, suffix_seq_len, expert_hidden_size)`.
+
+                During cached inference, prefix embeddings may be omitted while
+                `past_key_values` provides cached prefix key/value states.
+            layer_idx: Index of the VLM layer currently being executed.
+            position_ids: Position ids with shape `(batch_size, total_seq_len)`
+                when both prefix and suffix are present, or
+                `(batch_size, suffix_seq_len)` when cached prefix states are reused.
+            attention_mask: 2D attention mask with shape
+                `(batch_size, total_seq_len, total_seq_len)`. During expert
+                cross-attention, the suffix rows are sliced so action tokens
+                attend over the available prefix key/value states.
+            batch_size: Current batch size.
+            head_dim: Attention head dimension from the SmolVLM text config.
+            use_cache: Whether to read/write key/value cache entries.
+            fill_kv_cache: If true, compute prefix key/value states and store
+                them in `past_key_values`. If false, reuse cached prefix states.
+            past_key_values: Optional dictionary-like cache indexed by layer.
+
+        Returns:
+            A tuple `(att_outputs, past_key_values)`:
+
+            - `att_outputs`: List containing the VLM prefix attention output
+              when prefix computation is run, followed by the expert suffix
+              attention output. If no expert layer is aligned to `layer_idx`,
+              the expert output is `None`.
+            - `past_key_values`: Updated key/value cache.
+        """
         attention_interface = self.get_attention_interface()
 
         att_outputs = []
@@ -399,6 +522,29 @@ class SmolVLMWithExpertModel(nn.Module):
         return att_outputs, past_key_values
 
     def get_model_layers(self, models: list) -> list:
+        """Align VLM layers and expert layers for joint forward execution.
+
+        Args:
+            models: Two-element list `[vlm_text_model, lm_expert]`. The VLM
+                text model has `num_vlm_layers` transformer layers, while the
+                expert has `num_expert_layers` transformer layers.
+
+        Returns:
+            A two-element list `[vlm_layers, expert_layers]`:
+
+            - `vlm_layers`: List with length `num_vlm_layers`, containing each
+              VLM text transformer layer.
+            - `expert_layers`: List with length `num_vlm_layers`. Entries are
+              either an expert transformer layer or `None`.
+
+            If `num_expert_layers == num_vlm_layers`, every VLM layer is paired
+            with one expert layer. If the expert has fewer layers, expert layers
+            are inserted every `num_vlm_layers // num_expert_layers` VLM layers,
+            and the other positions are set to `None`. A `None` expert layer
+            means the expert stream skips computation at that VLM layer.
+
+            In smolvla_base config, num_expert_layers == num_vlm_layers
+        """
         vlm_layers = []
         expert_layers = []
         multiple_of = self.num_vlm_layers // self.num_expert_layers
@@ -421,9 +567,51 @@ class SmolVLMWithExpertModel(nn.Module):
         use_cache: bool | None = None,
         fill_kv_cache: bool | None = None,
     ):
+        """Run the coupled SmolVLM text stream and action-expert stream.
+
+        Args:
+            attention_mask: 2D attention permission mask with shape
+                `(batch_size, seq_len, seq_len)`.
+                A true value means the query token can attend to the key token.
+            position_ids: Position ids with shape `(batch_size, seq_len)`.
+                They are used by RoPE inside the attention layers.
+            past_key_values: Optional per-layer key/value cache. During inference,
+                this can contain cached prefix key/value states so action suffix
+                decoding does not recompute image/language/state context.
+            inputs_embeds: Two-element list of input embeddings:
+
+                - `inputs_embeds[0]`: VLM/prefix embeddings with shape
+                  `(batch_size, prefix_seq_len, vlm_hidden_size)`, or `None`.
+                  This stream contains image, language, and state tokens.
+                - `inputs_embeds[1]`: expert/suffix embeddings with shape
+                  `(batch_size, suffix_seq_len, expert_hidden_size)`, or `None`.
+                  In SmolVLA, `suffix_seq_len` is usually `chunk_size`, and this
+                  stream contains noisy action-timestep tokens.
+                - `vlm_hidden_size` usually equals `expert_hidden_size`
+
+            use_cache: Whether to read/write key/value cache entries.
+            fill_kv_cache: If true, compute and store prefix key/value cache.
+                If false, reuse `past_key_values` and process the expert suffix
+                against the cached prefix context.
+
+        Returns:
+            A tuple `(outputs_embeds, past_key_values)`:
+
+            - `outputs_embeds`: Two-element list matching `inputs_embeds`.
+              The first element has shape
+              `(batch_size, prefix_seq_len, vlm_hidden_size)` when the VLM stream
+              is present. The second element has shape
+              `(batch_size, suffix_seq_len, expert_hidden_size)` when the expert
+              stream is present.
+            - `past_key_values`: Updated key/value cache, or `None` when cache
+              usage is disabled.
+        """
         models = [self.get_vlm_model().text_model, self.lm_expert]
         model_layers = self.get_model_layers(models)
         for hidden_states in inputs_embeds:
+            # i = 0, hidden_states: VLM/prefix embeddings
+            # i = 1, hidden_states: expert/suffix embeddings
+
             # TODO this is very inefficient
             # dtype is always the same, batch size too (if > 1 len)
             # device could be trickier in multi gpu edge cases but that's it
@@ -453,6 +641,11 @@ class SmolVLMWithExpertModel(nn.Module):
                     past_key_values=past_key_values,
                 )
             else:
+                # att_outputs contains attention outputs for the VLM prefix stream
+                # and expert suffix stream. In the common full forward path:
+                #   att_outputs[0]: (batch_size, prefix_seq_len, vlm_hidden_size)
+                #   att_outputs[1]: (batch_size, suffix_seq_len, expert_hidden_size)
+                # If no expert layer is aligned to this VLM layer, att_outputs[1] is None.
                 att_outputs, past_key_values = self.forward_cross_attn_layer(
                     model_layers,
                     inputs_embeds,
@@ -465,17 +658,24 @@ class SmolVLMWithExpertModel(nn.Module):
                     fill_kv_cache=fill_kv_cache,
                     past_key_values=past_key_values,
                 )
+
             outputs_embeds = []
             start = 0
             for i, hidden_states in enumerate(inputs_embeds):
+                # i = 0, hidden_states: VLM/prefix embeddings
+                # i = 1, hidden_states: expert/suffix embeddings
+
                 layer = model_layers[i][layer_idx]
                 att_output = (
                     att_outputs[i] if i < len(att_outputs) else att_outputs[0]
                 )  # in case of self_attn
+
                 if hidden_states is not None:
                     if layer is None:
                         outputs_embeds.append(hidden_states)
                         continue
+
+                    # hidden_states.shape[1]: prefix_seq_len / suffix_seq_len
                     end = start + hidden_states.shape[1]
 
                     if att_output.dtype != layer.self_attn.o_proj.weight.dtype:
@@ -507,6 +707,7 @@ class SmolVLMWithExpertModel(nn.Module):
                 outputs_embeds.append(out_emb)
             else:
                 outputs_embeds.append(None)
+
         return outputs_embeds, past_key_values
 
     def get_attention_interface(self):

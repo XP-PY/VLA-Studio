@@ -205,12 +205,25 @@ def rollout(cfg: RolloutConfig):
         logger.info("Initializing Rerun visualization (ip=%s, port=%s)", cfg.display_ip, cfg.display_port)
         init_rerun(session_name="rollout", ip=cfg.display_ip, port=cfg.display_port)
 
+    # Used for graceful shutdown
+    # It listens for system shutdown signals like: 
+    # SIGINT (Ctrl+C), SIGTERM, SIGHUP, SIGQUIT
+    # When you press Ctrl+C, instead of immediately killing the rollout, it sets: shutdown_event
+    # Then rollout code can notice and clean up safely
     signal_handler = ProcessSignalHandler(use_threads=True, display_pid=False)
     shutdown_event = signal_handler.shutdown_event
 
     logger.info("Building rollout context...")
     ctx = build_rollout_context(cfg, shutdown_event)
 
+    # strategy means the rollout mode/controller. It decides how rollout runs after the
+    # policy, robot, cameras, processors, and inference engine are ready.
+    # LeRobot supports several strategies:
+    #   base      autonomous policy control, no recording
+    #   episodic  rollout + record episodes, similar to lerobot-record
+    #   sentry    continuous autonomous rollout with always-on recording/upload
+    #   highlight autonomous rollout with ring-buffer recording on key press
+    #   dagger    human-in-the-loop correction data collection
     strategy = create_strategy(cfg.strategy)
     logger.info("Rollout strategy: %s", cfg.strategy.type)
     logger.info(

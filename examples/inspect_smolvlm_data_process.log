@@ -1,0 +1,133 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+
+====================================================================================================
+Model Construction
+====================================================================================================
+model_id=models/SmolVLM2-500M-Video-Instruct
+load_vlm_weights=True
+train_expert_only=True
+freeze_vision_encoder=True
+attention_mode=cross_attn
+num_expert_layers=0
+num_vlm_layers=16
+self_attn_every_n_layers=2
+expert_width_multiplier=0.75
+device=cuda
+Loading  models/SmolVLM2-500M-Video-Instruct weights ...
+Loading weights:   0%|          | 0/489 [00:00<?, ?it/s]Loading weights:  32%|███▏      | 158/489 [00:00<00:00, 1576.02it/s]Loading weights:  91%|█████████▏| 447/489 [00:00<00:00, 2303.39it/s]Loading weights: 100%|██████████| 489/489 [00:00<00:00, 2354.69it/s]
+Reducing the number of VLM layers to 16 ...
+
+====================================================================================================
+embed_image Input
+====================================================================================================
+image passed to embed_image:
+  shape=(1, 3, 512, 512)
+  dtype=torch.float32
+  device=cuda:0
+  requires_grad=False
+  min=-1.000000
+  max=1.000000
+  mean=0.000000
+  std=0.528077
+  first_values=[-1.0, -0.9960861206054688, -0.9921722412109375, -0.9882583022117615, -0.9843444228172302, -0.980430543422699, -0.976516604423523, -0.9726027250289917]
+Expected range here is [-1, 1] when --smolvla-range is enabled.
+
+====================================================================================================
+Inside embed_image: Vision Encoder Input
+====================================================================================================
+image converted to vision_model.dtype:
+  shape=(1, 3, 512, 512)
+  dtype=torch.bfloat16
+  device=cuda:0
+  requires_grad=False
+  min=-1.000000
+  max=1.000000
+  mean=0.000000
+  std=0.528075
+  first_values=[-1.0, -0.99609375, -0.9921875, -0.98828125, -0.984375, -0.98046875, -0.9765625, -0.97265625]
+
+====================================================================================================
+Inside embed_image: Vision Encoder Output / Connector Input
+====================================================================================================
+vision_model(...).last_hidden_state:
+  shape=(1, 1024, 768)
+  dtype=torch.bfloat16
+  device=cuda:0
+  requires_grad=False
+  min=-30.375000
+  max=14.687500
+  mean=-0.020655
+  std=0.789831
+  first_values=[-0.828125, -1.078125, 1.1796875, 0.212890625, -0.8359375, 0.48828125, -0.62109375, -0.578125]
+
+====================================================================================================
+Inside embed_image: Connector Output
+====================================================================================================
+connector(vision_hidden_states):
+  shape=(1, 64, 960)
+  dtype=torch.bfloat16
+  device=cuda:0
+  requires_grad=False
+  min=-67.000000
+  max=32.500000
+  mean=-0.193331
+  std=4.307616
+  first_values=[2.34375, 1.7109375, -1.265625, 1.8828125, 2.578125, -5.125, 1.3359375, -0.1884765625]
+
+====================================================================================================
+embed_image Output
+====================================================================================================
+model.embed_image(image):
+  shape=(1, 64, 960)
+  dtype=torch.bfloat16
+  device=cuda:0
+  requires_grad=False
+  min=-67.000000
+  max=32.500000
+  mean=-0.193331
+  std=4.307616
+  first_values=[2.34375, 1.7109375, -1.265625, 1.8828125, 2.578125, -5.125, 1.3359375, -0.1884765625]
+
+max_abs_diff(connector_output, embed_image_output)=0.00000000
+
+====================================================================================================
+embed_language_tokens Input
+====================================================================================================
+task_text='grasp screwdriver and place it in box\n'
+tokenizer_max_length=48
+padding=max_length
+padding_side=right
+lang_tokens passed to embed_language_tokens:
+  shape=(1, 48)
+  dtype=torch.int64
+  device=cuda:0
+  requires_grad=False
+  min=2.000000
+  max=13393.000000
+  mean=1030.583374
+  std=2917.446777
+  first_values=[9861.0, 5352.0, 3037.0, 13393.0, 11267.0, 284.0, 1379.0, 357.0]
+lang_attention_mask:
+  shape=(1, 48)
+  dtype=torch.int64
+  device=cuda:0
+  requires_grad=False
+  min=0.000000
+  max=1.000000
+  mean=0.229167
+  std=0.420297
+  first_values=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+====================================================================================================
+embed_language_tokens Output
+====================================================================================================
+model.embed_language_tokens(lang_tokens):
+  shape=(1, 48, 960)
+  dtype=torch.bfloat16
+  device=cuda:0
+  requires_grad=False
+  min=-2.390625
+  max=1.109375
+  mean=-0.002262
+  std=0.101233
+  first_values=[0.0022735595703125, -0.08984375, 0.09912109375, 0.015625, 0.193359375, -0.07763671875, 0.1259765625, 0.2236328125]

@@ -82,7 +82,23 @@ class ActionSelectKwargs(TypedDict, total=False):
 def create_sinusoidal_pos_embedding(
     time: torch.tensor, dimension: int, min_period: float, max_period: float, device="cpu"
 ) -> Tensor:
-    """Computes sine-cosine positional embedding vectors for scalar positions."""
+    """Create sine-cosine embeddings for scalar flow-matching timesteps.
+
+    Args:
+        time: Flow-matching timestep tensor with shape `(batch_size,)`.
+            Each value is a scalar position, usually in `[0, 1]`.
+        dimension: Size of the returned embedding vector. It must be even
+            because half of the channels are sine values and the other half
+            are cosine values. In SmolVLA this is usually `expert_hidden_size`.
+        min_period: Smallest sinusoidal period. Lower values make some
+            embedding channels more sensitive to small timestep changes.
+        max_period: Largest sinusoidal period. Higher values give slower
+            varying embedding channels.
+        device: Device used to create the embedding tensor.
+
+    Returns:
+        Timestep embedding tensor with shape `(batch_size, dimension)`.
+    """
     if dimension % 2 != 0:
         raise ValueError(f"dimension ({dimension}) must be divisible by 2")
 
@@ -120,14 +136,25 @@ def make_att_2d_masks(pad_masks, att_masks):
       input_mask: bool[B, N] true if its part of the input, false if padding.
       mask_ar: int32[B, N] mask that's 1 where previous tokens cannot depend on
         it and 0 where it shares the same attention mask as the previous token.
+        In SmolVLA: 
+            image/language tokens -> 0
+            state tokens          -> 1
+            action tokens         -> 1
+
+    Returns:
+        att_2d_masks with shape [B, N, N] wich tells 
+        whether query_token is allowed to attend to key_token.
     """
     if att_masks.ndim != 2:
         raise ValueError(att_masks.ndim)
     if pad_masks.ndim != 2:
         raise ValueError(pad_masks.ndim)
 
+    # A token can attend to tokens whose cumulative group id is <= its own.
     cumsum = torch.cumsum(att_masks, dim=1)
     att_2d_masks = cumsum[:, None, :] <= cumsum[:, :, None]
+
+    # Removes attention involving padding tokens.
     pad_2d_masks = pad_masks[:, None, :] * pad_masks[:, :, None]
     att_2d_masks = att_2d_masks & pad_2d_masks
     return att_2d_masks
@@ -285,16 +312,22 @@ class SmolVLAPolicy(PreTrainedPolicy):
             if k in self._queues and k != ACTION:
                 batch[k] = torch.stack(list(self._queues[k]), dim=1)
 
+        # images shape: List[(batch_size, channels, height, width)]
+        # img_masks shape: List[(batch_size,)]
+        # state shape: (batch_size, max_state_dim)
+        # lang_tokens shape: (batch_size, tokenizer_max_length)
+        # lang_masks shape: (batch_size, tokenizer_max_length)
         images, img_masks = self.prepare_images(batch)
         state = self.prepare_state(batch)
         lang_tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         lang_masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
+        # actions shape: (batch_size, chunk_size, max_action_dim)
         actions = self.model.sample_actions(
             images, img_masks, lang_tokens, lang_masks, state, noise=noise, **kwargs
         )
 
-        # Unpad actions
+        # Unpad actions: (batch_size, chunk_size, original_action_dim)
         original_action_dim = self.config.action_feature.shape[0]
         actions = actions[:, :, :original_action_dim]
 
@@ -347,6 +380,7 @@ class SmolVLAPolicy(PreTrainedPolicy):
             # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
             self._queues[ACTION].extend(actions.transpose(0, 1)[: self.config.n_action_steps])
 
+        # popleft() shape: (batch_size, action_dim)
         return self._queues[ACTION].popleft()
 
     def _check_get_actions_condition(self) -> bool:
@@ -372,15 +406,27 @@ class SmolVLAPolicy(PreTrainedPolicy):
             batch[OBS_STATE] = self._pi_aloha_decode_state(batch[OBS_STATE])
             batch[ACTION] = self._pi_aloha_encode_actions_inv(batch[ACTION])
 
+        # images shape: List[(batch_size, channels, height, width)]
+        # img_masks shape: List[(batch_size,)]
+        # state shape: (batch_size, max_state_dim)
+        # lang_tokens shape: (batch_size, tokenizer_max_length)
+        # lang_masks shape: (batch_size, tokenizer_max_length)
+        # actions shape: (batch_size, chunk_size, max_action_dim)
+        # actions_is_pad shape: (batch_size, chunk_size)
         images, img_masks = self.prepare_images(batch)
         state = self.prepare_state(batch)
         lang_tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         lang_masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         actions = self.prepare_action(batch)
         actions_is_pad = batch.get("action_is_pad")
+
         loss_dict = {}
+        
+        # losses shape: (batch_size, chunk_size, max_action_dim)
         losses = self.model.forward(images, img_masks, lang_tokens, lang_masks, state, actions, noise, time)
         original_action_dim = self.config.action_feature.shape[0]
+        
+        # losses shape: (batch_size, chunk_size, original_action_dim)
         losses = losses[:, :, :original_action_dim]
         loss_dict["losses_after_forward"] = losses.clone().mean().item()
 
@@ -455,6 +501,23 @@ class SmolVLAPolicy(PreTrainedPolicy):
         return images, img_masks
 
     def _pi_aloha_decode_state(self, state):
+        """Convert ALOHA runtime state values into the SmolVLA/pi internal state space.
+
+        Args:
+            state: Bimanual ALOHA state tensor with shape `(batch_size, 14)`.
+                The expected layout is 7 values for the left arm followed by
+                7 values for the right arm: 6 joint values plus 1 gripper value
+                per arm.
+
+        Returns:
+            The converted state tensor with the same shape as `state`.
+
+        Notes:
+            This conversion flips the sign of selected joint dimensions
+            (`1`, `2`, `8`, `9`) and converts both gripper dimensions (`6`,
+            `13`) from the ALOHA runtime gripper representation into angular
+            values. It is intended for ALOHA-compatible models only.
+        """
         # Flip the joints.
         for motor_idx in [1, 2, 8, 9]:
             state[:, motor_idx] *= -1
@@ -569,15 +632,15 @@ class VLAFlowMatching(nn.Module):
         self.config = config
 
         self.vlm_with_expert = SmolVLMWithExpertModel(
-            model_id=self.config.vlm_model_name,
-            freeze_vision_encoder=self.config.freeze_vision_encoder,
-            train_expert_only=self.config.train_expert_only,
-            load_vlm_weights=self.config.load_vlm_weights,
-            attention_mode=self.config.attention_mode,
-            num_expert_layers=self.config.num_expert_layers,
-            num_vlm_layers=self.config.num_vlm_layers,
-            self_attn_every_n_layers=self.config.self_attn_every_n_layers,
-            expert_width_multiplier=self.config.expert_width_multiplier,
+            model_id=self.config.vlm_model_name,    # HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+            freeze_vision_encoder=self.config.freeze_vision_encoder,    # True
+            train_expert_only=self.config.train_expert_only,            # True
+            load_vlm_weights=self.config.load_vlm_weights,              # True
+            attention_mode=self.config.attention_mode,                  # cross_attn
+            num_expert_layers=self.config.num_expert_layers,            # 0
+            num_vlm_layers=self.config.num_vlm_layers,                  # 16
+            self_attn_every_n_layers=self.config.self_attn_every_n_layers,  # 2
+            expert_width_multiplier=self.config.expert_width_multiplier,    # 0.75
             device=self.config.device if self.config.device is not None else "auto",
         )
         self.state_proj = nn.Linear(
@@ -619,6 +682,7 @@ class VLAFlowMatching(nn.Module):
             params.requires_grad = self.config.train_state_proj
 
     def sample_noise(self, shape, device):
+        '''Samples random numbers from a normal/Gaussian distribution'''
         noise = torch.normal(
             mean=0.0,
             std=1.0,
@@ -629,6 +693,7 @@ class VLAFlowMatching(nn.Module):
         return noise
 
     def sample_time(self, bsize, device):
+        '''Samples the flow-matching timestep t for each batch item'''
         beta_dist = torch.distributions.Beta(concentration1=1.5, concentration0=1.0)
         time_beta = beta_dist.sample((bsize,)).to(device=device, dtype=torch.float32)
         time = time_beta * 0.999 + 0.001
@@ -639,6 +704,37 @@ class VLAFlowMatching(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Embed images with SigLIP and language tokens with embedding layer to prepare
         for SmolVLM transformer processing.
+
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, height, width)` after image preparation.
+                The list length is the number of visual inputs, including any
+                configured `empty_cameras`.
+            img_masks: List of boolean tensors with shape `(batch_size,)`, one per
+                image tensor in `images`. A true value marks that the corresponding
+                image is valid for that batch item.
+            lang_tokens: Tokenized task prompt ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Language attention mask with shape
+                `(batch_size, tokenizer_max_length)`.
+            state: Padded robot state tensor with shape
+                `(batch_size, max_state_dim)`.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks)`:
+
+            - `embs`: Prefix embeddings passed to the VLM, with shape
+              `(batch_size, prefix_seq_len, vlm_hidden_size)`.
+            - `pad_masks`: Boolean validity mask for prefix tokens, with shape
+              `(batch_size, prefix_seq_len)`.
+            - `att_masks`: Prefix attention-group mask with shape
+              `(batch_size, prefix_seq_len)`. Image and language tokens are set
+              to `0`, while state tokens are set to `1`. These values mark
+              token groups so the 2D attention mask can restrict attention
+              between image/language context tokens and state/action tokens.
+
+            If `prefix_length` is positive and larger than the produced prefix
+            sequence length, the returned tensors are padded to `prefix_length`.
         """
         embs = []
         pad_masks = []
@@ -662,6 +758,7 @@ class VLAFlowMatching(nn.Module):
                 embs.append(image_start_token)
                 pad_masks.append(image_start_mask)
 
+            # img_emb shape: (batch_size, num_img_embs, img_emb_dim)
             img_emb = self.vlm_with_expert.embed_image(img)
             img_emb = img_emb
 
@@ -675,6 +772,7 @@ class VLAFlowMatching(nn.Module):
             embs.append(img_emb)
             pad_masks.append(img_mask)
 
+            # Image tokens attention mask are set to `0`
             att_masks += [0] * (num_img_embs)
             if self.add_image_special_tokens:
                 image_end_token = (
@@ -690,7 +788,10 @@ class VLAFlowMatching(nn.Module):
                 embs.append(image_end_token)
                 pad_masks.append(image_end_mask)
                 att_masks += [0] * (image_end_mask.shape[1])
+
+        # lang_emb shape: (batch_size, num_lang_embs, lang_emb_dim)
         lang_emb = self.vlm_with_expert.embed_language_tokens(lang_tokens)
+
         # Normalize language embeddings
         lang_emb_dim = lang_emb.shape[-1]
         lang_emb = lang_emb * math.sqrt(lang_emb_dim)
@@ -698,9 +799,12 @@ class VLAFlowMatching(nn.Module):
         embs.append(lang_emb)
         pad_masks.append(lang_masks)
 
+        # Language tokens attention mask are set to `0`
         num_lang_embs = lang_emb.shape[1]
         att_masks += [0] * num_lang_embs
 
+        # state_emb shape: (batch_size, states_seq_len, hidden_size) where states_seq_len == 1
+        # And hidden_size == lang_emb_dim == img_emb_dim
         state_emb = self.state_proj(state)
         state_emb = state_emb[:, None, :] if state_emb.ndim == 2 else state_emb
         embs.append(state_emb)
@@ -711,8 +815,12 @@ class VLAFlowMatching(nn.Module):
         state_mask = torch.ones(bsize, states_seq_len, dtype=torch.bool, device=device)
         pad_masks.append(state_mask)
 
+        # State tokens attention mask are set to `1`
         # Set attention masks so that image and language inputs do not attend to state or actions
         att_masks += [1] * (states_seq_len)
+
+        # embs shape: (batch_size, num_img_embs + num_lang_embs + states_seq_len, hidden_size)
+        # pad_masks shape: (batch_size, num_img_embs + num_lang_embs + states_seq_len)
         embs = torch.cat(embs, dim=1)
         pad_masks = torch.cat(pad_masks, dim=1)
         att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
@@ -724,22 +832,47 @@ class VLAFlowMatching(nn.Module):
             pad_masks = pad_tensor(pad_masks, self.prefix_length, pad_value=0)
             att_masks = pad_tensor(att_masks, self.prefix_length, pad_value=0)
 
+        # att_masks shape: (batch_size, num_img_embs + num_lang_embs + states_seq_len)
         att_masks = att_masks.expand(bsize, -1)
 
         return embs, pad_masks, att_masks
 
     def embed_suffix(self, noisy_actions, timestep):
-        """Embed state, noisy_actions, timestep to prepare for Expert Gemma processing."""
+        """Embed noisy action tokens and flow-matching timesteps for the action expert.
+
+        Args:
+            noisy_actions: Noisy action chunk `x_t` with shape
+                `(batch_size, chunk_size, max_action_dim)`. It is produced by
+                interpolating between target actions and Gaussian noise during
+                training, or by the current denoising state during inference.
+            timestep: Flow-matching timestep tensor with shape `(batch_size,)`.
+                The same timestep is expanded across all `chunk_size` action
+                tokens for each batch item.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks)`:
+
+            - `embs`: Action suffix embeddings passed to the action expert, with
+              shape `(batch_size, chunk_size, expert_hidden_size)`.
+            - `pad_masks`: Boolean validity mask for suffix tokens, with shape
+              `(batch_size, chunk_size)`. All action suffix tokens are marked valid.
+            - `att_masks`: Suffix attention-group mask with shape
+              `(batch_size, chunk_size)`. All action suffix tokens are set to `1`,
+              matching the state/action group used by the 2D attention mask.
+        """
         embs = []
         pad_masks = []
         att_masks = []
 
         # Fuse timestep + action information using an MLP
+        # action_emb shape: (batch_size, chunk_size, expert_hidden_size)
         action_emb = self.action_in_proj(noisy_actions)
         device = action_emb.device
         bsize = action_emb.shape[0]
         dtype = action_emb.dtype
+
         # Embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
+        # time_emb shape: (batch_size, expert_hidden_size)
         time_emb = create_sinusoidal_pos_embedding(
             timestep,
             self.vlm_with_expert.expert_hidden_size,
@@ -749,9 +882,12 @@ class VLAFlowMatching(nn.Module):
         )
         time_emb = time_emb.type(dtype=dtype)
 
+        # time_emb shape: (batch_size, chunk_size, expert_hidden_size)
+        # action_time_emb shape: (batch_size, chunk_size, expert_hidden_size*2)
         time_emb = time_emb[:, None, :].expand_as(action_emb)
         action_time_emb = torch.cat([action_emb, time_emb], dim=2)
 
+        # action_time_emb shape: (batch_size, chunk_size, expert_hidden_size)
         action_time_emb = self.action_time_mlp_in(action_time_emb)
         action_time_emb = F.silu(action_time_emb)  # swish == silu
         action_time_emb = self.action_time_mlp_out(action_time_emb)
@@ -759,6 +895,7 @@ class VLAFlowMatching(nn.Module):
         # Add to input tokens
         embs.append(action_time_emb)
 
+        # action_time_mask shape: (batch_size, chunk_size)
         bsize, action_time_dim = action_time_emb.shape[:2]
         action_time_mask = torch.ones(bsize, action_time_dim, dtype=torch.bool, device=device)
         pad_masks.append(action_time_mask)
@@ -774,26 +911,79 @@ class VLAFlowMatching(nn.Module):
     def forward(
         self, images, img_masks, lang_tokens, lang_masks, state, actions, noise=None, time=None
     ) -> Tensor:
-        """Do a full training forward pass and compute the loss (batch_size x num_steps x num_motors)"""
+        """Run the flow-matching training pass and return per-element action losses.
+
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, height, width)` after policy image preparation.
+                The number of list elements is the number of visual inputs, including
+                any configured `empty_cameras`.
+            img_masks: List of boolean tensors with shape `(batch_size,)`, one per
+                image tensor in `images`. A true value marks that the corresponding
+                image is valid for that batch item.
+            lang_tokens: Tokenized task prompt ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Language attention mask with shape
+                `(batch_size, tokenizer_max_length)`.
+            state: Padded robot state tensor with shape
+                `(batch_size, max_state_dim)`.
+            actions: Padded target action chunk with shape
+                `(batch_size, chunk_size, max_action_dim)`.
+            noise: Optional Gaussian noise tensor with the same shape as `actions`.
+                If not provided, it is sampled inside this method.
+            time: Optional flow-matching timestep tensor with shape `(batch_size,)`.
+                If not provided, it is sampled inside this method.
+
+        Returns:
+            Per-element MSE losses between the target flow `noise - actions` and
+            the predicted flow, with shape `(batch_size, chunk_size, max_action_dim)`.
+        """
         if noise is None:
+            # noise shape: (batch_size, chunk_size, max_action_dim)
             noise = self.sample_noise(actions.shape, actions.device)
 
         if time is None:
+            # time shape: (batch_size, )
             time = self.sample_time(actions.shape[0], actions.device)
 
+        # time_expanded shape: (batch_size, 1, 1)
+        # x_t shape: (batch_size, chunk_size, max_action_dim)
+        # u_t shape: (batch_size, chunk_size, max_action_dim)
         time_expanded = time[:, None, None]
         x_t = time_expanded * noise + (1 - time_expanded) * actions
         u_t = noise - actions
+
+        # prefix_embs shape: (batch_size, prefix_seq_len, vlm_hidden_size)
+        # prefix_pad_masks shape: (batch_size, prefix_seq_len)
+        # prefix_att_masks shape: (batch_size, prefix_seq_len)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks, state=state
         )
+
+        # suffix_embs shape: (batch_size, chunk_size, expert_hidden_size)
+        #   where expert_hidden_size == vlm_hidden_size == vlm_with_expert.config.text_config.hidden_size
+        # suffix_pad_masks shape: (batch_size, chunk_size)
+        # suffix_att_masks shape: (batch_size, chunk_size)
         suffix_embs, suffix_pad_masks, suffix_att_masks = self.embed_suffix(x_t, time)
 
+        # pad_masks shape: (batch_size, prefix_seq_len + chunk_size)
+        # att_masks shape: (batch_size, prefix_seq_len + chunk_size)
         pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
         att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
 
+        # att_2d_masks shape: (batch_size, seq_len, seq_len)
+        #   where seq_len == prefix_seq_len + chunk_size
+        # Practical behavior:
+        #   - image/language context tokens can attend within image/language context
+        #   - state/action tokens can attend to image/language context
+        #   - state/action tokens can also attend within their own group
+        #   - image/language tokens cannot attend to state/action tokens
+        #   - padding tokens are ignored
+        # position_ids shape: (batch_size, seq_len)
         att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
         position_ids = torch.cumsum(pad_masks, dim=1) - 1
+
+        # suffix_out shape: (batch_size, suffix_seq_len, expert_hidden_size)
         (_, suffix_out), _ = self.vlm_with_expert.forward(
             attention_mask=att_2d_masks,
             position_ids=position_ids,
@@ -803,9 +993,13 @@ class VLAFlowMatching(nn.Module):
             fill_kv_cache=False,
         )
         suffix_out = suffix_out[:, -self.config.chunk_size :]
+
         # Original openpi code, upcast attention output
+        # v_t shape: (batch_size, chunk_size, max_action_dim)
         suffix_out = suffix_out.to(dtype=torch.float32)
         v_t = self.action_out_proj(suffix_out)
+
+        # losses shape: (batch_size, chunk_size, max_action_dim)
         losses = F.mse_loss(u_t, v_t, reduction="none")
         return losses
 
@@ -819,20 +1013,81 @@ class VLAFlowMatching(nn.Module):
         noise=None,
         **kwargs: Unpack[ActionSelectKwargs],
     ) -> Tensor:
-        """Do a full inference forward and compute the action (batch_size x num_steps x num_motors)"""
+        """Sample an action chunk by iterative flow-matching denoising.
+
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, height, width)` after policy image
+                preparation. The list length is the number of visual inputs,
+                including any configured `empty_cameras`.
+            img_masks: List of boolean tensors with shape `(batch_size,)`, one
+                per image tensor in `images`. A true value marks that the
+                corresponding image is valid for that batch item.
+            lang_tokens: Tokenized task prompt ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Language attention mask with shape
+                `(batch_size, tokenizer_max_length)`.
+            state: Padded robot state tensor with shape
+                `(batch_size, max_state_dim)`.
+            noise: Optional initial noise tensor with shape
+                `(batch_size, chunk_size, max_action_dim)`. If not provided,
+                Gaussian noise is sampled and used as the starting point `x_t`.
+            **kwargs: Optional RTC arguments:
+                `inference_delay`, `prev_chunk_left_over`, and
+                `execution_horizon`.
+
+        Returns:
+            Denoised action chunk with shape
+            `(batch_size, chunk_size, max_action_dim)`. The wrapper policy later
+            slices this tensor back to the original dataset action dimension.
+
+        Attention flow:
+            First, the prefix tokens are processed once with
+            `inputs_embeds=[prefix_embs, None]` and `fill_kv_cache=True`.
+            In this prefix-cache stage, every attention layer is a self-attention
+            layer over the prefix, so Q/K/V all come from image, language, and
+            state tokens. The resulting prefix K/V tensors are stored in
+            `past_key_values`.
+
+            Then each denoising step processes the current noisy action state
+            `x_t` with `inputs_embeds=[None, suffix_embs]` and `fill_kv_cache=False`. 
+                - On self-attention layers, Q comes from the action suffix tokens, 
+                while K/V are the concatenation of cached prefix K/V and current 
+                action-suffix K/V. So action tokens can attend to:
+                image + language + state + current noisy action tokens
+                - On cross-attention layers, Q comes from the action suffix tokens, 
+                while K/V come from the cached prefix only. So action tokens attend to:
+                image + language + state. This lets action tokens condition on image, 
+                language, and state context throughout iterative denoising.
+        """
         bsize = state.shape[0]
         device = state.device
 
         if noise is None:
+            # noise shape: (batch_size, chunk_size, max_action_dim)
             actions_shape = (bsize, self.config.chunk_size, self.config.max_action_dim)
             noise = self.sample_noise(actions_shape, device)
 
+        # prefix_embs shape: (batch_size, prefix_seq_len, vlm_hidden_size)
+        # prefix_pad_masks shape: (batch_size, prefix_seq_len)
+        # prefix_att_masks shape: (batch_size, prefix_seq_len)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks, state=state
         )
+
+        # prefix_att_2d_masks shape: (batch_size, prefix_seq_len, prefix_seq_len)
+        # prefix_position_ids shape: (batch_size, prefix_seq_len)
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+
         # Compute image and language key value cache
+        # past_key_values is a per-layer prefix KV cache:
+        #   past_key_values[layer_idx]["key_states"]:
+        #       (batch_size, prefix_seq_len, num_key_value_heads, head_dim)
+        #   past_key_values[layer_idx]["value_states"]:
+        #       (batch_size, prefix_seq_len, num_key_value_heads, head_dim)
+        # The denoising loop reuses this cache so image/language/state prefix
+        # tokens are not recomputed at every flow-matching step.
         _, past_key_values = self.vlm_with_expert.forward(
             attention_mask=prefix_att_2d_masks,
             position_ids=prefix_position_ids,
@@ -846,6 +1101,8 @@ class VLAFlowMatching(nn.Module):
 
         x_t = noise
         for step in range(num_steps):
+
+            # time_tensor shape: (batch_size, )
             time = 1.0 + step * dt
             time_tensor = torch.tensor(time, dtype=torch.float32, device=device).expand(bsize)
 
@@ -887,16 +1144,46 @@ class VLAFlowMatching(nn.Module):
         x_t,
         timestep,
     ):
-        """Apply one denoising step of the noise `x_t` at a given timestep."""
+        """Predict the flow velocity for one denoising step.
+
+        Args:
+            prefix_pad_masks: Boolean validity mask for cached prefix tokens with
+                shape `(batch_size, prefix_seq_len)`. The prefix contains image,
+                language, and state tokens.
+            past_key_values: Per-layer prefix key/value cache produced before the
+                denoising loop. For each layer:
+
+                - `key_states`: shape
+                  `(batch_size, prefix_seq_len, num_key_value_heads, head_dim)`.
+                - `value_states`: shape
+                  `(batch_size, prefix_seq_len, num_key_value_heads, head_dim)`.
+
+            x_t: Current noisy action chunk with shape
+                `(batch_size, chunk_size, max_action_dim)`.
+            timestep: Current flow-matching timestep tensor with shape
+                `(batch_size,)`.
+
+        Returns:
+            Predicted flow velocity `v_t` with shape
+            `(batch_size, chunk_size, max_action_dim)`. The caller uses this
+            velocity to update `x_t` during iterative denoising.
+        """
+
+        # suffix_embs shape: (batch_size, suffix_seq_len, expert_hidden_size)
+        # suffix_pad_masks shape: (batch_size, suffix_seq_len)
+        # suffix_att_masks shape: (batch_size, suffix_seq_len)
+        #   where suffix_seq_len == chunk_size
         suffix_embs, suffix_pad_masks, suffix_att_masks = self.embed_suffix(x_t, timestep)
 
-        suffix_len = suffix_pad_masks.shape[1]
+        suffix_seq_len = suffix_pad_masks.shape[1]
         batch_size = prefix_pad_masks.shape[0]
-        prefix_len = prefix_pad_masks.shape[1]
-        prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(batch_size, suffix_len, prefix_len)
+        prefix_seq_len = prefix_pad_masks.shape[1]
+        prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(batch_size, suffix_seq_len, prefix_seq_len)
 
+        # suffix_att_2d_masks shape: (batch_size, suffix_seq_len, suffix_seq_len)
         suffix_att_2d_masks = make_att_2d_masks(suffix_pad_masks, suffix_att_masks)
 
+        # full_att_2d_masks shape: (batch_size, suffix_seq_len, prefix_seq_len + suffix_seq_len)
         full_att_2d_masks = torch.cat([prefix_pad_2d_masks, suffix_att_2d_masks], dim=2)
         prefix_offsets = torch.sum(prefix_pad_masks, dim=-1)[:, None]
         position_ids = prefix_offsets + torch.cumsum(suffix_pad_masks, dim=1) - 1
@@ -912,5 +1199,7 @@ class VLAFlowMatching(nn.Module):
         suffix_out = outputs_embeds[1]
         suffix_out = suffix_out[:, -self.config.chunk_size :]
         suffix_out = suffix_out.to(dtype=torch.float32)
+
+        # v_t shape: (batch_size, chunk_size, max_action_dim)
         v_t = self.action_out_proj(suffix_out)
         return v_t

@@ -1,6 +1,6 @@
 # VLA Studio
 
-## What I add
+## What I add in Lerobot
 
 ### RM65
 
@@ -13,7 +13,7 @@ repos/lerobot/src/lerobot/robots/rm65
 And its config file:
 
 ```text
-repos/lerobot/configs/rm65_realsense.yaml
+configs/rm65_realsense.yaml
 ```
 
 ### Dataset record
@@ -29,7 +29,6 @@ repos/lerobot/examples/rm65/passive_record.py
 ## Documentation
 
 - [VLA training logs](docs/README.md)
-- [ACT training log](docs/ACT.md)
 
 ---
 
@@ -43,6 +42,26 @@ conda activate lerobot
 ```
 
 ### Install LeRobot
+
+Before installing LeRobot with all optional dependencies, install the required build tools and media libraries on Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  cmake \
+  build-essential \
+  python3-dev \
+  pkg-config \
+  libavformat-dev \
+  libavcodec-dev \
+  libavdevice-dev \
+  libavutil-dev \
+  libswscale-dev \
+  libswresample-dev \
+  libavfilter-dev
+```
+
+Then install LeRobot:
 
 ```bash
 cd repos/lerobot
