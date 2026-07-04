@@ -4,7 +4,7 @@ This directory collects training notes, evaluation results, and lessons learned 
 
 ## Logs
 
-- [ACT Training Log](ACT.md): dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training ACT on the RM65 screwdriver grasping task.
+- [ACT Training Log](act.md): dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training ACT on the RM65 screwdriver grasping task.
 
 ## Notes
 
