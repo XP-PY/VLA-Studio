@@ -634,7 +634,21 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return func(*args, **kwargs)
 
     def _prepare_attention_masks_4d(self, att_2d_masks):
-        """Helper method to prepare 4D attention masks for transformer."""
+        """Convert a boolean 2D attention mask into transformer additive-mask format.
+
+        Args:
+            att_2d_masks: Boolean attention mask with shape
+                `(batch_size, seq_len, seq_len)`. `True` means the query token
+                may attend to the key token, and `False` means attention should
+                be blocked.
+
+        Returns:
+            Additive attention mask with shape `(batch_size, 1, seq_len, seq_len)`.
+            The singleton dimension broadcasts over attention heads. Allowed
+            positions are converted to `0.0`, while blocked positions are
+            converted to `OPENPI_ATTENTION_MASK_VALUE`, a large negative value
+            that makes their softmax probability approximately zero.
+        """
         att_2d_masks_4d = att_2d_masks[:, None, :, :]
         return torch.where(att_2d_masks_4d, 0.0, OPENPI_ATTENTION_MASK_VALUE)
 
@@ -657,7 +671,40 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
     def embed_prefix(
         self, images, img_masks, lang_tokens, lang_masks
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Embed images with SigLIP and language tokens with embedding layer."""
+        """Embed visual and language context tokens for PaliGemma.
+
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, image_resolution[0], image_resolution[1])`
+                after PI0 preprocessing.
+            img_masks: List of boolean camera validity masks. Each tensor has
+                shape `(batch_size,)`; `True` means the corresponding image is
+                valid for that batch item.
+            lang_tokens: Tokenized language instruction ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Boolean language attention mask with shape
+                `(batch_size, tokenizer_max_length)`; `True` marks valid
+                language tokens and `False` marks padding.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks)`:
+
+            - `embs`: Prefix embeddings passed to the PaliGemma stream, with
+              shape `(batch_size, prefix_seq_len, paligemma_hidden_size)`.
+              `prefix_seq_len` is the total number of image tokens from all
+              cameras plus `tokenizer_max_length` language tokens.
+            - `pad_masks`: Boolean validity mask for prefix tokens, with shape
+              `(batch_size, prefix_seq_len)`.
+            - `att_masks`: Prefix attention-group mask with shape
+              `(batch_size, prefix_seq_len)`. Image and language tokens are set
+              to `0`, meaning they belong to the same bidirectional context
+              group when `make_att_2d_masks` builds the final attention mask.
+
+        Notes:
+            PI0 keeps robot state out of the prefix. The state is embedded in
+            `embed_suffix` together with the noisy action chunk for the action
+            expert stream.
+        """
         embs = []
         pad_masks = []
         att_masks = []
@@ -668,6 +715,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             def image_embed_func(img):
                 return self.paligemma_with_expert.embed_image(img)
 
+            # img_emb shape: (batch_size, num_img_embs, img_emb_dim)
             img_emb = self._apply_checkpoint(image_embed_func, img)
             bsize, num_img_embs = img_emb.shape[:2]
 
@@ -680,6 +728,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             lang_emb = self.paligemma_with_expert.embed_language_tokens(lang_tokens)
             return lang_emb
 
+        # lang_emb shape: (batch_size, num_lang_embs, lang_emb_dim)
         lang_emb = self._apply_checkpoint(lang_embed_func, lang_tokens)
         embs.append(lang_emb)
         pad_masks.append(lang_masks)
@@ -687,6 +736,10 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         num_lang_embs = lang_emb.shape[1]
         att_masks += [0] * num_lang_embs
 
+        # embs shape: (batch_size, num_img_embs + num_lang_embs, hidden_size)
+        #   where hidden_size == img_emb_dim == lang_emb_dim
+        # pad_masks shape: (batch_size, num_img_embs + num_lang_embs)
+        # att_masks shape: (batch_size, num_img_embs + num_lang_embs)
         embs = torch.cat(embs, dim=1)
         pad_masks = torch.cat(pad_masks, dim=1)
         att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
@@ -697,7 +750,39 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return embs, pad_masks, att_masks
 
     def embed_suffix(self, state, noisy_actions, timestep):
-        """Embed state, noisy_actions, timestep to prepare for Expert Gemma processing."""
+        """Embed robot state, noisy actions, and flow-matching time for the action expert.
+
+        Args:
+            state: Robot state tensor padded to `max_state_dim`, with shape
+                `(batch_size, max_state_dim)`.
+            noisy_actions: Noisy action chunk `x_t` padded to `max_action_dim`,
+                with shape `(batch_size, chunk_size, max_action_dim)`.
+                During training this is the interpolation between target
+                actions and Gaussian noise. During inference this is the
+                current denoising state.
+            timestep: Flow-matching timestep tensor with shape `(batch_size,)`.
+                The same timestep is expanded across all `chunk_size` action
+                tokens for each batch item.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks, adarms_cond)`:
+
+            - `embs`: Suffix embeddings passed to the action expert stream,
+              with shape `(batch_size, 1 + chunk_size, action_expert_hidden_size)`.
+              The first suffix token is the projected robot state, followed by
+              `chunk_size` noisy action tokens fused with timestep embeddings.
+            - `pad_masks`: Boolean validity mask for suffix tokens, with shape
+              `(batch_size, 1 + chunk_size)`. State and action tokens are all
+              marked valid.
+            - `att_masks`: Suffix attention-group mask with shape
+              `(batch_size, 1 + chunk_size)`. The state token and first action
+              token are set to `1`; the remaining action tokens are set to `0`.
+              These values are consumed by `make_att_2d_masks` to build the
+              final 2D attention mask.
+            - `adarms_cond`: Adaptive RMSNorm conditioning for the expert
+              stream. PI0 sets this to `None` because this configuration does
+              not use AdaRMS conditioning.
+        """
         embs = []
         pad_masks = []
         att_masks = []
@@ -708,6 +793,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         def state_proj_func(state):
             return self.state_proj(state)
 
+        # state_emb shape: (batch_size, 1, action_expert_hidden_size)
         state_emb = self._apply_checkpoint(state_proj_func, state)
         embs.append(state_emb[:, None, :])
         bsize = state_emb.shape[0]
@@ -718,6 +804,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         att_masks += [1]
 
         # Embed timestep using sine-cosine positional encoding
+        # time_emb shape: (batch_size, action_expert_hidden_size)
         time_emb = create_sinusoidal_pos_embedding(
             timestep,
             self.action_in_proj.out_features,
@@ -731,8 +818,11 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         def action_proj_func(noisy_actions):
             return self.action_in_proj(noisy_actions)
 
+        # action_emb shape: (batch_size, chunk_size, action_expert_hidden_size)
         action_emb = self._apply_checkpoint(action_proj_func, noisy_actions)
 
+        # time_emb shape: (batch_size, chunk_size, action_expert_hidden_size)
+        # action_time_emb shape: (batch_size, chunk_size, action_expert_hidden_size * 2)
         time_emb = time_emb[:, None, :].expand_as(action_emb)
         action_time_emb = torch.cat([action_emb, time_emb], dim=2)
 
@@ -741,6 +831,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             x = F.silu(x)
             return self.action_time_mlp_out(x)
 
+        # action_time_emb shape: (batch_size, chunk_size, action_expert_hidden_size)
         action_time_emb = self._apply_checkpoint(mlp_func, action_time_emb)
         adarms_cond = None
 
@@ -760,14 +851,58 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return embs, pad_masks, att_masks, adarms_cond
 
     def forward(self, images, img_masks, lang_tokens, lang_masks, state, actions, noise, time) -> Tensor:
-        """Do a full training forward pass and compute the loss."""
+        """Run the PI0 flow-matching training forward pass.
+
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, image_resolution[0], image_resolution[1])`
+                after PI0 preprocessing.
+            img_masks: List of boolean camera validity masks. Each tensor has
+                shape `(batch_size,)`; `True` means the corresponding camera
+                image is valid for that batch item.
+            lang_tokens: Tokenized language instruction ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Boolean language attention mask with shape
+                `(batch_size, tokenizer_max_length)`; `True` marks valid
+                language tokens and `False` marks padding.
+            state: Robot state tensor padded to `max_state_dim`, with shape
+                `(batch_size, max_state_dim)`.
+            actions: Ground-truth action chunk padded to `max_action_dim`, with
+                shape `(batch_size, chunk_size, max_action_dim)`.
+            noise: Gaussian noise sampled with the same shape as `actions`,
+                `(batch_size, chunk_size, max_action_dim)`.
+            time: Flow-matching timestep sampled per batch item, with shape
+                `(batch_size,)`.
+
+        Returns:
+            Per-token, per-action-dimension MSE loss with shape
+            `(batch_size, chunk_size, max_action_dim)`. The wrapper policy
+            later truncates this to the real action dimension and reduces it.
+
+        Notes:
+            PI0 trains a velocity field for flow matching. It first constructs
+            the noisy action state `x_t = time * noise + (1 - time) * actions`,
+            then supervises the model to predict the target velocity
+            `u_t = noise - actions`.
+        """
+
+        # x_t / u_t shape: (batch_size, chunk_size, max_action_dim)
         time_expanded = time[:, None, None]
         x_t = time_expanded * noise + (1 - time_expanded) * actions
         u_t = noise - actions
 
+        # prefix_embs shape: (batch_size, prefix_seq_len, paligemma_hidden_size)
+        # prefix_pad_masks shape: (batch_size, prefix_seq_len)
+        # prefix_att_masks shape: (batch_size, prefix_seq_len)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks
         )
+
+        # suffix_embs shape: (batch_size, suffix_seq_len, action_expert_hidden_size)
+        #   where suffix_seq_len == 1 + chunk_size
+        # suffix_pad_masks shape: (batch_size, suffix_seq_len)
+        # suffix_att_masks shape: (batch_size, suffix_seq_len)
+        # adarms_cond: None
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, time)
 
         if (
@@ -777,12 +912,24 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
             prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
 
+        # pad_masks shape: (batch_size, seq_len)
+        #   where seq_len == prefix_seq_len + suffix_seq_len
+        # att_masks shape: (batch_size, seq_len)
         pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
         att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
 
+        # att_2d_masks shape: (batch_size, seq_len, seq_len)
+        # Practical behavior:
+        #   - image/language context tokens can attend within image/language context
+        #   - state/action tokens can attend to image/language context
+        #   - state/action tokens can also attend within their own group
+        #   - image/language tokens cannot attend to state/action tokens
+        #   - padding tokens are ignored
+        # position_ids shape: (batch_size, seq_len)
         att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
         position_ids = torch.cumsum(pad_masks, dim=1) - 1
 
+        # att_2d_masks_4d shape: (batch_size, 1, seq_len, seq_len)
         att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
 
         def forward_func(prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
@@ -796,6 +943,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             )
             return suffix_out
 
+        # suffix_out shape: (batch_size, chunk_size, action_expert_hidden_size)
         suffix_out = self._apply_checkpoint(
             forward_func, prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond
         )
@@ -806,6 +954,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         def action_out_proj_func(suffix_out):
             return self.action_out_proj(suffix_out)
 
+        # v_t shape: (batch_size, chunk_size, max_action_dim)
         v_t = self._apply_checkpoint(action_out_proj_func, suffix_out)
 
         return F.mse_loss(u_t, v_t, reduction="none")
@@ -822,7 +971,30 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         num_steps=None,
         **kwargs: Unpack[ActionSelectKwargs],
     ) -> Tensor:
-        """Do a full inference forward and compute the action."""
+        """Do a full inference forward and compute the action.
+        
+        Args:
+            images: List of camera image tensors. Each tensor has shape
+                `(batch_size, channels, image_resolution[0], image_resolution[1])`
+                after PI0 preprocessing.
+            img_masks: List of boolean camera validity masks. Each tensor has
+                shape `(batch_size,)`; `True` means the corresponding camera
+                image is valid for that batch item.
+            lang_tokens: Tokenized language instruction ids with shape
+                `(batch_size, tokenizer_max_length)`.
+            lang_masks: Boolean language attention mask with shape
+                `(batch_size, tokenizer_max_length)`; `True` marks valid
+                language tokens and `False` marks padding.
+            state: Robot state tensor padded to `max_state_dim`, with shape
+                `(batch_size, max_state_dim)`.
+            noise: Gaussian noise sampled with the same shape as `actions`,
+                `(batch_size, chunk_size, max_action_dim)` or None.
+            time: Flow-matching timestep sampled per batch item, with shape
+                `(batch_size,)` or None.
+
+        Returns:
+            Denoised action chunk with shape `(batch_size, chunk_size, max_action_dim)`.
+        """
         if num_steps is None:
             num_steps = self.config.num_inference_steps
 
@@ -838,12 +1010,19 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             )  # Use config max_action_dim for internal processing
             noise = self.sample_noise(actions_shape, device)
 
+        # prefix_embs shape: (batch_size, prefix_seq_len, paligemma_hidden_size)
+        # prefix_pad_masks shape: (batch_size, prefix_seq_len)
+        # prefix_att_masks shape: (batch_size, prefix_seq_len)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks
         )
+
+        # prefix_att_2d_masks shape: (batch_size, prefix_seq_len, prefix_seq_len)
+        # prefix_position_ids shape: (batch_size, prefix_seq_len)
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
 
+        # prefix_att_2d_masks_4d shape: (batch_size, 1, prefix_seq_len, prefix_seq_len)
         prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
         self.paligemma_with_expert.paligemma.model.language_model.config._attn_implementation = "eager"  # noqa: SLF001
 
@@ -1290,15 +1469,24 @@ class PI0Policy(PreTrainedPolicy):
                 - "none": Return per-sample losses of shape (batch_size,) for RA-BC weighting
         """
         # Prepare inputs
+        # images shape: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks shape: List[(batch_size,)]
+        # lang_tokens shape: (batch_size, tokenizer_max_length)
+        # lang_masks shape: (batch_size, tokenizer_max_length)
+        # state shape: (batch_size, max_state_dim)
+        # actions shape: (batch_size, chunk_size, max_action_dim)
         images, img_masks = self._preprocess_images(batch)
         lang_tokens, lang_masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         state = self.prepare_state(batch)
         actions = self.prepare_action(batch)
 
+        # noise shape: (batch_size, chunk_size, max_action_dim)
+        # time shape: (batch_size, )
         noise = self.model.sample_noise(actions.shape, actions.device)
         time = self.model.sample_time(actions.shape[0], actions.device)
 
         # Compute loss
+        # losses shape: (batch_size, chunk_size, max_action_dim)
         losses = self.model.forward(images, img_masks, lang_tokens, lang_masks, state, actions, noise, time)
 
         # Truncate losses to actual action dimensions

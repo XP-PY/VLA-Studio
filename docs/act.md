@@ -43,6 +43,8 @@ Therefore, I changed the front camera viewpoint so that the screwdriver and the 
 
 Then I recorded a 50-episode dataset with the white box fixed in place:
 
+I used a passive recording script instead of the standard `lerobot-record` workflow because the master arm controls the RM65 directly, but its joint/action data is not available to LeRobot. In this setup, LeRobot can only read the RM65 state and camera observations. Therefore, the dataset records the RM65's executed joint positions as actions while the external master arm performs the control.
+
 ```bash
 TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
 TASK_PROMPT="grasp screwdriver and place it in box"
@@ -86,7 +88,7 @@ lerobot-train \
     --log_freq 100 \
     --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
-    --wandb.project rm65_lerobot \
+    --wandb.project lerobot_rm65_act \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
@@ -234,7 +236,7 @@ lerobot-train \
     --log_freq 100 \
     --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
-    --wandb.project rm65_lerobot \
+    --wandb.project lerobot_rm65_act \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
@@ -309,7 +311,7 @@ lerobot-train \
     --log_freq 100 \
     --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
-    --wandb.project rm65_lerobot \
+    --wandb.project lerobot_rm65_act \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
@@ -392,7 +394,7 @@ lerobot-train \
     --log_freq 100 \
     --output_dir ./runs/train/$TRAINING_ID \
     --wandb.enable true \
-    --wandb.project rm65_lerobot \
+    --wandb.project lerobot_rm65_act \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```

@@ -24,6 +24,8 @@ Dataset recording script:
 repos/lerobot/examples/rm65/passive_record.py
 ```
 
+Note: this project uses passive dataset recording instead of the standard `lerobot-record` workflow because the master arm directly controls the RM65, but its joint/action data is not available to LeRobot. The recording script therefore saves the RM65's executed joint positions as actions, together with camera observations.
+
 ---
 
 ## Documentation
