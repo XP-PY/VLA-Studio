@@ -45,6 +45,7 @@ from lerobot.utils.constants import (
 from lerobot.utils.feature_utils import dataset_to_policy_features
 
 from .act.configuration_act import ACTConfig
+from .action_flow_v1.configuration_action_flow_v1 import ActionFlowV1Config
 from .diffusion.configuration_diffusion import DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config
 from .gaussian_actor.configuration_gaussian_actor import GaussianActorConfig
@@ -102,6 +103,10 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
         from .tdmpc.modeling_tdmpc import TDMPCPolicy
 
         return TDMPCPolicy
+    elif name == "action_flow_v1":
+        from .action_flow_v1.modeling_action_flow_v1 import ActionFlowV1Policy
+
+        return ActionFlowV1Policy
     elif name == "diffusion":
         from .diffusion.modeling_diffusion import DiffusionPolicy
 
@@ -190,6 +195,8 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
     """
     if policy_type == "tdmpc":
         return TDMPCConfig(**kwargs)
+    elif policy_type == "action_flow_v1":
+        return ActionFlowV1Config(**kwargs)
     elif policy_type == "diffusion":
         return DiffusionConfig(**kwargs)
     elif policy_type == "act":
@@ -330,6 +337,14 @@ def make_pre_post_processors(
         from .tdmpc.processor_tdmpc import make_tdmpc_pre_post_processors
 
         processors = make_tdmpc_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
+    elif isinstance(policy_cfg, ActionFlowV1Config):
+        from .action_flow_v1.processor_action_flow_v1 import make_action_flow_v1_pre_post_processors
+
+        processors = make_action_flow_v1_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )
