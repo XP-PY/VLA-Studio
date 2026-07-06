@@ -1,0 +1,143 @@
+# RM65 hardware profile for a bimanual RM65 scene with four cameras.
+#
+# Arm network layout:
+# - left arm: 192.168.1.18:8080
+# - right arm: 192.168.1.19:8080
+#
+# In bimanual mode the adapter exposes prefixed action/observation keys:
+# - left_joint_1.pos ... left_joint_6.pos, left_gripper.pos
+# - right_joint_1.pos ... right_joint_6.pos, right_gripper.pos
+# Camera keys stay unprefixed.
+#
+# Camera naming:
+# - left_wrist: wrist camera mounted on the left arm end effector
+# - right_wrist: wrist camera mounted on the right arm end effector
+# - front: external OpenCV camera facing the robot/task from the front
+# - top: overhead camera looking down at the workspace
+#
+# Replace any remaining TODO serial numbers with the detected RealSense serial
+# numbers before using this config for recording or rollout.
+#
+# This file is intended to be reused by LeRobot scripts that accept a top-level
+# `robot` config, for example:
+#   --config_path=configs/rm65_left_right_wrist_front_top.yaml
+robot:
+  type: rm65
+  id: rm65_bimanual
+  mode: bimanual
+
+  left_arm:
+    ip: 192.168.1.18
+    port: 8080
+    socket_timeout_s: 3.0
+
+    joint_names:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+
+    joint_limits:
+      joint_1: [-177.96, 177.96]
+      joint_2: [-130.0, 130.0]
+      joint_3: [-135.0, 135.0]
+      joint_4: [-177.96, 177.96]
+      joint_5: [-128.0, 128.0]
+      joint_6: [-359.82, 359.82]
+
+    max_relative_target: 100.0
+
+    use_canfd: true
+    canfd_follow: false
+    canfd_expand: 1000
+    canfd_trajectory_mode: 0
+    canfd_smooth: 0
+
+    movej_speed: 20
+    movej_blend_radius: 0
+    movej_connect: 0
+
+    # RM Plus pos[0] tracks the gripper position on this setup.
+    use_gripper: true
+    gripper_rm_plus_index: 0
+    gripper_min: 1
+    gripper_max: 1000
+
+  right_arm:
+    ip: 192.168.1.19
+    port: 8080
+    socket_timeout_s: 3.0
+
+    joint_names:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+
+    joint_limits:
+      joint_1: [-177.96, 177.96]
+      joint_2: [-130.0, 130.0]
+      joint_3: [-135.0, 135.0]
+      joint_4: [-177.96, 177.96]
+      joint_5: [-128.0, 128.0]
+      joint_6: [-359.82, 359.82]
+
+    max_relative_target: 100.0
+
+    use_canfd: true
+    canfd_follow: false
+    canfd_expand: 1000
+    canfd_trajectory_mode: 0
+    canfd_smooth: 0
+
+    movej_speed: 20
+    movej_blend_radius: 0
+    movej_connect: 0
+
+    # RM Plus pos[0] tracks the gripper position on this setup.
+    use_gripper: true
+    gripper_rm_plus_index: 0
+    gripper_min: 1
+    gripper_max: 1000
+
+  calibration_dir: /tmp/lerobot-rm65-calibration
+
+  cameras:
+    left_wrist:
+      type: intelrealsense
+      serial_number_or_name: 254522073961
+      width: 640
+      height: 480
+      fps: 30
+      use_depth: false
+      warmup_s: 1
+
+    right_wrist:
+      type: intelrealsense
+      serial_number_or_name: 335222071948
+      width: 640
+      height: 480
+      fps: 30
+      use_depth: false
+      warmup_s: 1
+
+    front:
+      type: opencv
+      index_or_path: 12
+      width: 640
+      height: 480
+      fps: 30
+      warmup_s: 1
+
+    top:
+      type: intelrealsense
+      serial_number_or_name: 335522070090
+      width: 640
+      height: 480
+      fps: 30
+      use_depth: false
+      warmup_s: 1

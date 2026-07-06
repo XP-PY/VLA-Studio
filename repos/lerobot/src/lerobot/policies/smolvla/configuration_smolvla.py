@@ -106,6 +106,9 @@ class SmolVLAConfig(PreTrainedConfig):
     compile_model: bool = False  # Whether to use torch.compile for model optimization
     compile_mode: str = "max-autotune"  # Torch compile mode
 
+    # ACT temporal ensembler
+    temporal_ensemble_coeff: float | None = None
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -118,6 +121,11 @@ class SmolVLAConfig(PreTrainedConfig):
         if self.use_delta_joint_actions_aloha:
             raise NotImplementedError(
                 "`use_delta_joint_actions_aloha` is used by smolvla for aloha real models. It is not ported yet in LeRobot."
+            )
+        if self.temporal_ensemble_coeff is not None and self.n_action_steps > 1:
+            raise NotImplementedError(
+                "`n_action_steps` must be 1 when using temporal ensembling. "
+                "The policy must be queried every step to compute the ensembled action."
             )
 
     def validate_features(self) -> None:

@@ -1,15 +1,56 @@
-PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+## ====== ACT ======
+
+# PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+
+# lerobot-rollout \
+#     --config_path=configs/rm65_realsense.yaml \
+#     --strategy.type=base \
+#     --inference.type=sync \
+#     --robot.canfd_follow=true \
+#     --robot.max_relative_target=1000.0 \
+#     --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
+#     --policy.temporal_ensemble_coeff=0.01 \
+#     --policy.n_action_steps=1 \
+#     --device=cuda \
+#     --fps=20 \
+#     --duration=20 \
+#     --task="pick screwdriver and put it in box" \
+#     --return_to_initial_position=false \
+#     2>&1 | tee ./logs/rollout_$PRETRAINED.log
+
+# ====== SmolVLA ======
+
+PRETRAINED_ID=rm65_smolvla_pick_screwdriver_to_fixed_box_episodes_250_steps_20000_batch_64_chunk_50
 
 lerobot-rollout \
     --config_path=configs/rm65_realsense.yaml \
     --strategy.type=base \
     --inference.type=sync \
-    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
-    --policy.temporal_ensemble_coeff=0.01 \
-    --policy.n_action_steps=1 \
+    --robot.canfd_follow=true \
+    --robot.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
+    --policy.n_action_steps=50 \
     --device=cuda \
-    --fps=20 \
+    --fps=30 \
     --duration=20 \
     --task="pick screwdriver and put it in box" \
     --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED.log
+    2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log
+
+# PRETRAINED_ID=rm65_smolvla_pick_screwdriver_to_fixed_box_episodes_250_steps_20000_batch_64_chunk_50
+
+# lerobot-rollout \
+#     --config_path=configs/rm65_realsense.yaml \
+#     --strategy.type=base \
+#     --inference.type=sync \
+#     --robot.canfd_follow=false \
+#     --robot.max_relative_target=1000.0 \
+#     --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
+#     --policy.temporal_ensemble_coeff=0.01 \
+#     --policy.n_action_steps=1 \
+#     --device=cuda \
+#     --fps=20 \
+#     --duration=20 \
+#     --task="pick screwdriver and put it in box" \
+#     --return_to_initial_position=false \
+#     2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log

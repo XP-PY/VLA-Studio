@@ -5,7 +5,7 @@ import os
 import time
 from pathlib import Path
 
-from lerobot.robots.rm65 import RM65Robot, RM65RobotConfig
+from lerobot.robots.rm65 import RM65ArmConfig, RM65Robot, RM65RobotConfig
 
 try:
     import pytest
@@ -24,13 +24,16 @@ def make_config(
     del sdk_path
 
     return RM65RobotConfig(
-        ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
-        port=port or int(os.getenv("RM65_PORT", "8080")),
+        mode="single",
+        single_arm=RM65ArmConfig(
+            ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
+            port=port or int(os.getenv("RM65_PORT", "8080")),
+            use_gripper=use_gripper,
+            max_relative_target=max_relative_target,
+        ),
         calibration_dir=Path(
             calibration_dir or os.getenv("RM65_CALIBRATION_DIR", "/tmp/lerobot-rm65-calibration")
         ).expanduser(),
-        use_gripper=use_gripper,
-        max_relative_target=max_relative_target,
     )
 
 
@@ -65,7 +68,7 @@ def run_motion_and_gripper_test(
         original_joint = float(original_obs[f"{joint_name}.pos"])
         target_joint = original_joint + joint_delta_deg
 
-        print(f"Connected to RM65 at {cfg.ip}:{cfg.port}")
+        print(f"Connected to RM65 at {robot.default_arm_config.ip}:{robot.default_arm_config.port}")
         print(f"Initial {joint_name}: {original_joint:.3f} deg")
 
         if not skip_motion:

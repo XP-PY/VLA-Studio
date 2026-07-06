@@ -3,6 +3,10 @@
 from dataclasses import dataclass, field
 
 from lerobot.cameras import CameraConfig
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig as _OpenCVCameraConfig  # noqa: F401
+from lerobot.cameras.realsense.configuration_realsense import (  # noqa: F401
+    RealSenseCameraConfig as _RealSenseCameraConfig,
+)
 
 from ..config import RobotConfig
 
@@ -20,13 +24,46 @@ RM65_JOINT_LIMITS_DEG: dict[str, tuple[float, float]] = {
 @RobotConfig.register_subclass("rm65")
 @dataclass
 class RM65RobotConfig(RobotConfig):
-    """Configuration for a RealMan RM65 arm using the controller JSON/TCP protocol."""
+    """Configuration for one RM65 arm, or a bimanual pair of RM65 arms.
 
-    ip: str = "192.168.1.18"
+    In `single` mode, `single_arm` defines the arm and action/observation keys
+    keep the original names, for example `joint_1.pos`.
+
+    In `bimanual` mode, `left_arm` and `right_arm` define the two arms and
+    action/observation keys are prefixed, for example `left_joint_1.pos` and
+    `right_joint_1.pos`. Camera keys stay unprefixed.
+    """
+
+    mode: str = "single"
+    cameras: dict[str, CameraConfig] = field(default_factory=dict)
+
+    single_arm: "RM65ArmConfig | None" = None
+    left_arm: "RM65ArmConfig | None" = None
+    right_arm: "RM65ArmConfig | None" = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.mode == "single":
+            if self.single_arm is None:
+                raise ValueError("`single_arm` must be provided when `mode` is 'single'.")
+            if self.left_arm is not None or self.right_arm is not None:
+                raise ValueError("`left_arm` and `right_arm` must be omitted when `mode` is 'single'.")
+        elif self.mode == "bimanual":
+            if self.left_arm is None or self.right_arm is None:
+                raise ValueError("`left_arm` and `right_arm` must be provided when `mode` is 'bimanual'.")
+            if self.single_arm is not None:
+                raise ValueError("`single_arm` must be omitted when `mode` is 'bimanual'.")
+        else:
+            raise ValueError(f"Unsupported RM65 mode: {self.mode}")
+
+
+@dataclass
+class RM65ArmConfig:
+    """Per-arm RM65 network and control settings."""
+
+    ip: str
     port: int = 8080
     socket_timeout_s: float = 3.0
-
-    cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
     joint_names: list[str] = field(
         default_factory=lambda: [

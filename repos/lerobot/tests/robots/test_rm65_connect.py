@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from lerobot.robots.rm65 import RM65Robot, RM65RobotConfig
+from lerobot.robots.rm65 import RM65ArmConfig, RM65Robot, RM65RobotConfig
 
 try:
     import pytest
@@ -21,8 +21,11 @@ def make_config(
     del sdk_path
 
     return RM65RobotConfig(
-        ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
-        port=port or int(os.getenv("RM65_PORT", "8080")),
+        mode="single",
+        single_arm=RM65ArmConfig(
+            ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
+            port=port or int(os.getenv("RM65_PORT", "8080")),
+        ),
         calibration_dir=Path(
             calibration_dir or os.getenv("RM65_CALIBRATION_DIR", "/tmp/lerobot-rm65-calibration")
         ).expanduser(),
@@ -34,11 +37,11 @@ def connect_and_read_once(cfg: RM65RobotConfig) -> dict:
     try:
         robot.connect()
         obs = robot.get_observation()
-        print(f"Connected to RM65 at {cfg.ip}:{cfg.port}")
+        print(f"Connected to RM65 at {robot.default_arm_config.ip}:{robot.default_arm_config.port}")
         print("Joint positions:")
-        for name in cfg.joint_names:
+        for name in robot.default_arm_config.joint_names:
             print(f"  {name}: {obs[f'{name}.pos']:.3f} deg")
-        if cfg.use_gripper:
+        if robot.default_arm_config.use_gripper:
             print(f"Gripper position: {obs['gripper.pos']:.3f}")
         return obs
     finally:

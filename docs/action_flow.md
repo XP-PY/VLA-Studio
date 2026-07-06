@@ -138,3 +138,80 @@ for step in range(num_inference_steps):
 ```
 
 The final `x_t` is treated as the normalized action chunk. `select_action` stores the first `n_action_steps` actions in a queue and returns one action per control step, matching ACT's deployment behavior.
+
+---
+
+## Training Objective 1: Bimanual Assembly-Part Grasping
+
+This experiment uses the same task and hardware setup as [ACT Training Objective 2](./act.md#training-objective-2-bimanual-assembly-part-grasping), so the result can be compared directly with the ACT baseline.
+
+The goal is to train an `action_flow_v1` policy to control two RM65 robotic arms simultaneously. Each arm has a two-finger gripper. The two arms need to grasp two different assembly parts and place them in the center assembly area. For the first dataset, the large round part is fixed in place, and the small part is kept upright. The main variation is the orientation of the small part.
+
+The bimanual setup uses two RM65 arms:
+
+- Left arm: `192.168.1.18:8080`
+- Right arm: `192.168.1.19:8080`
+
+The policy predicts continuous action chunks for both arms. The action keys are:
+
+- Left arm: `left_joint_1.pos` to `left_joint_6.pos`, plus `left_gripper.pos`
+- Right arm: `right_joint_1.pos` to `right_joint_6.pos`, plus `right_gripper.pos`
+
+The observation uses four cameras:
+
+| Camera key | Type | Identifier | Resolution | FPS | Role |
+| :--- | :--- | :--- | :--- | ---: | :--- |
+| `left_wrist` | Intel RealSense | `254522073961` | 640 x 480 | 30 | Local view from the left gripper. |
+| `right_wrist` | Intel RealSense | `335222071948` | 640 x 480 | 30 | Local view from the right gripper. |
+| `front` | OpenCV camera | device index `12` | 640 x 480 | 30 | External front view of the task. |
+| `top` | Intel RealSense | `335522070090` | 640 x 480 | 30 | Overhead workspace view. |
+
+The corresponding robot config is:
+
+```text
+configs/rm65_left_right_wrist_front_top.yaml
+```
+
+This objective is a useful test for `action_flow_v1` because the policy keeps ACT's image/state/action interface while replacing direct action regression with flow matching. If it performs better than ACT on the same dataset, that would suggest the flow-matching action objective is useful for this bimanual grasping task.
+
+---
+
+## Training Logs of Objective 1
+
+### Training Log 1
+
+#### Dataset Recording
+
+I used the dataset recorded for [ACT Training Objective 2, Log 1](./act.md#training-logs-of-objective-2).
+
+#### Training script
+
+I used the same setting as [ACT Training Objective 2, Log 1](./act.md#training-logs-of-objective-2):
+
+```bash
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+
+DATASET_ID=rm65_bimanual_grasp_and_place
+TRAINING_ID=rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
+    --policy.type action_flow_v1 \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 50 \
+    --policy.n_action_steps 1 \
+    --batch_size 16 \
+    --steps 20000 \
+    --eval_freq 0 \
+    --save_freq 5000 \
+    --log_freq 100 \
+    --output_dir ./runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project lerobot_rm65_act \
+    --job_name $TRAINING_ID \
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
+```

@@ -5,6 +5,7 @@
 __pycache__/
 runs
 models
+logs
 repos/*
 !repos/lerobot/
 !repos/chassis_sdk/

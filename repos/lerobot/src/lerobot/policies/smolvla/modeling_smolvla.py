@@ -71,7 +71,7 @@ from ..utils import (
 )
 from .configuration_smolvla import SmolVLAConfig
 from .smolvlm_with_expert import SmolVLMWithExpertModel
-
+from ..act.modeling_act import ACTTemporalEnsembler
 
 class ActionSelectKwargs(TypedDict, total=False):
     inference_delay: int | None
@@ -273,13 +273,20 @@ class SmolVLAPolicy(PreTrainedPolicy):
         self.config = config
         self.init_rtc_processor()
         self.model = VLAFlowMatching(config, rtc_processor=self.rtc_processor)
+
+        if config.temporal_ensemble_coeff is not None:
+            self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
+
         self.reset()
 
     def reset(self):
         """This should be called whenever the environment is reset."""
-        self._queues = {
-            ACTION: deque(maxlen=self.config.n_action_steps),
-        }
+        if self.config.temporal_ensemble_coeff is not None:
+            self.temporal_ensembler.reset()
+        else:
+            self._queues = {
+                ACTION: deque(maxlen=self.config.n_action_steps),
+            }
 
     def init_rtc_processor(self):
         """Initialize RTC processor if RTC is enabled in config."""
@@ -308,9 +315,10 @@ class SmolVLAPolicy(PreTrainedPolicy):
         # In the case of offline inference, we have the action in the batch
         # that why without the k != ACTION check, it will raise an error because we are trying to stack
         # on an empty container.
-        for k in batch:
-            if k in self._queues and k != ACTION:
-                batch[k] = torch.stack(list(self._queues[k]), dim=1)
+        if self.config.temporal_ensemble_coeff is None:
+            for k in batch:
+                if k in self._queues and k != ACTION:
+                    batch[k] = torch.stack(list(self._queues[k]), dim=1)
 
         # images shape: List[(batch_size, channels, height, width)]
         # img_masks shape: List[(batch_size,)]
@@ -349,7 +357,8 @@ class SmolVLAPolicy(PreTrainedPolicy):
         self.eval()
 
         batch = self._prepare_batch(batch)
-        self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
+        if self.config.temporal_ensemble_coeff is None:
+            self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
 
         actions = self._get_action_chunk(batch, noise, **kwargs)
         return actions
@@ -371,6 +380,12 @@ class SmolVLAPolicy(PreTrainedPolicy):
 
         self.eval()
         batch = self._prepare_batch(batch)
+
+        if self.config.temporal_ensemble_coeff is not None:
+            actions = self._get_action_chunk(batch, noise)
+            action = self.temporal_ensembler.update(actions)
+            return action
+
         self._queues = populate_queues(self._queues, batch, exclude_keys=[ACTION])
 
         if self._check_get_actions_condition():

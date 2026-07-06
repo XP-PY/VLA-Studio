@@ -42,6 +42,7 @@ from lerobot.utils.robot_utils import precise_sleep
 logger = logging.getLogger(__name__)
 
 IO_READ_SOURCES = ("state", "input", "output", "tool", "aloha", "auto")
+CONTROL_ARMS = ("auto", "single", "left", "right")
 
 
 @dataclass
@@ -165,25 +166,48 @@ def _read_indexed_io_values(values: Any, io_num: int, label: str) -> bool:
     return bool(value)
 
 
-def _read_controller_io_source(robot: RM65Robot, io_num: int, io_read_source: str) -> bool:
-    assert robot.client is not None
+def resolve_control_side(robot: RM65Robot, control_arm: str) -> str:
+    if control_arm == "auto":
+        return "right" if robot.is_bimanual else ""
+    if control_arm == "single":
+        control_side = ""
+    else:
+        control_side = control_arm
+
+    if control_side not in robot.arm_configs:
+        available = ["single" if side == "" else side for side in robot.arm_configs]
+        raise ValueError(f"--control-arm={control_arm} is invalid for this config. Available: {available}")
+    return control_side
+
+
+def control_side_label(control_side: str) -> str:
+    return control_side or "single"
+
+
+def _read_controller_io_source(
+    robot: RM65Robot,
+    io_num: int,
+    io_read_source: str,
+    control_side: str,
+) -> bool:
+    client = robot._client_for(control_side)
     if io_read_source == "state":
-        state = robot.client.get_io_state(io_num)
+        state = client.get_io_state(io_num)
         return bool(state["IO_state"])
     if io_read_source == "input":
-        values = robot.client.get_io_input()
+        values = client.get_io_input()
         return _read_indexed_io_values(values, io_num, "rm_get_io_input")
     if io_read_source == "output":
-        values = robot.client.get_io_output()
+        values = client.get_io_output()
         return _read_indexed_io_values(values, io_num, "rm_get_io_output")
     if io_read_source == "tool":
-        state = robot.client.get_tool_io_state()
+        state = client.get_tool_io_state()
         return _read_indexed_io_values(state.get("IO_State"), io_num, "rm_get_tool_io_state")
     if io_read_source == "auto":
         errors = []
         for source in ("input", "state", "output", "tool"):
             try:
-                return _read_controller_io_source(robot, io_num, source)
+                return _read_controller_io_source(robot, io_num, source, control_side)
             except Exception as exc:
                 errors.append(f"{source}: {exc}")
         raise RuntimeError(f"Could not read IO{io_num} from any source: {'; '.join(errors)}")
@@ -195,6 +219,7 @@ def read_controller_io(
     io_num: int,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None = None,
 ) -> bool:
     if io_read_source == "aloha":
@@ -202,28 +227,30 @@ def read_controller_io(
             raise RuntimeError("Aloha IO source requires an active AlohaStateReader")
         value = aloha_reader.read_io(io_num)
     else:
-        value = _read_controller_io_source(robot, io_num, io_read_source)
+        value = _read_controller_io_source(robot, io_num, io_read_source, control_side)
     return not value if io_active_low else value
 
 
-def configure_io_inputs(robot: RM65Robot, io_nums: list[int]) -> None:
-    assert robot.client is not None
+def configure_io_inputs(robot: RM65Robot, io_nums: list[int], control_side: str) -> None:
+    client = robot._client_for(control_side)
     for io_num in sorted(set(io_nums)):
-        robot.client.set_io_mode(io_num, 0)
-        logger.info("Set IO%s to general input mode.", io_num)
+        client.set_io_mode(io_num, 0)
+        logger.info("Set %s-arm IO%s to general input mode.", control_side_label(control_side), io_num)
 
 
 class AlohaStateReader:
     def __init__(
         self,
         robot: RM65Robot,
+        control_side: str,
         target_ip: str | None,
         push_port: int,
         cycle_ms: int,
     ) -> None:
-        assert robot.client is not None
         self.robot = robot
-        self.target_ip = target_ip or self._local_ip_for_robot(robot.config.ip)
+        self.control_side = control_side
+        arm_config = robot.arm_configs[control_side]
+        self.target_ip = target_ip or self._local_ip_for_robot(arm_config.ip)
         self.push_port = push_port
         self.cycle_ms = cycle_ms
         self.json_cycle = max(1, int(round(cycle_ms / 5)))
@@ -245,7 +272,7 @@ class AlohaStateReader:
             return sock.getsockname()[0]
 
     def start(self) -> None:
-        assert self.robot.client is not None
+        client = self.robot._client_for(self.control_side)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.settimeout(0.2)
         self._sock.bind(("", self.push_port))
@@ -276,7 +303,7 @@ class AlohaStateReader:
         try:
             for label, cycle, force_coordinate, custom in attempts:
                 try:
-                    self.robot.client.set_realtime_push(
+                    client.set_realtime_push(
                         enable=True,
                         target_ip=self.target_ip,
                         port=self.push_port,
@@ -301,7 +328,8 @@ class AlohaStateReader:
             raise
         self._started = True
         logger.info(
-            "Started RM65 realtime aloha_state trigger on %s:%s cycle_ms=%s accepted_cycle=%s.",
+            "Started %s-arm RM65 realtime aloha_state trigger on %s:%s cycle_ms=%s accepted_cycle=%s.",
+            control_side_label(self.control_side),
             self.target_ip,
             self.push_port,
             self.cycle_ms,
@@ -309,9 +337,9 @@ class AlohaStateReader:
         )
 
     def stop(self) -> None:
-        if self.robot.client is not None and self._started:
+        if self.robot.is_connected and self._started:
             try:
-                self.robot.client.set_realtime_push(
+                self.robot._client_for(self.control_side).set_realtime_push(
                     enable=False,
                     target_ip=self.target_ip,
                     port=self.push_port,
@@ -409,7 +437,7 @@ class AlohaStateReader:
             return
 
         self._last_joint_clear_s = now_s
-        clear_rm65_joint_errors(self.robot)
+        clear_rm65_joint_errors(self.robot, sides=[self.control_side])
 
     def read_io(self, io_num: int, timeout_s: float = 2.0) -> bool:
         if io_num not in (1, 2):
@@ -434,15 +462,22 @@ def wait_for_button_press(
     poll_interval_s: float,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None,
 ) -> None:
-    while read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader):
+    while read_controller_io(
+        robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+    ):
         precise_sleep(poll_interval_s)
 
-    while not read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader):
+    while not read_controller_io(
+        robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+    ):
         precise_sleep(poll_interval_s)
 
-    while read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader):
+    while read_controller_io(
+        robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+    ):
         precise_sleep(poll_interval_s)
 
 
@@ -454,6 +489,7 @@ def wait_for_io_start(
     poll_interval_s: float,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None,
 ) -> None:
     if record_button_io is None and teleop_active_io is None:
@@ -470,7 +506,9 @@ def wait_for_io_start(
             io_read_source,
             io_active_low,
         )
-        while not read_controller_io(robot, teleop_active_io, io_read_source, io_active_low, aloha_reader):
+        while not read_controller_io(
+            robot, teleop_active_io, io_read_source, io_active_low, control_side, aloha_reader
+        ):
             precise_sleep(poll_interval_s)
 
     if record_button_io is None:
@@ -484,7 +522,9 @@ def wait_for_io_start(
             io_read_source,
             io_active_low,
         )
-        while not read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader):
+        while not read_controller_io(
+            robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+        ):
             precise_sleep(poll_interval_s)
         logger.info("Start recording.")
         logger.info("Recording will stop when IO%s goes inactive.", record_button_io)
@@ -496,7 +536,7 @@ def wait_for_io_start(
             io_active_low,
         )
         wait_for_button_press(
-            robot, record_button_io, poll_interval_s, io_read_source, io_active_low, aloha_reader
+            robot, record_button_io, poll_interval_s, io_read_source, io_active_low, control_side, aloha_reader
         )
         logger.info("Start recording.")
         logger.info("Waiting for IO%s press to stop.", record_button_io)
@@ -510,17 +550,20 @@ def should_stop_recording(
     previous_button_state: bool,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None,
 ) -> tuple[bool, bool, str | None]:
     if teleop_active_io is not None and not read_controller_io(
-        robot, teleop_active_io, io_read_source, io_active_low, aloha_reader
+        robot, teleop_active_io, io_read_source, io_active_low, control_side, aloha_reader
     ):
         return True, previous_button_state, f"IO{teleop_active_io} went low"
 
     if record_button_io is None:
         return False, previous_button_state, None
 
-    button_state = read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader)
+    button_state = read_controller_io(
+        robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+    )
     if record_button_mode == "level" and not button_state:
         return True, button_state, f"IO{record_button_io} went low"
     if record_button_mode == "toggle" and button_state and not previous_button_state:
@@ -535,28 +578,36 @@ def wait_for_record_button_release(
     poll_interval_s: float,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None,
 ) -> None:
     if record_button_io is None:
         return
 
-    while read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader):
+    while read_controller_io(
+        robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+    ):
         precise_sleep(poll_interval_s)
 
 
-def clear_rm65_joint_errors(robot: RM65Robot) -> None:
-    assert robot.client is not None
+def clear_rm65_joint_errors(robot: RM65Robot, sides: list[str] | None = None) -> None:
+    if sides is None:
+        sides = list(robot.arm_configs)
+
     failures = []
-    for joint_num in range(1, len(robot.config.joint_names) + 1):
-        try:
-            robot.client.set_joint_clear_err(joint_num)
-        except Exception as exc:
-            failures.append(f"joint {joint_num}: {exc}")
+    for side in sides:
+        client = robot._client_for(side)
+        side_label = control_side_label(side)
+        for joint_num in range(1, len(robot.arm_configs[side].joint_names) + 1):
+            try:
+                client.set_joint_clear_err(joint_num)
+            except Exception as exc:
+                failures.append(f"{side_label} joint {joint_num}: {exc}")
 
     if failures:
         logger.warning("RM65 joint error clear had failures: %s", "; ".join(failures))
     else:
-        logger.info("Cleared RM65 joint errors.")
+        logger.info("Cleared RM65 joint errors for %s.", ", ".join(control_side_label(side) for side in sides))
 
 
 def read_observation_with_joint_error_recovery(
@@ -600,6 +651,7 @@ def record_passive_episode(
     io_poll_interval_s: float,
     io_read_source: str,
     io_active_low: bool,
+    control_side: str,
     aloha_reader: AlohaStateReader | None,
     joint_error_recovery_attempts: int,
     joint_error_recovery_sleep_s: float,
@@ -612,6 +664,7 @@ def record_passive_episode(
         poll_interval_s=io_poll_interval_s,
         io_read_source=io_read_source,
         io_active_low=io_active_low,
+        control_side=control_side,
         aloha_reader=aloha_reader,
     )
 
@@ -622,7 +675,9 @@ def record_passive_episode(
     frames_added = 0
     previous_button_state = bool(
         record_button_io is not None
-        and read_controller_io(robot, record_button_io, io_read_source, io_active_low, aloha_reader)
+        and read_controller_io(
+            robot, record_button_io, io_read_source, io_active_low, control_side, aloha_reader
+        )
     )
 
     while time.perf_counter() < deadline:
@@ -635,6 +690,7 @@ def record_passive_episode(
             previous_button_state=previous_button_state,
             io_read_source=io_read_source,
             io_active_low=io_active_low,
+            control_side=control_side,
             aloha_reader=aloha_reader,
         )
         if stop:
@@ -675,6 +731,17 @@ def wait_for_reset(reset_time_s: float) -> None:
     precise_sleep(reset_time_s)
 
 
+def ask_save_or_discard(frames_added: int) -> bool:
+    logger.info("Episode recorded with %s frame(s).", frames_added)
+    while True:
+        choice = input("Save this episode? [s=save, d=discard]: ").strip().lower()
+        if choice == "s":
+            return True
+        if choice == "d":
+            return False
+        print("Please enter 's' to save or 'd' to discard.")
+
+
 def setup_logging(log_path: str | Path | None) -> None:
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if log_path is not None:
@@ -697,7 +764,7 @@ def parse_args() -> argparse.Namespace:
             "controller moves the robot."
         )
     )
-    parser.add_argument("--config-path", default="configs/rm65_realsense.yaml")
+    parser.add_argument("--config-path", default="configs/rm65_wrist_front.yaml")
     parser.add_argument("--repo-id", default="local/rm65_passive_test")
     parser.add_argument(
         "--root",
@@ -735,6 +802,15 @@ def parse_args() -> argparse.Namespace:
             "SDK field used to read --record-button-io and --teleop-active-io. "
             "Use 'input' after setting controller IOs to input mode; use 'tool' "
             "for end-effector IO1/IO2; use 'aloha' for realtime teleoperator IO1/IO2."
+        ),
+    )
+    parser.add_argument(
+        "--control-arm",
+        choices=CONTROL_ARMS,
+        default="auto",
+        help=(
+            "Arm controller used for IO/Aloha recording triggers. "
+            "'auto' uses the single arm in single mode and the right arm in bimanual mode."
         ),
     )
     parser.add_argument(
@@ -786,6 +862,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--private", action="store_true")
     parser.add_argument("--log-path", default=None, help="Optional file path for recording logs.")
     parser.add_argument(
+        "--ask-save",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="After each episode, ask whether to save it. Use --no-ask-save to save automatically.",
+    )
+    parser.add_argument(
         "--joint-error-recovery-attempts",
         type=int,
         default=3,
@@ -833,6 +915,7 @@ def main() -> None:
 
     robot_cfg = load_robot_config(args.config_path)
     robot = RM65Robot(robot_cfg)
+    control_side = resolve_control_side(robot, args.control_arm)
     use_videos = not args.no_video
     features = make_dataset_features(robot, use_videos=use_videos)
 
@@ -842,6 +925,8 @@ def main() -> None:
     logger.info("Passive recording mode.")
     logger.info("Move the RM65 with your external/master controller after recording starts.")
     logger.info("LeRobot will only read robot state and camera frames; it will not send arm actions.")
+    logger.info("Robot mode: %s", robot.config.mode)
+    logger.info("IO/Aloha control arm: %s", control_side_label(control_side))
     logger.info("Dataset root: %s", dataset.root)
     logger.info("Action names: %s", dataset.features[ACTION]["names"])
     if args.log_path:
@@ -854,6 +939,7 @@ def main() -> None:
         ):
             aloha_reader = AlohaStateReader(
                 robot=robot,
+                control_side=control_side,
                 target_ip=args.aloha_target_ip,
                 push_port=args.aloha_push_port,
                 cycle_ms=args.aloha_cycle_ms,
@@ -866,11 +952,19 @@ def main() -> None:
                 for io_num in [args.teleop_active_io, args.record_button_io]
                 if io_num is not None
             ]
-            configure_io_inputs(robot, io_nums)
+            configure_io_inputs(robot, io_nums, control_side)
 
         with VideoEncodingManager(dataset):
-            for episode_idx in range(args.num_episodes):
-                logger.info("Preparing episode %s/%s.", episode_idx + 1, args.num_episodes)
+            saved_episodes = 0
+            attempt_idx = 0
+            while saved_episodes < args.num_episodes:
+                attempt_idx += 1
+                logger.info(
+                    "Preparing episode %s/%s (attempt %s).",
+                    saved_episodes + 1,
+                    args.num_episodes,
+                    attempt_idx,
+                )
                 frames_added = record_passive_episode(
                     robot=robot,
                     dataset=dataset,
@@ -883,6 +977,7 @@ def main() -> None:
                     io_poll_interval_s=1.0 / args.io_poll_hz,
                     io_read_source=args.io_read_source,
                     io_active_low=args.io_active_low,
+                    control_side=control_side,
                     aloha_reader=aloha_reader,
                     joint_error_recovery_attempts=args.joint_error_recovery_attempts,
                     joint_error_recovery_sleep_s=args.joint_error_recovery_sleep_s,
@@ -893,18 +988,41 @@ def main() -> None:
                         "No frames were recorded. Increase --episode-time-s or lower --future-offset."
                     )
 
-                dataset.save_episode()
-                logger.info("Saved episode %s with %s frames.", episode_idx, frames_added)
                 wait_for_record_button_release(
                     robot=robot,
                     record_button_io=args.record_button_io,
                     poll_interval_s=1.0 / args.io_poll_hz,
                     io_read_source=args.io_read_source,
                     io_active_low=args.io_active_low,
+                    control_side=control_side,
                     aloha_reader=aloha_reader,
                 )
 
-                if episode_idx < args.num_episodes - 1:
+                if args.ask_save:
+                    should_save = ask_save_or_discard(frames_added)
+                else:
+                    should_save = True
+
+                if should_save:
+                    dataset.save_episode()
+                    saved_episodes += 1
+                    logger.info(
+                        "Saved episode %s/%s with %s frames.",
+                        saved_episodes,
+                        args.num_episodes,
+                        frames_added,
+                    )
+                else:
+                    dataset.clear_episode_buffer()
+                    logger.info(
+                        "Discarded attempt %s with %s frames. Recording another episode for slot %s/%s.",
+                        attempt_idx,
+                        frames_added,
+                        saved_episodes + 1,
+                        args.num_episodes,
+                    )
+
+                if saved_episodes < args.num_episodes:
                     wait_for_reset(args.reset_time_s)
     finally:
         if aloha_reader is not None:

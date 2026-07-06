@@ -1,14 +1,14 @@
 # [ACT](http://arxiv.org/abs/2304.13705) Training Log
 
-*Last updated: July 1, 2026*
+*Last updated: July 6, 2026*
 
 ---
 
-## Training Objectives
+## Training Objective 1: RM65 Screwdriver-to-Box Task
 
-The goal is to train a robotic arm with a two-finger gripper to grasp a screwdriver and place it into a white box. The setup uses two cameras: one mounted on the wrist of the robotic arm and one placed in front of the arm.
+The goal is to train a ACT policy to control robotic arm with a two-finger gripper to grasp a screwdriver and place it into a white box. The setup uses two cameras: one mounted on the wrist of the robotic arm and one placed in front of the arm.
 
-![Scene](assets/act/scene.jpg)
+![Scene_0](assets/act/ob_1_scene.jpg)
 
 Both cameras are Intel RealSense D435 cameras:
 
@@ -25,7 +25,7 @@ The robotic arm is a [Realman RM65](https://github.com/RealManRobot/rm_models/tr
 
 ---
 
-## Training Logs
+## Training Logs of Objective 1
 
 ### Training Log 1
 
@@ -33,13 +33,13 @@ The robotic arm is a [Realman RM65](https://github.com/RealManRobot/rm_models/tr
 
 At the beginning, the front camera used a relatively distant viewpoint, which allowed it to capture the entire robotic arm:
 
-![Front camera view](assets/act/camera_front_0.png)
+![Front camera view](assets/act/ob_1_camera_front_0.png)
 
 However, even after recording more than 150 episodes and trying different hyperparameters, the robotic arm still failed to grasp the screwdriver. A common failure case was that the gripper could not align with the screwdriver.
 
 Therefore, I changed the front camera viewpoint so that the screwdriver and the box were closer and clearer in the image:
 
-![Changed front camera view](assets/act/camera_front_1.png)
+![Changed front camera view](assets/act/ob_1_camera_front_1.png)
 
 Then I recorded a 50-episode dataset with the white box fixed in place:
 
@@ -50,7 +50,7 @@ TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
 TASK_PROMPT="grasp screwdriver and place it in box"
 
 python repos/lerobot/examples/rm65/passive_record.py \
-    --config-path configs/rm65_realsense.yaml \
+    --config-path configs/rm65_wrist_front.yaml \
     --repo-id local/$TASK_NAME \
     --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
@@ -99,13 +99,13 @@ lerobot-train \
 - Successful trial: the robot grasps the screwdriver and places it into the box.
 
 <video controls width="300">
-  <source src="assets/act/pick_screwdriver_success_0.mp4" type="video/mp4">
+  <source src="assets/act/ob_1_grasp_screwdriver_success_0.mp4" type="video/mp4">
 </video>
 
 - Failed trial: the robot fails to grasp the screwdriver.
 
 <video controls width="300">
-  <source src="assets/act/pick_screwdriver_fail_0.mp4" type="video/mp4">
+  <source src="assets/act/ob_1_grasp_screwdriver_fail_0.mp4" type="video/mp4">
 </video>
 
 - Experimental phenomena:
@@ -186,7 +186,7 @@ I trained three policies on the 100-episode dataset:
 #### Dataset Recording
 In this experiment, I moved the front camera closer to the screwdriver and the box to test whether a closer and clearer view could improve grasping performance. The new front camera view is:
 
-![Changed front camera view](assets/act/camera_front_2.png)
+![Changed front camera view](assets/act/ob_1_camera_front_2.png)
 
 This dataset was recorded from scratch. I paid close attention to the data distribution. Across these 100 episodes, I tried to cover the whole workspace as evenly as possible. For each area, I also varied the screwdriver orientation as evenly as possible, collecting about 8 to 12 episodes per area.
 
@@ -196,7 +196,7 @@ TASK_NAME=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
 TASK_PROMPT="grasp screwdriver and place it in box"
 
 python repos/lerobot/examples/rm65/passive_record.py \
-    --config-path configs/rm65_realsense.yaml \
+    --config-path configs/rm65_wrist_front.yaml \
     --repo-id local/$TASK_NAME \
     --root ./runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
@@ -275,7 +275,7 @@ In this evaluation, `canfd_follow` was enabled.
 ##### Thinking
 
 - The experimental results show that although the grasping success rate is still not high, the robot's behavior has improved significantly. The grasp point is almost never far away from the screwdriver. In most trials, the gripper moves directly toward the screwdriver. Even in the 7 alignment failures recorded in [Evaluation 1](#evaluation-1), the gripper is usually close to the screwdriver. For example, the policy sometimes tries to grasp the very end of the screwdriver.
-- The main failure cases are insufficient gripper closure and insufficient downward motion before closing. After enabling `canfd_follow`, the insufficient-downward-motion failure disappears, and the overall success rate increases.
+- The main failure cases are insufficient gripper closure and insufficient downward motion before closing. After enabling `canfd_follow`, the insufficient-downward-motion failure disappears, and the overall success rate increases although running fps frop from ~30 HZ to ~20 HZ.
 - The insufficient gripper closure problem may come from the dataset. During recording, I usually grasped the wider part of the screwdriver. When the robot aligns with a thinner part, the gripper may not close enough because the policy has not learned enough examples of this situation. Therefore, the next step is to record another 100 episodes focused on grasping the thinner parts of the screwdriver. More data may also help reduce the other failure cases.
 
 ---
@@ -401,7 +401,27 @@ lerobot-train \
 
 #### Evaluation
 
-In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
+In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20:
+
+```bash
+PRETRAINED_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+
+lerobot-rollout \
+    --config_path=configs/rm65_wrist_front.yaml \
+    --strategy.type=base \
+    --inference.type=sync \
+    --robot.canfd_follow=true \
+    --robot.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
+    --policy.temporal_ensemble_coeff=0.01 \
+    --policy.n_action_steps=1 \
+    --device=cuda \
+    --fps=20 \
+    --duration=20 \
+    --task="pick screwdriver and put it in box" \
+    --return_to_initial_position=false \
+    2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log
+```
 
 - Success rate: 24 / 25
 
@@ -417,13 +437,14 @@ In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
   3. This result suggests that both changes were useful: adding clearer pause-before-close demonstrations and reducing `chunk_size` from 100 to 50.
 
 - Video of successful grasp and placement:
-<video controls width="300">
-  <source src="assets/act/pick_screwdriver_success_1.mp4" type="video/mp4">
-</video>
+
+  <video controls width="300">
+    <source src="assets/act/ob_1_grasp_screwdriver_success_1.mp4" type="video/mp4">
+  </video>
 
 ---
 
-## Conclusion
+## Conclusion of Training Objective 1
 
 These experiments show that successfully training ACT for the RM65 grasping task depends more on data quality, action timing, and rollout consistency than on episode count alone. The best result in this log is [Training Log 6](#training-log-6): 250 episodes, `chunk_size=50`, `batch_size=32`, 40,000 training steps, `canfd_follow` enabled, and rollout `fps=20`, reaching 24 / 25 successful trials.
 
@@ -435,3 +456,141 @@ The most important practices are:
 4. Include enough demonstrations for thin-part grasping. Gripper closure is a separate skill from visual alignment, so it needs direct examples.
 5. Match the action horizon to the real task speed. A very large `chunk_size` can make the policy slow to react, especially with temporal ensembling and lower rollout FPS.
 6. Diagnose failures by category instead of only tracking success rate. Separating alignment, downward motion, gripper closure, and transport failures made it much easier to choose the next experiment.
+
+---
+
+## Training Objective 2: Bimanual Assembly-Part Grasping
+
+The goal is to train an ACT policy to control two RM65 robotic arms at the same time. Each arm has a two-finger gripper. The task is to grasp two different assembly parts separately and move them toward the center assembly area:
+
+![Scene_1](assets/act/ob_2_scene.jpg)
+
+The two parts have different sizes and are designed to fit together:
+
+<table>
+  <tr>
+    <td><img src="assets/act/ob_2_object_0.jpg" width="400"></td>
+    <td><img src="assets/act/ob_2_object_1.jpg" width="400"></td>
+  </tr>
+</table>
+
+To simplify the first version of the task, the two assembly parts are placed in fixed white areas on the left and right sides of the workspace. The two arms need to grasp the parts simultaneously and place them in the middle white area:
+
+![Scene_2](assets/act/ob_2_scene_1.jpg)
+
+The bimanual hardware setup uses two Realman RM65 arms:
+
+- Left arm: `192.168.1.18:8080`
+- Right arm: `192.168.1.19:8080`
+
+The LeRobot action and observation keys are prefixed by arm side:
+
+- Left arm: `left_joint_1.pos` to `left_joint_6.pos`, plus `left_gripper.pos`
+- Right arm: `right_joint_1.pos` to `right_joint_6.pos`, plus `right_gripper.pos`
+
+The setup uses four cameras. The two wrist cameras observe each gripper and local grasp area, while the top and front cameras provide global workspace context:
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="assets/act/ob_2_top_camera.png" width="400"><br>
+      <b>Top Camera</b><br>
+      <sub>Looking down at the workspace</sub>
+    </td>
+    <td align="center">
+      <img src="assets/act/ob_2_front_camera.png" width="400"><br>
+      <b>Front Camera</b><br>
+      <sub>Facing the robot/task from the front</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/act/ob_2_right_wrist_camera.png" width="400"><br>
+      <b>Right Wrist Camera</b><br>
+      <sub>Mounted on the right arm end effector</sub>
+    </td>
+    <td align="center">
+      <img src="assets/act/ob_2_left_wrist_camera.png" width="400"><br>
+      <b>Left Wrist Camera</b><br>
+      <sub>Mounted on the left arm end effector</sub>
+    </td>
+  </tr>
+</table>
+
+Camera configuration:
+
+| Camera key | Type | Identifier | Resolution | FPS | Role |
+| :--- | :--- | :--- | :--- | ---: | :--- |
+| `left_wrist` | Intel RealSense | `254522073961` | 640 x 480 | 30 | Mounted on the left arm end effector. |
+| `right_wrist` | Intel RealSense | `335222071948` | 640 x 480 | 30 | Mounted on the right arm end effector. |
+| `front` | OpenCV camera | device index `12` | 640 x 480 | 30 | External front view of the task. |
+| `top` | Intel RealSense | `335522070090` | 640 x 480 | 30 | Overhead workspace view. |
+
+The corresponding robot configuration is:
+
+```text
+configs/rm65_left_right_wrist_front_top.yaml
+```
+
+---
+
+## Training Logs of Objective 2
+
+### Training Log 1
+
+#### Dataset Recording
+
+For the first bimanual dataset, I intentionally simplified the task setup. The large assembly part was placed at a fixed location because it is round, so its rotation does not change the grasp target significantly. The small assembly part was also placed at a fixed location and kept upright. The main variable in this dataset is the orientation of the small assembly part.
+
+I recorded 20 episodes covering different orientations of the small assembly part:
+
+```bash
+CONFIG_PATH=configs/rm65_left_right_wrist_front_top.yaml
+TASK_NAME=rm65_bimanual_grasp_and_place
+TASK_PROMPT="grasp two assembly parts and place them in the center"
+
+python repos/lerobot/examples/rm65/passive_record.py \
+    --config-path $CONFIG_PATH \
+    --repo-id local/$TASK_NAME \
+    --root runs/dataset/$TASK_NAME \
+    --task "$TASK_PROMPT" \
+    --fps 30 \
+    --num-episodes 20 \
+    --io-read-source aloha \
+    --control-arm right \
+    --teleop-active-io 1 \
+    --record-button-io 2 \
+    --record-button-mode toggle
+```
+
+#### Training script
+
+I set `chunk_size=50`, `n_action_steps=1`, `batch_size=16`, and 20,000 training steps.
+
+```bash
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+
+DATASET_ID=rm65_bimanual_grasp_and_place
+TRAINING_ID=rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 50 \
+    --policy.n_action_steps 1 \
+    --batch_size 16 \
+    --steps 20000 \
+    --eval_freq 0 \
+    --save_freq 5000 \
+    --log_freq 100 \
+    --output_dir ./runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project lerobot_rm65_act \
+    --job_name $TRAINING_ID \
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
+```

@@ -11,7 +11,7 @@ import numpy as np
 
 from lerobot.cameras.realsense import RealSenseCameraConfig
 from lerobot.robots.config import RobotConfig
-from lerobot.robots.rm65 import RM65Robot, RM65RobotConfig
+from lerobot.robots.rm65 import RM65ArmConfig, RM65Robot, RM65RobotConfig
 
 try:
     import pytest
@@ -45,8 +45,11 @@ def make_config(
     front_serial = front_serial or os.getenv("RM65_FRONT_CAMERA_SERIAL", DEFAULT_FRONT_SERIAL)
 
     return RM65RobotConfig(
-        ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
-        port=port or int(os.getenv("RM65_PORT", "8080")),
+        mode="single",
+        single_arm=RM65ArmConfig(
+            ip=ip or os.getenv("RM65_IP", "192.168.1.18"),
+            port=port or int(os.getenv("RM65_PORT", "8080")),
+        ),
         calibration_dir=Path(
             calibration_dir or os.getenv("RM65_CALIBRATION_DIR", "/tmp/lerobot-rm65-calibration")
         ).expanduser(),
@@ -100,7 +103,7 @@ def connect_and_read_cameras_once(cfg: RM65RobotConfig, width: int, height: int)
         wrist = _validate_camera_frame(obs, "wrist", width, height)
         front = _validate_camera_frame(obs, "front", width, height)
 
-        print(f"Connected to RM65 at {cfg.ip}:{cfg.port}")
+        print(f"Connected to RM65 at {robot.default_arm_config.ip}:{robot.default_arm_config.port}")
         print("Robot observation keys:")
         for key in sorted(obs):
             value = obs[key]
