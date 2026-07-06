@@ -10,10 +10,11 @@ RM65 robotic arm class:
 repos/lerobot/src/lerobot/robots/rm65
 ```
 
-And its config file:
+And its config file for single and bimanual robotic arm:
 
 ```text
-configs/rm65_realsense.yaml
+configs/rm65_wrist_front.yaml
+configs/rm65_left_right_wrist_front_top.yaml
 ```
 
 ### Dataset record
