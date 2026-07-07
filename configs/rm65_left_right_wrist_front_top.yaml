@@ -127,10 +127,11 @@ robot:
 
     front:
       type: opencv
-      index_or_path: 12
-      width: 640
-      height: 480
+      index_or_path: "0"
+      width: 1280
+      height: 720
       fps: 30
+      fourcc: MJPG
       warmup_s: 1
 
     top:

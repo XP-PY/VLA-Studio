@@ -3,6 +3,7 @@
 .codex
 .vscode
 __pycache__/
+backup
 runs
 models
 logs

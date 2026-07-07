@@ -49,6 +49,9 @@ class ActionFlowV1Config(PreTrainedConfig):
     time_sampling_alpha: float = 1.5
     time_sampling_beta: float = 1.0
 
+    # Optional ACT temporal ensembler
+    temporal_ensemble_coeff: float | None = None
+
     # Training preset.
     optimizer_lr: float = 1e-4
     optimizer_lr_backbone: float = 1e-5
@@ -82,6 +85,11 @@ class ActionFlowV1Config(PreTrainedConfig):
             raise ValueError(
                 "`time_sampling_alpha` and `time_sampling_beta` must be positive. "
                 f"Got {self.time_sampling_alpha=} and {self.time_sampling_beta=}."
+            )
+        if self.temporal_ensemble_coeff is not None and self.n_action_steps > 1:
+            raise NotImplementedError(
+                "`n_action_steps` must be 1 when using temporal ensembling. "
+                "The policy must be queried every step to compute the ensembled action."
             )
 
     def validate_features(self) -> None:

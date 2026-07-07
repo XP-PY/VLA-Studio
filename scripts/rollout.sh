@@ -1,56 +1,58 @@
 ## ====== ACT ======
 
-# PRETRAINED=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+PRETRAINED=rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+TASK_PROMPT="grasp two assembly parts and place them in the center"
+
+TASK_NAME=rollout_$PRETRAINED
+FOLDER_PATH="./runs/rollout_dataset/$TASK_NAME"
+
+if [ -d "$FOLDER_PATH" ]; then
+    RESUME=true
+else
+    RESUME=false
+fi
+
+lerobot-rollout \
+    --config_path=configs/rm65_left_right_wrist_front_top.yaml \
+    --strategy.type=highlight \
+    --inference.type=sync \
+    --robot.left_arm.canfd_follow=false \
+    --robot.right_arm.canfd_follow=false \
+    --robot.left_arm.max_relative_target=1000.0 \
+    --robot.right_arm.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
+    --policy.n_action_steps=20 \
+    --dataset.repo_id=local/$TASK_NAME \
+    --dataset.root=$FOLDER_PATH \
+    --dataset.single_task="$TASK_PROMPT" \
+    --dataset.push_to_hub=false \
+    --resume=$RESUME \
+    --device=cuda \
+    --fps=10 \
+    --duration=120 \
+    --task="$TASK_PROMPT" \
+    --return_to_initial_position=false \
+    2>&1 | tee ./logs/rollout_$PRETRAINED.log
 
 # lerobot-rollout \
-#     --config_path=configs/rm65_realsense.yaml \
-#     --strategy.type=base \
+#     --config_path=configs/rm65_left_right_wrist_front_top.yaml \
+#     --strategy.type=highlight \
 #     --inference.type=sync \
-#     --robot.canfd_follow=true \
-#     --robot.max_relative_target=1000.0 \
+#     --robot.left_arm.canfd_follow=false \
+#     --robot.right_arm.canfd_follow=false \
+#     --robot.left_arm.max_relative_target=1000.0 \
+#     --robot.right_arm.max_relative_target=1000.0 \
 #     --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
 #     --policy.temporal_ensemble_coeff=0.01 \
 #     --policy.n_action_steps=1 \
+#     --dataset.repo_id=local/$TASK_NAME \
+#     --dataset.root=./runs/rollout_dataset/$TASK_NAME \
+#     --dataset.single_task="$TASK_PROMPT" \
+#     --dataset.push_to_hub=false \
+#     --resume=true \
 #     --device=cuda \
-#     --fps=20 \
-#     --duration=20 \
-#     --task="pick screwdriver and put it in box" \
+#     --fps=10 \
+#     --duration=120 \
+#     --task="$TASK_PROMPT" \
 #     --return_to_initial_position=false \
 #     2>&1 | tee ./logs/rollout_$PRETRAINED.log
-
-# ====== SmolVLA ======
-
-PRETRAINED_ID=rm65_smolvla_pick_screwdriver_to_fixed_box_episodes_250_steps_20000_batch_64_chunk_50
-
-lerobot-rollout \
-    --config_path=configs/rm65_realsense.yaml \
-    --strategy.type=base \
-    --inference.type=sync \
-    --robot.canfd_follow=true \
-    --robot.max_relative_target=1000.0 \
-    --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
-    --policy.n_action_steps=50 \
-    --device=cuda \
-    --fps=30 \
-    --duration=20 \
-    --task="pick screwdriver and put it in box" \
-    --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log
-
-# PRETRAINED_ID=rm65_smolvla_pick_screwdriver_to_fixed_box_episodes_250_steps_20000_batch_64_chunk_50
-
-# lerobot-rollout \
-#     --config_path=configs/rm65_realsense.yaml \
-#     --strategy.type=base \
-#     --inference.type=sync \
-#     --robot.canfd_follow=false \
-#     --robot.max_relative_target=1000.0 \
-#     --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
-#     --policy.temporal_ensemble_coeff=0.01 \
-#     --policy.n_action_steps=1 \
-#     --device=cuda \
-#     --fps=20 \
-#     --duration=20 \
-#     --task="pick screwdriver and put it in box" \
-#     --return_to_initial_position=false \
-#     2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log

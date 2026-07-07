@@ -4,11 +4,11 @@ This directory collects training notes, evaluation results, and lessons learned 
 
 ## Logs
 
-- [ACT Training Log](act.md): dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training ACT on the RM65 screwdriver grasping task.
+- [ACT Training Log](act.md): dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training `ACT` on the RM65 tasks.
 
-- [SmolVLA Training Log](smolvla.md): 
+- [SmolVLA Training Log](smolvla.md): dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training `SmolVLA` on the RM65 tasks.
 
-- [Action Flow V1 Training Log](action_flow.md): 
+- [Action Flow Training Log](action_flow.md): Policy structure, dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training `Action Flow` on the RM65 tasks.
 
 ## Notes
 

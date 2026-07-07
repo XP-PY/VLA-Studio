@@ -17,6 +17,12 @@ configs/rm65_wrist_front.yaml
 configs/rm65_left_right_wrist_front_top.yaml
 ```
 
+### Policy
+
+#### Action Flow
+
+Detailed information about `Action Flow` policy can be found in its [doc](docs/action_flow.md)
+
 ### Dataset record
 
 Dataset recording script:
@@ -75,16 +81,22 @@ pip install -e ".[all]"
 
 ## Quick start
 
-### Recording dataset
+### Recording Dataset
 
 ```bash
 ./scripts/record.sh
 ```
 
-### Training model
+### Training Model
 
 ```bash
 ./scripts/train.sh
+```
+
+### Resume Training Model
+
+```bash
+./scripts/resume.sh
 ```
 
 ### Evaluation
@@ -93,7 +105,7 @@ pip install -e ".[all]"
 ./scripts/rollout.sh
 ```
 
-### Model download
+### Model Download
 
 ```bash
 ./scripts/model_download.sh <MODEL_ID>

@@ -22,7 +22,12 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 
 from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_IMAGES, OBS_STATE
 
-from ..act.modeling_act import ACTDecoder, ACTEncoder, ACTSinusoidalPositionEmbedding2d
+from ..act.modeling_act import (
+    ACTDecoder, 
+    ACTEncoder, 
+    ACTSinusoidalPositionEmbedding2d,
+    ACTTemporalEnsembler
+)
 from ..pretrained import PreTrainedPolicy
 from .configuration_action_flow_v1 import ActionFlowV1Config
 
@@ -61,6 +66,10 @@ class ActionFlowV1Policy(PreTrainedPolicy):
         config.validate_features()
         self.config = config
         self.model = ActionFlowV1(config)
+
+        if config.temporal_ensemble_coeff is not None:
+            self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
+
         self.reset()
 
     def get_optim_params(self) -> list[dict]:
@@ -83,7 +92,10 @@ class ActionFlowV1Policy(PreTrainedPolicy):
         ]
 
     def reset(self):
-        self._action_queue = deque([], maxlen=self.config.n_action_steps)
+        if self.config.temporal_ensemble_coeff is not None:
+            self.temporal_ensembler.reset()
+        else:
+            self._action_queue = deque([], maxlen=self.config.n_action_steps)
 
     def _prepare_batch(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         if not self.config.image_features:
@@ -95,6 +107,12 @@ class ActionFlowV1Policy(PreTrainedPolicy):
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         self.eval()
+
+        if self.config.temporal_ensemble_coeff is not None:
+            actions = self.predict_action_chunk(batch)
+            action = self.temporal_ensembler.update(actions)
+            return action
+
         if len(self._action_queue) == 0:
             actions = self.predict_action_chunk(batch)[:, : self.config.n_action_steps]
             self._action_queue.extend(actions.transpose(0, 1))

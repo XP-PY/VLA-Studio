@@ -19,13 +19,13 @@ def parse_index_or_path(value: str) -> int | Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Connect and preview an OpenCV camera.")
-    parser.add_argument("--index-or-path", default="12", help="Camera index or device path, e.g. 0 or /dev/video0.")
-    parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--index-or-path", default="0", help="Camera index or device path, e.g. 0 or /dev/video0.")
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--fourcc", default=None, help="Optional OpenCV FOURCC, e.g. MJPG or YUYV.")
+    parser.add_argument("--fourcc", default="MJPG", help="Optional OpenCV FOURCC, e.g. MJPG or YUYV.")
     parser.add_argument("--display", action="store_true", help="Show frames with cv2.imshow if GUI is available.")
-    parser.add_argument("--save-frame", type=Path, default='examples/camera_connect.jpg', help="Path to save the frame.")
+    parser.add_argument("--save-frame", type=Path, default='examples/camera_connect_opencv_capture.jpg', help="Path to save the frame.")
     parser.add_argument("--max-frames", type=int, default=0, help="Stop after this many frames. 0 means run forever.")
     args = parser.parse_args()
 

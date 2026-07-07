@@ -1,6 +1,6 @@
 # Action Flow Training Log
 
-*Last updated: July 5, 2026*
+*Last updated: July 7, 2026*
 
 ---
 
@@ -145,35 +145,6 @@ The final `x_t` is treated as the normalized action chunk. `select_action` store
 
 This experiment uses the same task and hardware setup as [ACT Training Objective 2](./act.md#training-objective-2-bimanual-assembly-part-grasping), so the result can be compared directly with the ACT baseline.
 
-The goal is to train an `action_flow_v1` policy to control two RM65 robotic arms simultaneously. Each arm has a two-finger gripper. The two arms need to grasp two different assembly parts and place them in the center assembly area. For the first dataset, the large round part is fixed in place, and the small part is kept upright. The main variation is the orientation of the small part.
-
-The bimanual setup uses two RM65 arms:
-
-- Left arm: `192.168.1.18:8080`
-- Right arm: `192.168.1.19:8080`
-
-The policy predicts continuous action chunks for both arms. The action keys are:
-
-- Left arm: `left_joint_1.pos` to `left_joint_6.pos`, plus `left_gripper.pos`
-- Right arm: `right_joint_1.pos` to `right_joint_6.pos`, plus `right_gripper.pos`
-
-The observation uses four cameras:
-
-| Camera key | Type | Identifier | Resolution | FPS | Role |
-| :--- | :--- | :--- | :--- | ---: | :--- |
-| `left_wrist` | Intel RealSense | `254522073961` | 640 x 480 | 30 | Local view from the left gripper. |
-| `right_wrist` | Intel RealSense | `335222071948` | 640 x 480 | 30 | Local view from the right gripper. |
-| `front` | OpenCV camera | device index `12` | 640 x 480 | 30 | External front view of the task. |
-| `top` | Intel RealSense | `335522070090` | 640 x 480 | 30 | Overhead workspace view. |
-
-The corresponding robot config is:
-
-```text
-configs/rm65_left_right_wrist_front_top.yaml
-```
-
-This objective is a useful test for `action_flow_v1` because the policy keeps ACT's image/state/action interface while replacing direct action regression with flow matching. If it performs better than ACT on the same dataset, that would suggest the flow-matching action objective is useful for this bimanual grasping task.
-
 ---
 
 ## Training Logs of Objective 1
@@ -215,3 +186,58 @@ lerobot-train \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
+
+#### Evaluation
+
+In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed.
+
+```bash
+PRETRAINED=rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+TASK_PROMPT="grasp two assembly parts and place them in the center"
+
+TASK_NAME=rollout_$PRETRAINED
+FOLDER_PATH="./runs/rollout_dataset/$TASK_NAME"
+
+if [ -d "$FOLDER_PATH" ]; then
+    RESUME=true
+else
+    RESUME=false
+fi
+
+lerobot-rollout \
+    --config_path=configs/rm65_left_right_wrist_front_top.yaml \
+    --strategy.type=highlight \
+    --inference.type=sync \
+    --robot.left_arm.canfd_follow=false \
+    --robot.right_arm.canfd_follow=false \
+    --robot.left_arm.max_relative_target=1000.0 \
+    --robot.right_arm.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
+    --policy.temporal_ensemble_coeff=0.01 \
+    --policy.n_action_steps=1 \
+    --dataset.repo_id=local/$TASK_NAME \
+    --dataset.root=$FOLDER_PATH \
+    --dataset.single_task="$TASK_PROMPT" \
+    --dataset.push_to_hub=false \
+    --resume=$RESUME \
+    --device=cuda \
+    --fps=10 \
+    --duration=120 \
+    --task="$TASK_PROMPT" \
+    --return_to_initial_position=false \
+    2>&1 | tee ./logs/rollout_$PRETRAINED.log
+```
+
+- Success rate: 8 / 8
+
+- Thinking
+  1. Its whole performance is similar to `Training Log 1` of [ACT Training Objective 2](act.md#training-logs-of-objective-2): the grippers do not always grasp the small assembly part along its length, and the gripper sometimes lightly contacts the table while grasping. Unlike ACT, this table contact mainly appears when grasping the large assembly part rather than the small assembly part.
+  2. I used ACT-style temporal ensembling during rollout. Without it, `policy.n_action_steps=10` caused unstable motion: before moving toward the assembly part, the arms often moved a short distance in the opposite direction, producing visible twitching. During placement, this instability sometimes caused one part to be released while the other remained gripped and stuck. If increase `policy.n_action_steps` like 20 or more, It will reduce the frequency of twitching and move more smoothly, but it also increases risk of contacting the table. With `policy.n_action_steps=1`, both arms tended to get stuck near the beginning of the rollout.
+  3. `policy.n_action_steps=10` rollout video:
+    
+        <video controls width="300">
+        <source src="assets/action_flow/ob_1_grasp_and_place_fail_0.mp4" type="video/mp4">
+        </video>
+  4. This behavior is likely caused by inconsistency between consecutive action chunks. ActionFlow samples each chunk from fresh random noise, so two neighboring predictions can disagree even when the observation changes only slightly. With `n_action_steps=10`, the policy executes the first 10 actions from one sampled chunk, then replans from a newly sampled chunk; if the new chunk starts with a different local direction, the arm can briefly move backward before continuing forward. With `n_action_steps=1`, the policy replans every step, which makes it more reactive but also more sensitive to sampling noise and small observation changes. Temporal ensembling reduces this problem by averaging overlapping predictions across successive chunks.
+  5. I think add more better demonstrations will improve `Action Flow V1` performence, 20 episodes is very small for bimanual control.
+  

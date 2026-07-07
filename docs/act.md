@@ -1,6 +1,6 @@
 # [ACT](http://arxiv.org/abs/2304.13705) Training Log
 
-*Last updated: July 6, 2026*
+*Last updated: July 7, 2026*
 
 ---
 
@@ -410,8 +410,8 @@ lerobot-rollout \
     --config_path=configs/rm65_wrist_front.yaml \
     --strategy.type=base \
     --inference.type=sync \
-    --robot.canfd_follow=true \
-    --robot.max_relative_target=1000.0 \
+    --robot.single_arm.canfd_follow=true \
+    --robot.single_arm.max_relative_target=1000.0 \
     --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
     --policy.temporal_ensemble_coeff=0.01 \
     --policy.n_action_steps=1 \
@@ -594,3 +594,41 @@ lerobot-train \
     --job_name $TRAINING_ID \
     2>&1 | tee ./logs/train_$TRAINING_ID.log
 ```
+
+#### Evaluation
+
+In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed.
+
+```bash
+PRETRAINED=rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+TASK_PROMPT="grasp two assembly parts and place them in the center"
+
+lerobot-rollout \
+    --config_path=configs/rm65_left_right_wrist_front_top.yaml \
+    --strategy.type=base \
+    --inference.type=sync \
+    --robot.left_arm.canfd_follow=false \
+    --robot.right_arm.canfd_follow=false \
+    --robot.left_arm.max_relative_target=1000.0 \
+    --robot.right_arm.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
+    --policy.temporal_ensemble_coeff=0.01 \
+    --policy.n_action_steps=1 \
+    --device=cuda \
+    --fps=10 \
+    --duration=20 \
+    --task="$TASK_PROMPT" \
+    --return_to_initial_position=false \
+    2>&1 | tee ./logs/rollout_$PRETRAINED.log
+```
+
+- Success rate: 8 / 8
+
+- Thinking
+  1. Although the success rate is high, two problems remain. First, in the recorded demonstrations, the grippers usually grasp the small assembly part along its length because the part is approximately cuboid. During rollout, about half of the attempts do not follow this alignment, although the policy can still grasp successfully. Second, when the right arm grasps the small assembly part, the gripper sometimes lightly contacts the table.
+  2. These problems are likely related to limited data quantity and imperfect demonstration quality. The alignment issue may improve with more demonstrations that consistently grasp the small assembly part along its length. The table-contact issue may come from the demonstrations themselves, because some recorded trajectories also contain slight table contact while I was still becoming familiar with bimanual operation.
+  3. Successful grasp-and-place video:
+
+      <video controls width="300">
+        <source src="assets/act/ob_2_grasp_and_place_success_0.mp4" type="video/mp4">
+      </video>
