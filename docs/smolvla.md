@@ -108,25 +108,81 @@ For the handover tasks, the transfer should happen near the center of the worksp
 
 This structure gives the prompt a meaningful role. The same objects and cameras are used across all tasks, but the requested source side, target side, and required coordination pattern differ.
 
-### Dataset Plan
+### Dataset Recording
 
 The four tasks can be recorded as separate datasets and combined before training:
 
-| Task name | Suggested episodes |
-| :--- | ---: |
-| `bottle_left_to_center_box` | 30-50 |
-| `bottle_right_to_center_box` | 30-50 |
-| `bottle_left_to_right_box_handover` | 60-100 |
-| `bottle_right_to_left_box_handover` | 60-100 |
+| Task name | Record FPS | Total episodes | Total frames |
+| :---: | :---: | :---: | :---: |
+| `bottle_left_to_center_box` | 30 | 30 | 8818 |
+| `bottle_right_to_center_box` | 30 | 30 | 8688 |
+| `bottle_left_to_right_box_handover` | 30 | 50 | 34694 |
+| `bottle_right_to_left_box_handover` | 30 | 50 | 34641 |
 
 The first useful multi-task dataset should contain about 160-200 episodes. A stronger first training run should use about 250-300 episodes. Handover tasks need more demonstrations because they require two-arm timing, stable transfer, and correct release order.
 
 Each task should use one fixed prompt during the first round of training. Prompt paraphrases can be added later after the basic behaviors are reliable.
 
-The final combined dataset can be named:
+The final combined dataset is named:
 
 ```text
 rm65_bimanual_bottle_multitask
+```
+
+### Training Log 1 of Objective 1
+
+Train `SmolVLA` with 64 global batch size, 40000 steps and 50 chunck size:
+
+```bash
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+export PYTHONPATH=./repos/lerobot/src:${PYTHONPATH}
+
+GPU_IDS=2,3
+NUM_GPUS=2
+PER_DEVICE_BATCH_SIZE=32
+
+DATASET_ID=rm65_bimanual_bottle_multitask
+TRAINING_ID=smolvla_rm65_bimanual_bottle_multitask_episodes_160_steps_40000_batch_32x2_chunk_50
+
+echo $TRAINING_ID
+mkdir -p ./logs
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS accelerate launch \
+    --multi_gpu \
+    --num_processes=$NUM_GPUS \
+    --mixed_precision=no \
+    -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=$DATASET_ID \
+    --dataset.root=./runs/dataset/$DATASET_ID \
+    --dataset.return_uint8=true \
+    --dataset.video_backend=pyav \
+    --policy.path=./models/smolvla_base \
+    --policy.vlm_model_name=models/SmolVLM2-500M-Video-Instruct \
+    --policy.input_features=null \
+    --policy.output_features=null \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=1 \
+    --policy.num_steps=10 \
+    --policy.freeze_vision_encoder=true \
+    --policy.train_expert_only=true \
+    --policy.train_state_proj=true \
+    --policy.load_vlm_weights=true \
+    --policy.scheduler_decay_steps=40000 \
+    --batch_size=$PER_DEVICE_BATCH_SIZE \
+    --steps=40000 \
+    --eval_freq=0 \
+    --save_freq=10000 \
+    --log_freq=500 \
+    --wandb.enable=true \
+    --wandb.project=lerobot_smolvla_rm65 \
+    --output_dir=./runs/train/$TRAINING_ID \
+    --job_name=$TRAINING_ID \
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
+
 ```
 
 ---

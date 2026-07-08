@@ -1,6 +1,6 @@
 CONFIG_PATH=configs/rm65_left_right_wrist_front_top.yaml
-TASK_NAME=rm65_bimanual_bottle_left_to_right_box_handover
-TASK_PROMPT="transfer the bottle from the left side to the right arm and place it in the right box"
+TASK_NAME=rm65_bimanual_bottle_right_to_center_box
+TASK_PROMPT="place the bottle from the right side into the center boxs"
 
 python repos/lerobot/examples/rm65/passive_record.py \
     --config-path $CONFIG_PATH \
@@ -8,7 +8,8 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --root runs/dataset/$TASK_NAME \
     --task "$TASK_PROMPT" \
     --fps 30 \
-    --num-episodes 50 \
+    --num-episodes 30 \
+    --log-path logs/record_$TASK_NAME.log \
     --io-read-source aloha \
     --control-arm right \
     --teleop-active-io 1 \

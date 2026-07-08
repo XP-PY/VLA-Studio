@@ -111,4 +111,10 @@ pip install -e ".[all]"
 ./scripts/model_download.sh <MODEL_ID>
 ```
 
+### Concatenate Multiple datasets
+
+```bash
+./scripts/dataset_concatenation.sh
+```
+
 ---

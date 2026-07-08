@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from lerobot.configs import NormalizationMode, PreTrainedConfig
 from lerobot.optim import AdamWConfig, CosineDecayWithWarmupSchedulerConfig
 
+from ..rtc.configuration_rtc import RTCConfig
+
 
 @PreTrainedConfig.register_subclass("action_flow_v1")
 @dataclass
@@ -49,8 +51,11 @@ class ActionFlowV1Config(PreTrainedConfig):
     time_sampling_alpha: float = 1.5
     time_sampling_beta: float = 1.0
 
-    # Optional ACT temporal ensembler
+    # Optional ACT temporal ensembler for sync rollout.
     temporal_ensemble_coeff: float | None = None
+
+    # Real-Time Chunking (RTC) configuration.
+    rtc_config: RTCConfig | None = None
 
     # Training preset.
     optimizer_lr: float = 1e-4

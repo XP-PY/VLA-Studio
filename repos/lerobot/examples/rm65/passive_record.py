@@ -643,7 +643,6 @@ def record_passive_episode(
     robot: RM65Robot,
     dataset: LeRobotDataset,
     task: str,
-    episode_time_s: float,
     future_offset: int,
     record_button_io: int | None,
     teleop_active_io: int | None,
@@ -671,7 +670,6 @@ def record_passive_episode(
     action_names = list(dataset.features[ACTION]["names"])
     pending: deque[dict[str, Any]] = deque()
     control_interval_s = 1.0 / dataset.fps
-    deadline = time.perf_counter() + episode_time_s
     frames_added = 0
     previous_button_state = bool(
         record_button_io is not None
@@ -680,7 +678,7 @@ def record_passive_episode(
         )
     )
 
-    while time.perf_counter() < deadline:
+    while True:
         loop_start = time.perf_counter()
         stop, previous_button_state, reason = should_stop_recording(
             robot=robot,
@@ -773,7 +771,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--task", required=True)
     parser.add_argument("--num-episodes", type=int, default=1)
-    parser.add_argument("--episode-time-s", type=float, default=10.0)
     parser.add_argument("--reset-time-s", type=float, default=5.0)
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument(
@@ -969,7 +966,6 @@ def main() -> None:
                     robot=robot,
                     dataset=dataset,
                     task=args.task,
-                    episode_time_s=args.episode_time_s,
                     future_offset=args.future_offset,
                     record_button_io=args.record_button_io,
                     teleop_active_io=args.teleop_active_io,
@@ -985,7 +981,7 @@ def main() -> None:
                 if frames_added == 0:
                     dataset.clear_episode_buffer()
                     raise RuntimeError(
-                        "No frames were recorded. Increase --episode-time-s or lower --future-offset."
+                        "No frames were recorded. Check the record trigger or lower --future-offset."
                     )
 
                 wait_for_record_button_release(

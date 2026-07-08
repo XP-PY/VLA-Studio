@@ -11,6 +11,7 @@ image encoder or sequence mixer may change between competition iterations.
 import math
 from collections import deque
 from itertools import chain
+from typing import TypedDict, Unpack
 
 import einops
 import torch
@@ -23,13 +24,20 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_IMAGES, OBS_STATE
 
 from ..act.modeling_act import (
-    ACTDecoder, 
-    ACTEncoder, 
+    ACTDecoder,
+    ACTEncoder,
     ACTSinusoidalPositionEmbedding2d,
-    ACTTemporalEnsembler
+    ACTTemporalEnsembler,
 )
 from ..pretrained import PreTrainedPolicy
+from ..rtc.modeling_rtc import RTCProcessor
 from .configuration_action_flow_v1 import ActionFlowV1Config
+
+
+class ActionSelectKwargs(TypedDict, total=False):
+    inference_delay: int | None
+    prev_chunk_left_over: Tensor | None
+    execution_horizon: int | None
 
 
 def create_scalar_sinusoidal_embedding(
@@ -65,12 +73,27 @@ class ActionFlowV1Policy(PreTrainedPolicy):
 
         config.validate_features()
         self.config = config
-        self.model = ActionFlowV1(config)
+        self.init_rtc_processor()
+        self.model = ActionFlowV1(config, rtc_processor=self.rtc_processor)
 
         if config.temporal_ensemble_coeff is not None:
             self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
 
         self.reset()
+
+    def init_rtc_processor(self):
+        """Initialize RTC processor if RTC is enabled in the policy config."""
+        self.rtc_processor = None
+
+        if self.config.rtc_config is not None:
+            self.rtc_processor = RTCProcessor(self.config.rtc_config)
+
+            model_value = getattr(self, "model", None)
+            if model_value is not None:
+                model_value.rtc_processor = self.rtc_processor
+
+    def _rtc_enabled(self) -> bool:
+        return self.config.rtc_config is not None and self.config.rtc_config.enabled
 
     def get_optim_params(self) -> list[dict]:
         return [
@@ -105,23 +128,30 @@ class ActionFlowV1Policy(PreTrainedPolicy):
         return batch
 
     @torch.no_grad()
-    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+    def select_action(
+        self, batch: dict[str, Tensor], noise: Tensor | None = None, **kwargs: Unpack[ActionSelectKwargs]
+    ) -> Tensor:
+        del kwargs
+        assert not self._rtc_enabled(), "RTC is not supported for select_action, use it with predict_action_chunk."
+
         self.eval()
 
         if self.config.temporal_ensemble_coeff is not None:
-            actions = self.predict_action_chunk(batch)
+            actions = self.predict_action_chunk(batch, noise=noise)
             action = self.temporal_ensembler.update(actions)
             return action
 
         if len(self._action_queue) == 0:
-            actions = self.predict_action_chunk(batch)[:, : self.config.n_action_steps]
+            actions = self.predict_action_chunk(batch, noise=noise)[:, : self.config.n_action_steps]
             self._action_queue.extend(actions.transpose(0, 1))
         return self._action_queue.popleft()
 
     @torch.no_grad()
-    def predict_action_chunk(self, batch: dict[str, Tensor]) -> Tensor:
+    def predict_action_chunk(
+        self, batch: dict[str, Tensor], noise: Tensor | None = None, **kwargs: Unpack[ActionSelectKwargs]
+    ) -> Tensor:
         self.eval()
-        return self.model.sample_actions(self._prepare_batch(batch))
+        return self.model.sample_actions(self._prepare_batch(batch), noise=noise, **kwargs)
 
     def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, dict]:
         batch = self._prepare_batch(batch)
@@ -172,9 +202,10 @@ class ActionFlowV1(nn.Module):
                                 └────────────────────────┘
     """
 
-    def __init__(self, config: ActionFlowV1Config):
+    def __init__(self, config: ActionFlowV1Config, rtc_processor: RTCProcessor | None = None):
         super().__init__()
         self.config = config
+        self.rtc_processor = rtc_processor
 
         # Backbone for image feature extraction.
         if self.config.image_features:
@@ -304,8 +335,13 @@ class ActionFlowV1(nn.Module):
         velocity = self.predict_velocity_from_condition(x_t, time, encoder_out, encoder_pos_embed)
         return velocity, target_velocity
 
+    def _rtc_enabled(self) -> bool:
+        return self.config.rtc_config is not None and self.config.rtc_config.enabled
+
     @torch.no_grad()
-    def sample_actions(self, batch: dict[str, Tensor], noise: Tensor | None = None) -> Tensor:
+    def sample_actions(
+        self, batch: dict[str, Tensor], noise: Tensor | None = None, **kwargs: Unpack[ActionSelectKwargs]
+    ) -> Tensor:
         encoder_out, encoder_pos_embed = self.encode_condition(batch)
         batch_size = encoder_out.shape[1]
         device = encoder_out.device
@@ -320,7 +356,27 @@ class ActionFlowV1(nn.Module):
         for step in range(self.config.num_inference_steps):
             time = 1.0 + step * dt
             time_tensor = torch.full((batch_size,), time, dtype=torch.float32, device=device)
-            velocity = self.predict_velocity_from_condition(x_t, time_tensor, encoder_out, encoder_pos_embed)
+
+            def denoise_step_partial_call(input_x_t, current_timestep=time_tensor):
+                return self.predict_velocity_from_condition(
+                    input_x_t, current_timestep, encoder_out, encoder_pos_embed
+                )
+
+            if self._rtc_enabled():
+                velocity = self.rtc_processor.denoise_step(
+                    x_t=x_t,
+                    prev_chunk_left_over=kwargs.get("prev_chunk_left_over"),
+                    inference_delay=kwargs.get("inference_delay"),
+                    time=time,
+                    original_denoise_step_partial=denoise_step_partial_call,
+                    execution_horizon=kwargs.get("execution_horizon"),
+                )
+            else:
+                velocity = denoise_step_partial_call(x_t)
+
             x_t = x_t + dt * velocity
+
+            if self.rtc_processor is not None and self.rtc_processor.is_debug_enabled():
+                self.rtc_processor.track(time=time, x_t=x_t, v_t=velocity)
 
         return x_t
