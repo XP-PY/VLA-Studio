@@ -145,19 +145,15 @@ The final `x_t` is treated as the normalized action chunk. `select_action` store
 
 This experiment uses the same task and hardware setup as [ACT Training Objective 2](./act.md#training-objective-2-bimanual-assembly-part-grasping), so the result can be compared directly with the ACT baseline.
 
----
-
-## Training Logs of Objective 1
-
-### Training Log 1
+### Training Log 1 of Objective 1
 
 #### Dataset Recording
 
-I used the dataset recorded for [ACT Training Objective 2, Log 1](./act.md#training-logs-of-objective-2).
+I used the dataset recorded for [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2).
 
 #### Training script
 
-I used the same setting as [ACT Training Objective 2, Log 1](./act.md#training-logs-of-objective-2):
+I used the same setting as [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2):
 
 ```bash
 export HF_HOME=./.cache/huggingface
@@ -231,7 +227,7 @@ lerobot-rollout \
 - Success rate: 8 / 8
 
 - Thinking
-  1. Its whole performance is similar to `Training Log 1` of [ACT Training Objective 2](act.md#training-logs-of-objective-2): the grippers do not always grasp the small assembly part along its length, and the gripper sometimes lightly contacts the table while grasping. Unlike ACT, this table contact mainly appears when grasping the large assembly part rather than the small assembly part.
+  1. Its whole performance is similar to [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2): the grippers do not always grasp the small assembly part along its length, and the gripper sometimes lightly contacts the table while grasping. Unlike ACT, this table contact mainly appears when grasping the large assembly part rather than the small assembly part.
   2. I used ACT-style temporal ensembling during rollout. Without it, `policy.n_action_steps=10` caused unstable motion: before moving toward the assembly part, the arms often moved a short distance in the opposite direction, producing visible twitching. During placement, this instability sometimes caused one part to be released while the other remained gripped and stuck. If increase `policy.n_action_steps` like 20 or more, It will reduce the frequency of twitching and move more smoothly, but it also increases risk of contacting the table. With `policy.n_action_steps=1`, both arms tended to get stuck near the beginning of the rollout.
   3. `policy.n_action_steps=10` rollout video:
     
@@ -240,4 +236,9 @@ lerobot-rollout \
         </video>
   4. This behavior is likely caused by inconsistency between consecutive action chunks. ActionFlow samples each chunk from fresh random noise, so two neighboring predictions can disagree even when the observation changes only slightly. With `n_action_steps=10`, the policy executes the first 10 actions from one sampled chunk, then replans from a newly sampled chunk; if the new chunk starts with a different local direction, the arm can briefly move backward before continuing forward. With `n_action_steps=1`, the policy replans every step, which makes it more reactive but also more sensitive to sampling noise and small observation changes. Temporal ensembling reduces this problem by averaging overlapping predictions across successive chunks.
   5. I think add more better demonstrations will improve `Action Flow V1` performence, 20 episodes is very small for bimanual control.
-  
+
+---
+
+### Training Log 2 of Objective 1
+
+#### Dataset Recording

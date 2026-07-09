@@ -427,9 +427,9 @@ lerobot-rollout \
 
 - Failure statistics:
 
-| Failure situation | Times | Notes |
-| :--- | ---: | :--- |
-| Gripper fails to align with the screwdriver | 1 |  |
+  | Failure situation | Times | Notes |
+  | :--- | ---: | :--- |
+  | Gripper fails to align with the screwdriver | 1 |  |
 
 - Thinking
   1. Compared with [Training Log 5](#training-log-5), the policy now shows an obvious slowdown and pause before grasping. This matches the new demonstrations and makes the grasp phase more stable.
@@ -534,9 +534,7 @@ configs/rm65_left_right_wrist_front_top.yaml
 
 ---
 
-## Training Logs of Objective 2
-
-### Training Log 1
+### Training Log 1 of Objective 2
 
 #### Dataset Recording
 
@@ -632,3 +630,123 @@ lerobot-rollout \
       <video controls width="300">
         <source src="assets/act/ob_2_grasp_and_place_success_0.mp4" type="video/mp4">
       </video>
+
+---
+
+### Training Log 2 of Objective 2
+
+This experiment uses the same training setting as [Training Log 1 of Objective 2](#training-log-1-of-objective-2), but increases the scene variation. Instead of using only one small assembly part and one large assembly part, the workspace now contains 3 small assembly parts and 3 large assembly parts. Their positions are fixed: the small assembly parts are placed at fixed candidate positions on one side of the workspace, and the large assembly parts are placed at fixed candidate positions on the other side. The variation comes from visibility: in each episode, a random number of parts may be removed, so the policy must select and grasp from the currently visible parts.
+
+![Positions](assets/act/ob_2_log_2_positions.png)
+
+#### Dataset Recording
+
+To avoid ambiguous demonstrations, I use a fixed selection rule: always grasp the nearest visible large assembly part with the left arm and the nearest visible small assembly part with the right arm, then place both parts in the center. This rule is important because multiple valid parts may appear in the same camera view, and ACT does not have a high-level planner to decide which one should be selected.
+
+Because the part positions are fixed and the main variation is which parts are visible, I record demonstrations with different visible-part subsets. I decide to start with 20 episodes for each visibility setting.
+
+For preliminary testing, I first record a dataset where all six assembly parts are present:
+
+```bash
+CONFIG_PATH=configs/rm65_left_right_wrist_front_top.yaml
+TASK_NAME=rm65_bimanual_nearest_assembly_parts_to_center
+TASK_PROMPT="grasp the nearest large assembly part with the left arm and the nearest small assembly part with the right arm, then place both parts in the center"
+
+python repos/lerobot/examples/rm65/passive_record.py \
+    --config-path $CONFIG_PATH \
+    --repo-id local/$TASK_NAME \
+    --root runs/dataset/$TASK_NAME \
+    --task "$TASK_PROMPT" \
+    --fps 30 \
+    --num-episodes 20 \
+    --log-path logs/record_$TASK_NAME.log \
+    --io-read-source aloha \
+    --control-arm right \
+    --teleop-active-io 1 \
+    --record-button-io 2 \
+    --record-button-mode toggle
+```
+
+Dataset information:
+
+  | Task name | Record FPS | Total episodes | Total frames |
+  | :---: | :---: | :---: | :---: |
+  | rm65_bimanual_nearest_assembly_parts_to_center | 30 | 20 | 16756 |
+
+#### Training
+
+Compared with [Training Objective 1](#training-objective-1-rm65-screwdriver-to-box-task), each demonstration is much longer, taking about 30 seconds. Therefore, I set `chunk_size` to 100 so the ACT policy predicts a longer future action sequence:
+
+```bash
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+
+DATASET_ID=rm65_bimanual_nearest_assembly_parts_to_center
+TRAINING_ID=rm65_act_bimanual_nearest_assembly_parts_to_center_episodes_20_steps_20000_batch_8_chunk_100
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 100 \
+    --policy.n_action_steps 1 \
+    --batch_size 8 \
+    --steps 20000 \
+    --eval_freq 0 \
+    --save_freq 5000 \
+    --log_freq 100 \
+    --output_dir ./runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project lerobot_act_rm65 \
+    --job_name $TRAINING_ID \
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
+```
+
+#### Evaluation
+
+- Success rate: 0 / 6
+
+- Failure statistics:
+
+  | Failure situation | Times | Notes |
+  | :--- | ---: | :--- |
+  | Failed to align with the selected part | 3 | One or both arms approached the selected part, but the grasp pose was inaccurate. |
+  | Failed to grasp all required parts | 3 | One or both arms either missed the part, contacted the table, or did not close the gripper sufficiently. |
+
+- Phenomenon
+  1. Some failure scenarios repeat almost exactly. For example, the right arm often fails to grasp the first small assembly part and then contacts the table when moving toward the second one. Similarly, the left arm often fails around the third large assembly part and contacts the table during the later grasp.
+  2. When both arms fail to grasp the first target part, they do not retry that part. Instead, they continue to the next step in the demonstrated sequence and place the next grasped part into the center location where the first part should have been placed.
+  3. The policy is sensitive to small position changes. When the first large assembly part is not placed exactly at its expected fixed position, the left arm still moves toward the nominal position rather than the actual part position.
+  4. The grasp sequence remains almost the same as the demonstrations, even when the current scene state has changed because an earlier grasp failed.
+
+- Analysis
+  1. The policy has not learned a robust visual selection strategy yet. With only 20 episodes and all six parts always visible, ACT mainly memorizes a fixed grasp sequence and fixed target positions instead of learning the nearest-visible-part rule.
+  2. The repeated table-contact failures suggest that the demonstrations or the learned trajectories do not leave enough vertical clearance. This should be improved by recording demonstrations with a clearer lift-before-transfer motion and by avoiding any table contact during recording.
+  3. ACT does not perform closed-loop task recovery. If the first grasp fails, the policy still follows the next action in the recorded sequence, so later actions become misaligned with the real scene. This is expected for ACT because it predicts action chunks from the current observation but does not explicitly reason about retrying failed subgoals.
+  4. This dataset is not enough for the new task complexity. The next dataset should include more visibility settings, more episodes per setting, and stricter demonstration quality. In particular, the dataset should include cases with one, two, and three visible parts on each side, while always following the same nearest-visible-part rule.
+
+--- 
+
+### Training Log 3 of Objective 2
+
+Same training setting as [log 2](#training-log-2-of-objective-2).
+
+#### Dataset Recording
+
+Based on [log 2](#training-log-2-of-objective-2), I need more demonstrations which has different situations to let policy learn concept about grasping assembly parts in sequence instead of mechanical repetition.
+
+For convience, I change grasp sequence from [log 2](#training-log-2-of-objective-2) (always nearest assembly parts) to from farthest to closest relative to the front camera.
+
+Dataset information:
+
+  | Situation ID | Situation Describtion | Record FPS | Total episodes | Total frames |
+  | :---: | :---: | :---: | :---: | :---: |
+  | 1 | 1 visible part on each side | 30 | 40 | 13095 |
+  | 2 | 2 visible parts on each side | 30 | 60 | 34977 |
+  | 3 | 3 visible parts on each side | 30 | 80 | 67884 |
+  | 4 | Mixed visibility between left and right sides | 30 | 60 | 32852 |
+
+
