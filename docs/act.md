@@ -98,13 +98,13 @@ lerobot-train \
 - Success rate: 5 / 20
 - Successful trial: the robot grasps the screwdriver and places it into the box.
 
-<video controls width="300">
+<video controls width="400">
   <source src="assets/act/ob_1_grasp_screwdriver_success_0.mp4" type="video/mp4">
 </video>
 
 - Failed trial: the robot fails to grasp the screwdriver.
 
-<video controls width="300">
+<video controls width="400">
   <source src="assets/act/ob_1_grasp_screwdriver_fail_0.mp4" type="video/mp4">
 </video>
 
@@ -438,7 +438,7 @@ lerobot-rollout \
 
 - Video of successful grasp and placement:
 
-  <video controls width="300">
+  <video controls width="400">
     <source src="assets/act/ob_1_grasp_screwdriver_success_1.mp4" type="video/mp4">
   </video>
 
@@ -627,7 +627,7 @@ lerobot-rollout \
   2. These problems are likely related to limited data quantity and imperfect demonstration quality. The alignment issue may improve with more demonstrations that consistently grasp the small assembly part along its length. The table-contact issue may come from the demonstrations themselves, because some recorded trajectories also contain slight table contact while I was still becoming familiar with bimanual operation.
   3. Successful grasp-and-place video:
 
-      <video controls width="300">
+      <video controls width="400">
         <source src="assets/act/ob_2_grasp_and_place_success_0.mp4" type="video/mp4">
       </video>
 
@@ -732,7 +732,7 @@ lerobot-train \
 
 ### Training Log 3 of Objective 2
 
-Same training setting as [log 2](#training-log-2-of-objective-2).
+Same environment setting as [log 2](#training-log-2-of-objective-2).
 
 #### Dataset Recording
 
@@ -749,4 +749,163 @@ Dataset information:
   | 3 | 3 visible parts on each side | 30 | 80 | 67884 |
   | 4 | Mixed visibility between left and right sides | 30 | 60 | 32852 |
 
+The final combined dataset is named:
 
+```text
+rm65_bimanual_farthest_to_closest_assembly_parts_to_center
+```
+
+#### Training
+
+Because each episode is relatively long, I set `chunk_size` to 100 so the ACT policy can predict a longer future action sequence. I train for 60,000 steps with batch size 8:
+
+```bash
+export HF_HOME=./.cache/huggingface
+export HF_LEROBOT_HOME=./.cache/lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+
+DATASET_ID=rm65_bimanual_farthest_to_closest_assembly_parts_to_center
+TRAINING_ID=rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100
+
+lerobot-train \
+    --dataset.repo_id $DATASET_ID \
+    --dataset.root ./runs/dataset/$DATASET_ID \
+    --policy.type act \
+    --policy.device cuda \
+    --policy.push_to_hub false \
+    --policy.chunk_size 100 \
+    --policy.n_action_steps 1 \
+    --batch_size 8 \
+    --steps 60000 \
+    --eval_freq 0 \
+    --save_freq 5000 \
+    --log_freq 100 \
+    --output_dir ./runs/train/$TRAINING_ID \
+    --wandb.enable true \
+    --wandb.project lerobot_act_rm65 \
+    --job_name $TRAINING_ID \
+    2>&1 | tee ./logs/train_$TRAINING_ID.log
+```
+
+#### Evaluation
+
+The rollout uses the `highlight` strategy so the rollout process can be recorded as a LeRobot dataset. I use temporal ensembling with `temporal_ensemble_coeff=0.01` and keep `n_action_steps=1`:
+
+```bash
+PRETRAINED=rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100
+TASK_PROMPT="grasp the visible assembly parts from farthest to closest relative to the front camera, and place each pair in the center"
+
+CONFIG_PATH=configs/rm65_left_right_wrist_front_top.yaml
+TASK_NAME=rollout_$PRETRAINED
+FOLDER_PATH="./runs/rollout_dataset/$TASK_NAME"
+
+if [ -d "$FOLDER_PATH" ]; then
+    RESUME=true
+else
+    RESUME=false
+fi
+
+lerobot-rollout \
+    --config_path=$CONFIG_PATH \
+    --strategy.type=highlight \
+    --inference.type=sync \
+    --robot.left_arm.canfd_follow=false \
+    --robot.right_arm.canfd_follow=false \
+    --robot.left_arm.max_relative_target=1000.0 \
+    --robot.right_arm.max_relative_target=1000.0 \
+    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
+    --policy.temporal_ensemble_coeff=0.01 \
+    --policy.n_action_steps=1 \
+    --dataset.repo_id=local/$TASK_NAME \
+    --dataset.root=./runs/rollout_dataset/$TASK_NAME \
+    --dataset.single_task="$TASK_PROMPT" \
+    --dataset.push_to_hub=false \
+    --resume=$RESUME \
+    --device=cuda \
+    --fps=10 \
+    --duration=360 \
+    --task="$TASK_PROMPT" \
+    --return_to_initial_position=false \
+    2>&1 | tee ./logs/rollout_$PRETRAINED.log
+```
+
+- Success rate: 9 / 20
+
+- Failure statistics:
+
+  | Failure situation | Failure / Total Times | Notes |
+  | :---: | :---: | :---: |
+  | Situation 1 | 1 / 2 | Both arms failed to align with the selected parts. |
+  | Situation 2 | 9 / 13 | Both arms often failed to align with the selected parts. |
+  | Situation 4 | 1 / 2 | The right arm failed to align with the selected small part. |
+
+- Phenomenon and Analysis
+  - Situation 1:
+    1. The right arm sometimes grasps the tip of the small assembly part instead of the center area. This makes the grasp unstable, even when the part is technically picked up.
+
+  - Situation 2:
+    1. Both arms often fail to align with the center of the selected parts, which leads to unstable grasping or missed grasps.
+    2. When the right arm fails to grasp the first small assembly part, it sometimes returns and attempts to grasp again. However, the second grasp point can be far away from the actual part, sometimes falling between two visible parts. This suggests that the predicted target may be inconsistent across consecutive action chunks, and temporal ensembling may average conflicting predictions.
+    3. In some rollouts, the retry behavior still succeeds and the policy can grasp both assembly parts.
+    4. Situation 2 failure rollout video:
+
+        <video controls width="600">
+          <source src="assets/act/ob_2_log_3_rollout_1.mp4" type="video/mp4">
+        </video>
+
+    5. Situation 2 successful rollout video with retry:
+
+        <video controls width="600">
+          <source src="assets/act/ob_2_log_3_rollout_2.mp4" type="video/mp4">
+        </video>
+
+  - Situation 3:
+    1. The right arm can align with the length direction of the small assembly part, but the grasp point is sometimes not centered and may move toward the end of the part. The grasp can still succeed because the gripper is large enough.
+    2. The left arm shows a similar issue: it sometimes grasps away from the center of the large assembly part. During the final grasp, the gripper may lightly contact the table.
+    3. The low rollout frequency, `chunk_size=100`, and disabled `canfd_follow` may jointly contribute to these alignment and timing errors.
+    4. Situation 3 successful rollout video:
+
+        <video controls width="600">
+          <source src="assets/act/ob_2_log_3_rollout_0.mp4" type="video/mp4">
+        </video>
+
+  - Situation 4:
+    1. The main failure is right-arm alignment. The right arm can move through the correct sequence, but the final grasp point is not accurate enough for stable pickup.
+
+  - Overall behavior:
+    1. The two arms follow the farthest-to-closest grasp sequence in all tested situations.
+    2. The placement location is consistent with the demonstrations once the parts are successfully grasped.
+    3. The main weakness is not high-level sequence learning, but low-level grasp precision.
+
+  - Analysis:
+    1. The policy has learned the task structure better than in Log 2. It can follow the intended grasp order and move the parts toward the demonstrated center placement area.
+    2. The low success rate mainly comes from grasp-point accuracy. Many failures happen because the gripper reaches the correct part but does not align with the part center or length direction accurately enough.
+    3. The rollout frequency is usually lower than 10 Hz, while the dataset was recorded at 30 FPS. This mismatch may make the executed motion less smooth than the demonstrations.
+    4. `chunk_size=100` may be too long for this setting. It gives the policy a long prediction horizon, but when visual targets are close together, different chunks may predict slightly different grasp points. With temporal ensembling, these inconsistent predictions can be averaged into a point between two parts.
+    5. For the next experiment, I should test a smaller `chunk_size`, such as 50, and compare rollout behavior under the same dataset. If possible, improving rollout frequency and enabling smoother robot-side following should also help.
+
+
+--- 
+
+### Training Log 4 of Objective 2
+
+This experiment uses the same environment setting as [Training Log 2 of Objective 2](#training-log-2-of-objective-2).
+
+#### Dataset Recording
+
+I reuse the dataset recorded in [Training Log 3 of Objective 2](#training-log-3-of-objective-2).
+
+Dataset information:
+
+  | Situation ID | Situation Describtion | Record FPS | Total episodes | Total frames |
+  | :---: | :---: | :---: | :---: | :---: |
+  | 1 | 1 visible part on each side | 30 | 40 | 13095 |
+  | 2 | 2 visible parts on each side | 30 | 60 | 34977 |
+  | 3 | 3 visible parts on each side | 30 | 80 | 67884 |
+  | 4 | Mixed visibility between left and right sides | 30 | 60 | 32852 |
+
+#### Training
+
+Based on the analysis in [Training Log 3 of Objective 2](#training-log-3-of-objective-2), I test smaller action chunk sizes. The training uses `chunk_size` values of 40, 30, and 20, with 60,000 steps and batch size 8 for each run.
+
+#### Evaluation
