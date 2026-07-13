@@ -1,12 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -e
+set -o pipefail
 
-ROLLOUT_DIR="runs/rollout_dataset/rollout_rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100"
-CHUNK_ID="chunk-000"
-FILE_ID="file-006"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
 
+ROLLOUT_DIR="runs/rollout_dataset/rollout_${POLICY_ID}"
 VIDEO_DIR="${ROLLOUT_DIR}/videos"
 
-OUTPUT="docs/assets/act/ob_2_log_3_rollout_2.mp4"
+CHUNK_ID="chunk-000"
+FILE_ID="file-005"
+OUTPUT="docs/assets/act/ob_2_log_4_rollout_3.mp4"
 
 
 # Find all observation images folders

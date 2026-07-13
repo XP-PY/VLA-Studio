@@ -15,9 +15,6 @@ export PYTHONPATH="$PROJECT_ROOT/repos/lerobot/src:${PYTHONPATH}"
 export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export DATASET_ID="rm65_bimanual_assembly_parts_to_center"
-export DATASET_ROOT="$PROJECT_ROOT/runs/dataset/$DATASET_ID"
-
 export TASK_ID="rm65_bimanual_farthest_to_closest_assembly_parts_to_center"
 export TASK_PROMPT="grasp the visible assembly parts from farthest to closest relative to the front camera, and place each pair in the center"
 export TASK_ROOT="$PROJECT_ROOT/runs/dataset/$TASK_ID"
@@ -25,7 +22,7 @@ export TASK_EPISODES=240
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100"
+export POLICY_ID="rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_40"
 export STEPS=60000
 export BATCH_SIZE=8
 export SAVE_FREQ=20000

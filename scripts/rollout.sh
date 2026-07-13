@@ -20,7 +20,7 @@ lerobot-rollout \
     --robot.left_arm.max_relative_target=1000.0 \
     --robot.right_arm.max_relative_target=1000.0 \
     --policy.path="$PROJECT_ROOT/runs/train/$POLICY_ID/checkpoints/last/pretrained_model" \
-    --policy.temporal_ensemble_coeff=0.01 \
+    --policy.temporal_ensemble_coeff=0.05 \
     --policy.n_action_steps=1 \
     --dataset.repo_id="local/rollout_$POLICY_ID" \
     --dataset.root="$PROJECT_ROOT/runs/rollout_dataset/rollout_$POLICY_ID" \

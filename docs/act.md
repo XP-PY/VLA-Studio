@@ -897,7 +897,7 @@ I reuse the dataset recorded in [Training Log 3 of Objective 2](#training-log-3-
 
 Dataset information:
 
-  | Situation ID | Situation Describtion | Record FPS | Total episodes | Total frames |
+  | Situation ID | Situation Description | Record FPS | Total episodes | Total frames |
   | :---: | :---: | :---: | :---: | :---: |
   | 1 | 1 visible part on each side | 30 | 40 | 13095 |
   | 2 | 2 visible parts on each side | 30 | 60 | 34977 |
@@ -906,6 +906,62 @@ Dataset information:
 
 #### Training
 
-Based on the analysis in [Training Log 3 of Objective 2](#training-log-3-of-objective-2), I test smaller action chunk sizes. The training uses `chunk_size` values of 40, 30, and 20, with 60,000 steps and batch size 8 for each run.
+Based on the analysis in [Training Log 3 of Objective 2](#training-log-3-of-objective-2), I test smaller action chunk sizes to reduce the long-horizon averaging problem. I train three policies with `chunk_size` values of 40, 30, and 20. Each policy uses 60,000 training steps and batch size 8.
 
 #### Evaluation
+
+For rollout, I tune temporal ensembling separately for each chunk size. I use `temporal_ensemble_coeff=0.1` for `chunk_size=20`, `temporal_ensemble_coeff=0.05` for `chunk_size=30`, and `temporal_ensemble_coeff=0.03` for `chunk_size=40`.
+
+- Success rate: 4 / 8
+
+    I stopped the evaluation early because the rollout performance was poor.
+
+- Phenomenon
+  - The three trained policies with `chunk_size` values of 40, 30, and 20 show similar overall performance.
+
+  - Situation 3:
+    1. Similar to Log 3, both arms can grasp and place the parts successfully, but the grasp point is sometimes not centered on the part. Increasing `temporal_ensemble_coeff` improves this issue. For example, with `chunk_size=20` and `temporal_ensemble_coeff=0.02`, the policy may grasp the tip of the assembly part, while `temporal_ensemble_coeff=0.1` makes the grasp point closer to the center.
+
+  - Situation 1/2/4:
+    1. Similar to Situation 3, increasing `temporal_ensemble_coeff` improves grasp-point accuracy.
+    2. When the farthest position is empty, the policy often degrades sharply. This happens for both the small and large assembly parts. The farthest position is also the first target in the demonstrated sequence when a part is present, so this failure suggests that the policy strongly depends on the demonstrated motion order.
+        - Sometimes the arms still execute the grasp-and-place motion even though the target position is empty:
+
+          <video controls width="600">
+            <source src="assets/act/ob_2_log_4_rollout_0.mp4" type="video/mp4">
+          </video>
+
+        - Sometimes the motion becomes very slow, the arms fail to align with the visible part, or the gripper does not descend enough to grasp:
+
+          <video controls width="600">
+            <source src="assets/act/ob_2_log_4_rollout_1.mp4" type="video/mp4">
+          </video>
+
+        - Sometimes the arms get stuck and appear unable to decide the next motion.
+          
+          <video controls width="600">
+            <source src="assets/act/ob_2_log_4_rollout_2.mp4" type="video/mp4">
+          </video>
+
+        However, when the farthest position on both sides contains an assembly part, the policy usually performs normally. This suggests that the policy has not reliably learned to recognize the visible part and select the correct target. Instead, it mainly imitates the trajectory pattern from the demonstrations.
+    3. The `chunk_size=40` policy performs slightly better than the `chunk_size=20` and `chunk_size=30` policies. It is less likely to show the slow-motion failure, but the performance is still below expectation.
+
+- Analysis:
+  1. The main limitation is no longer only the number of demonstrations. The dataset already contains the target visibility variations, but ACT still often follows a fixed sequence and fixed position prior. When the farthest position is empty, the policy does not reliably switch to the next visible part.
+  2. This indicates weak visual grounding. The policy can reproduce demonstrated trajectories when the scene matches the common demonstration pattern, but it struggles to use the image observation to decide whether a part is actually present at the expected target position.
+  3. Smaller `chunk_size` does not solve this issue. It can reduce some action-averaging problems, and a larger `temporal_ensemble_coeff` can improve grasp-point centering, but the core failure is target selection under changing visibility.
+  4. For this kind of task, ACT with a randomly trained ResNet image encoder may be insufficient. A stronger pretrained visual backbone, such as DINOv2, may provide better visual tokens for object presence and part localization. Another direction is to move to a VLA policy such as SmolVLA, where language-conditioned visual grounding may better match this multi-object selection problem.
+
+---
+
+## Conclusion of Training Objective 2
+
+Training Objective 2 shows that ACT is effective when the task has a stable visual layout and a consistent action sequence. In the first bimanual grasp-and-place setting, where each side has one target assembly part, ACT can learn coordinated two-arm control from a relatively small dataset. The policy learns the overall motion structure, including approaching the parts, closing the grippers, transferring the parts, and placing them in the center area. This confirms one important advantage of ACT: it can model smooth continuous action trajectories and imitate coordinated bimanual demonstrations well when the scene distribution is simple.
+
+However, the later experiments also show ACT's limitations. When multiple assembly parts are visible and the target must be selected according to a rule, ACT becomes much less reliable. Even after recording more demonstrations with different visibility settings, the policy often follows a fixed position prior or a memorized action sequence. When the farthest target position is empty, the policy may still execute the grasp motion at that empty position, move very slowly, or get stuck. This suggests that the policy has not truly learned the high-level concept of "find the visible part and grasp it in order." Instead, it mainly learns a trajectory pattern that works when the scene is close to the demonstrations.
+
+The experiments with different `chunk_size` values also clarify the role of ACT's action chunking. A larger `chunk_size` gives smoother long-horizon behavior, but it can make grasp-point prediction less precise when several visual targets are close together. A smaller `chunk_size` reduces some long-horizon averaging effects, but it does not solve the core visual selection problem. Temporal ensembling is useful for stabilizing grasp points: increasing `temporal_ensemble_coeff` made the gripper grasp closer to the center of the part in several rollouts. But this only improves low-level execution stability. It does not make the policy understand whether the expected target position actually contains a part.
+
+Overall, ACT is suitable for tasks where the target object, order, and scene layout are mostly fixed, or where the visual variation is small enough that direct imitation is sufficient. Its main weakness in this objective is visual grounding and conditional target selection. For a complex bimanual scene with multiple possible objects, missing objects, and a required selection rule, ACT tends to memorize demonstration priors instead of reasoning from the current image observation. This limitation is especially clear when the correct behavior requires skipping an empty position and selecting the next visible part.
+
+For future work, improving ACT would likely require a stronger visual representation or an explicit target-selection mechanism. Replacing the randomly trained ResNet visual encoder with a pretrained vision model such as DINOv2 may help the policy recognize object presence and part location more reliably. Another direction is to use a VLA policy such as SmolVLA, where language-conditioned visual grounding may better match this type of multi-object, rule-conditioned manipulation task.
