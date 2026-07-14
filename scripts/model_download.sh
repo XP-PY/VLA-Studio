@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
+set -o pipefail
 
-# export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
-export HF_HOME="${HF_HOME:-./.cache/huggingface}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
+
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 usage() {
@@ -18,7 +19,7 @@ Examples:
 
 Environment:
   HF_ENDPOINT defaults to https://hf-mirror.com
-  HF_HOME defaults to ./.cache/huggingface
+  HF_HOME defaults to $STORAGE_ROOT/cache/huggingface
   HF_HUB_DISABLE_XET defaults to 1, which helps with mirrors that cannot serve Xet blobs.
 EOF
 }
@@ -31,7 +32,7 @@ fi
 REPO_ID="$1"
 shift
 
-OUTPUT_DIR="${1:-./models/${REPO_ID##*/}}"
+OUTPUT_DIR="${1:-${STORAGE_ROOT}/models/${REPO_ID##*/}}"
 if [[ $# -gt 0 && "${1:0:2}" != "--" ]]; then
     shift
 fi
@@ -82,14 +83,6 @@ if ! "${CMD[@]}"; then
     cat >&2 <<EOF
 
 Download failed.
-
-Common cause for repos like lerobot/smolvla_base:
-  The mirror can list repo metadata, but cannot serve all Xet/LFS file blobs.
-
-Try one of these:
-  HF_ENDPOINT=https://huggingface.co scripts/model_download.sh $REPO_ID "$OUTPUT_DIR"
-  HF_DEBUG=1 scripts/model_download.sh $REPO_ID "$OUTPUT_DIR"
-
 EOF
     exit 1
 fi

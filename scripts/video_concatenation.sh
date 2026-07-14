@@ -5,12 +5,12 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-ROLLOUT_DIR="runs/rollout_dataset/rollout_${POLICY_ID}"
 VIDEO_DIR="${ROLLOUT_DIR}/videos"
 
+POLICY="action_flow"
 CHUNK_ID="chunk-000"
 FILE_ID="file-005"
-OUTPUT="docs/assets/act/ob_2_log_4_rollout_3.mp4"
+OUTPUT="docs/assets/${POLICY}/ob_1_log_2_rollout_5.mp4"
 
 
 # Find all observation images folders

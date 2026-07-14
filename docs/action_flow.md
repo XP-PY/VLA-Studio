@@ -1,6 +1,6 @@
 # Action Flow Training Log
 
-*Last updated: July 7, 2026*
+*Last updated: July 14, 2026*
 
 ---
 
@@ -226,7 +226,7 @@ lerobot-rollout \
 
 - Success rate: 8 / 8
 
-- Thinking
+- Phenomenon and Analysis
   1. Its whole performance is similar to [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2): the grippers do not always grasp the small assembly part along its length, and the gripper sometimes lightly contacts the table while grasping. Unlike ACT, this table contact mainly appears when grasping the large assembly part rather than the small assembly part.
   2. I used ACT-style temporal ensembling during rollout. Without it, `policy.n_action_steps=10` caused unstable motion: before moving toward the assembly part, the arms often moved a short distance in the opposite direction, producing visible twitching. During placement, this instability sometimes caused one part to be released while the other remained gripped and stuck. If increase `policy.n_action_steps` like 20 or more, It will reduce the frequency of twitching and move more smoothly, but it also increases risk of contacting the table. With `policy.n_action_steps=1`, both arms tended to get stuck near the beginning of the rollout.
   3. `policy.n_action_steps=10` rollout video:
@@ -243,11 +243,11 @@ lerobot-rollout \
 
 #### Dataset Recording
 
-Use same dataste of [ACT log 3 of objective 2](act.md#training-log-3-of-objective-2).
+This experiment uses the same dataset as [ACT Training Log 4 of Objective 2](act.md#training-log-4-of-objective-2).
 
 Dataset information:
 
-  | Situation ID | Situation Describtion | Record FPS | Total episodes | Total frames |
+  | Situation ID | Situation Description | Record FPS | Total episodes | Total frames |
   | :---: | :---: | :---: | :---: | :---: |
   | 1 | 1 visible part on each side | 30 | 40 | 13095 |
   | 2 | 2 visible parts on each side | 30 | 60 | 34977 |
@@ -262,30 +262,59 @@ rm65_bimanual_farthest_to_closest_assembly_parts_to_center
 
 #### Training
 
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
-export HF_ENDPOINT=https://hf-mirror.com
+Similar to [ACT Training Log 4 of Objective 2](act.md#training-log-4-of-objective-2), I train `Action Flow V1` with different `chunk_size` values: 20, 30, and 40. Each policy is trained for 60,000 steps with batch size 8.
 
-DATASET_ID=rm65_bimanual_farthest_to_closest_assembly_parts_to_center
-TRAINING_ID=rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100
+#### Evaluation
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type action_flow_v1 \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 1 \
-    --batch_size 8 \
-    --steps 60000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_action_flow_rm65 \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+In this rollout evaluation, I enable Real-Time Chunking (RTC) with `RTC_QUEUE_THRESHOLD=10`, `RTC_EXECUTION_HORIZON=10`, `RTC_MAX_GUIDANCE_WEIGHT=10` and `RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"`. RTC is more suitable than ACT-style temporal ensembling for this flow-matching policy because it explicitly reuses the unexecuted part of the previous chunk during the next denoising process.
+
+- Phenomenon
+    1. All three policies show different degrees of discontinuity between the current executed action and the next predicted chunk. Both arms often fail to align with the assembly parts. In some cases, the robot successfully grasps a part, but the gripper command is not stable: it slightly opens and closes during transfer, causing the part to drop.
+
+        Rollout video with `chunk_size=20`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_0.mp4" type="video/mp4">
+        </video>
+
+        Rollout video with `chunk_size=30`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_1.mp4" type="video/mp4">
+        </video>
+
+        Rollout video with `chunk_size=40`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_2.mp4" type="video/mp4">
+        </video>
+
+    2. Compared with [ACT](./act.md#training-log-4-of-objective-2), `Action Flow V1` shows one encouraging behavior: it does not follow the fixed sequence and fixed position prior as strongly as ACT. This suggests that `Action Flow V1` may rely more on visual information. However, its grasp success rate is still almost zero because the grasp point is not accurate and the executed actions are not stable enough.
+    3. Although the default `num_inference_steps` is 10, reducing it significantly improves grasp-point accuracy and gripper-command stability. This suggests that more denoising steps do not necessarily produce better real-robot rollout behavior. In this task, 10 inference steps may over-refine the action chunk or increase chunk-to-chunk inconsistency, while 7 or 5 steps produce smoother and more stable grasp targets. However, the grasp point is still not accurate enough for consistently successful pickup:
+
+        Successful rollout video with `chunk_size=40` and `num_inference_step=7`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_3.mp4" type="video/mp4">
+        </video>
+
+        Fail rollout video with `chunk_size=40` and `num_inference_step=7`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_4.mp4" type="video/mp4">
+        </video>
+
+        Nearly successful rollout video with `chunk_size=40` and `num_inference_step=5`:
+
+        <video controls width="600">
+            <source src="assets/action_flow/ob_1_log_2_rollout_5.mp4" type="video/mp4">
+        </video>
+
+    4. Similar to ACT, `Action Flow V1` still has difficulty handling empty target positions. In the demonstrations, when one side has no visible part, the corresponding arm remains still. However, during rollout, if the right-side target position is empty while the left side still has visible assembly parts, the right arm may still try to grasp the empty position and then execute the place motion toward the center. This motion is noticeably slower than normal, but it still shows that the policy has not fully learned the conditional behavior of skipping an empty side.
+
+- Analysis:
+    1. `Action Flow V1` improves some low-level rollout behavior compared with ACT, especially after tuning `num_inference_steps`, but it does not fully solve the high-level conditional behavior problem. Like ACT, it can still execute a memorized empty-position grasp when one side has no visible part.
+    2. The best low-level improvement comes from reducing `num_inference_steps`. This indicates that rollout quality is sensitive to the inference-time flow integration setting. In this task, the default value of 10 may generate action chunks that are too sharp or less consistent across consecutive RTC updates. Fewer inference steps make the action sequence smoother and make the gripper command more stable.
+    3. Even after this improvement, grasp-point precision remains a bottleneck. The policy can often move toward the correct part, but the final grasp point is still slightly offset from the part center or length direction. For small assembly parts, this small error is enough to cause missed grasps, unstable grasps, or dropped parts during transfer.
+    4. The empty-side failure suggests that the policy has not learned a reliable conditional rule: if no part is visible on one side, that arm should stay still. This is not mainly an RTC or `num_inference_steps` issue, because the same type of behavior also appears in ACT. It is more likely a limitation of visual grounding and action-condition learning in the current dataset/model setup.
+    5. The next improvement should focus on object localization, centered grasp prediction, and explicit empty-side behavior. Possible directions include testing `num_inference_steps` values around 5 and 7 more systematically, adding gripper-specific smoothing or loss weighting, improving the visual encoder, adding more demonstrations that emphasize centered grasps, and adding more clear examples where one arm must remain still because its side is empty.

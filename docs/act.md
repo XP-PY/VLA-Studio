@@ -1,6 +1,6 @@
 # [ACT](http://arxiv.org/abs/2304.13705) Training Log
 
-*Last updated: July 7, 2026*
+*Last updated: July 14, 2026*
 
 ---
 
@@ -25,9 +25,7 @@ The robotic arm is a [Realman RM65](https://github.com/RealManRobot/rm_models/tr
 
 ---
 
-## Training Logs of Objective 1
-
-### Training Log 1
+### Training Log 1 of Objective 1
 
 #### Dataset Recording
 
@@ -120,7 +118,7 @@ lerobot-train \
 
 ---
 
-### Training Log 2
+### Training Log 2 of Objective 1
 
 #### Dataset Recording
 
@@ -146,7 +144,7 @@ I used the same training hyperparameters as in [Training Log 1](#training-log-1)
 
 ---
 
-### Training Log 3
+### Training Log 3 of Objective 1
 
 #### Dataset Recording
 
@@ -181,7 +179,7 @@ I trained three policies on the 100-episode dataset:
 
 ---
 
-### Training Log 4
+### Training Log 4 of Objective 1
 
 #### Dataset Recording
 In this experiment, I moved the front camera closer to the screwdriver and the box to test whether a closer and clearer view could improve grasping performance. The new front camera view is:
@@ -280,7 +278,7 @@ In this evaluation, `canfd_follow` was enabled.
 
 ---
 
-### Training Log 5
+### Training Log 5 of Objective 1
 
 #### Dataset Recording
 
@@ -363,7 +361,7 @@ For a quick test, I cut the predicted action chunk to 50 during rollout, even th
 
 ---
 
-### Training Log 6
+### Training Log 6 of Objective 1
 
 #### Dataset Recording
 
@@ -444,7 +442,7 @@ lerobot-rollout \
 
 ---
 
-## Conclusion of Training Objective 1
+### Conclusion of Training Objective 1
 
 These experiments show that successfully training ACT for the RM65 grasping task depends more on data quality, action timing, and rollout consistency than on episode count alone. The best result in this log is [Training Log 6](#training-log-6): 250 episodes, `chunk_size=50`, `batch_size=32`, 40,000 training steps, `canfd_follow` enabled, and rollout `fps=20`, reaching 24 / 25 successful trials.
 
@@ -519,12 +517,12 @@ The setup uses four cameras. The two wrist cameras observe each gripper and loca
 
 Camera configuration:
 
-| Camera key | Type | Identifier | Resolution | FPS | Role |
-| :--- | :--- | :--- | :--- | ---: | :--- |
-| `left_wrist` | Intel RealSense | `254522073961` | 640 x 480 | 30 | Mounted on the left arm end effector. |
-| `right_wrist` | Intel RealSense | `335222071948` | 640 x 480 | 30 | Mounted on the right arm end effector. |
-| `front` | OpenCV camera | device index `12` | 640 x 480 | 30 | External front view of the task. |
-| `top` | Intel RealSense | `335522070090` | 640 x 480 | 30 | Overhead workspace view. |
+| Camera key | Type | Resolution | FPS | Role |
+| :--- | :--- | :--- | ---: | :--- |
+| `left_wrist` | Intel RealSense | 640 x 480 | 30 | Mounted on the left arm end effector. |
+| `right_wrist` | Intel RealSense | 640 x 480 | 30 | Mounted on the right arm end effector. |
+| `front` | OpenCV camera | 640 x 480 | 30 | External front view of the task. |
+| `top` | Intel RealSense | 640 x 480 | 30 | Overhead workspace view. |
 
 The corresponding robot configuration is:
 
@@ -954,7 +952,7 @@ For rollout, I tune temporal ensembling separately for each chunk size. I use `t
 
 ---
 
-## Conclusion of Training Objective 2
+### Conclusion of Training Objective 2
 
 Training Objective 2 shows that ACT is effective when the task has a stable visual layout and a consistent action sequence. In the first bimanual grasp-and-place setting, where each side has one target assembly part, ACT can learn coordinated two-arm control from a relatively small dataset. The policy learns the overall motion structure, including approaching the parts, closing the grippers, transferring the parts, and placing them in the center area. This confirms one important advantage of ACT: it can model smooth continuous action trajectories and imitate coordinated bimanual demonstrations well when the scene distribution is simple.
 

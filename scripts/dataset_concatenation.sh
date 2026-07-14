@@ -1,11 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -e
+set -o pipefail
 
-HF_HOME=./.cache/huggingface \
-HF_DATASETS_CACHE=./.cache/huggingface/datasets \
-PYTHONPATH=repos/lerobot/src
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
 
 # Input subset dataset directory
-SUBSET_ROOT="runs/dataset/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subset"
+SUBSET_ROOT="$STORAGE_ROOT/runs/dataset/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subset"
 
 # Remove "_subset" to create output name
 NEW_ROOT="${SUBSET_ROOT%_subset}"

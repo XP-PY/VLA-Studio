@@ -75,12 +75,12 @@ The setup uses four cameras. The two wrist cameras observe each gripper and loca
 
 Camera configuration:
 
-| Camera key | Type | Identifier | Resolution | FPS | Role |
-| :--- | :--- | :--- | :--- | ---: | :--- |
-| `left_wrist` | Intel RealSense | `254522073961` | 640 x 480 | 30 | Mounted on the left arm end effector. |
-| `right_wrist` | Intel RealSense | `335222071948` | 640 x 480 | 30 | Mounted on the right arm end effector. |
-| `front` | OpenCV camera | stable `/dev/v4l/by-path` device path | 640 x 480 | 30 | External front view of the task. |
-| `top` | Intel RealSense | `335522070090` | 640 x 480 | 30 | Overhead workspace view. |
+| Camera key | Type | Resolution | FPS | Role |
+| :--- | :--- | :--- | ---: | :--- |
+| `left_wrist` | Intel RealSense | 640 x 480 | 30 | Mounted on the left arm end effector. |
+| `right_wrist` | Intel RealSense | 640 x 480 | 30 | Mounted on the right arm end effector. |
+| `front` | OpenCV camera | 640 x 480 | 30 | External front view of the task. |
+| `top` | Intel RealSense | 640 x 480 | 30 | Overhead workspace view. |
 
 The corresponding robot configuration is:
 

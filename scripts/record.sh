@@ -12,7 +12,7 @@ python "$PROJECT_ROOT/repos/lerobot/examples/rm65/passive_record.py" \
     --task="$TASK_PROMPT" \
     --fps="$TASK_FPS" \
     --num-episodes="$TASK_EPISODES" \
-    --log-path="$PROJECT_ROOT/logs/record_$TASK_ID.log" \
+    --log-path="$STORAGE_ROOT/logs/record_$TASK_ID.log" \
     --io-read-source=aloha \
     --control-arm=right \
     --teleop-active-io=1 \
