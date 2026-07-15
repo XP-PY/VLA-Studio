@@ -34,9 +34,9 @@ export TASK_FPS=30
 # ===== Training common settings =====
 export POLICY_ID="rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_40"
 export POLICY_TYPE=""
-export STEPS=80000
-export PER_DEVICE_BATCH_SIZE=2
-export SAVE_FREQ=20000
+export STEPS=30000
+export PER_DEVICE_BATCH_SIZE=16
+export SAVE_FREQ=10000
 export LOG_FREQ=100
 export CHUNK_SIZES=(50)
 export GPU_IDS=0

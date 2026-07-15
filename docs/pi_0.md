@@ -118,16 +118,16 @@ The absolute joint-angle dataset was copied to a PI0-specific dataset whose acti
 | Fine-tuning | Freeze vision encoder | `true` | Explicit but redundant because `train_expert_only=true` already freezes the complete PaliGemma model. |
 | Memory | Gradient checkpointing | `true` | Reduces activation memory at the cost of additional computation. |
 | Hardware | GPU configuration | One GPU: device `0` | `NUM_GPUS=1` and `GPU_IDS=0`. |
-| Optimization | Per-device/global batch size | 2 / 2 | No gradient accumulation is used. |
-| Optimization | Training steps | 80,000 | Processes 160,000 sampled frames, approximately 1.7 passes over the 93,199-frame dataset. |
+| Optimization | Per-device/global batch size | 16 / 16 | No gradient accumulation is used. |
+| Optimization | Training steps | 30,000 | Processes 480,000 sampled frames, approximately 5.2 passes over the 93,199-frame dataset. |
 | Optimization | Optimizer | AdamW | Uses the PI0 policy training preset. |
 | Optimization | Learning rate | `2.5e-5` | Default PI0 peak learning rate. |
 | Optimization | AdamW parameters | betas `(0.9, 0.95)`, epsilon `1e-8`, weight decay `0.01` | Inherited from the PI0 policy preset. |
 | Optimization | Gradient clipping | `1.0` | Maximum gradient norm from the PI0 policy preset. |
-| Scheduler | Schedule | Cosine decay with warmup | Uses 1,000 warmup steps and decays across all 80,000 training steps. |
+| Scheduler | Schedule | Cosine decay with warmup | Uses 1,000 warmup steps and decays across all 30,000 training steps. |
 | Scheduler | Final learning rate | `2.5e-6` | PI0 scheduler decay target. |
 | Logging | Log frequency | Every 100 steps | Reports training metrics to the terminal, log file, and Weights & Biases. |
-| Checkpoints | Save frequency | Every 20,000 steps | Saves checkpoints at 20k, 40k, 60k, and 80k steps. |
+| Checkpoints | Save frequency | Every 10,000 steps | Saves checkpoints at 10k, 20k and 30k steps. |
 | Evaluation | Training-time evaluation | Disabled | `eval_freq=0`; checkpoints are evaluated on the real robot after training. |
 | Tracking | Weights & Biases | Enabled, project `lerobot_pi0_rm65` | Records the training loss, learning rate, gradient norm, throughput, and GPU memory. |
 | Reproducibility | Random seed | 1000 | Uses LeRobot's default training seed because no override is supplied. |
