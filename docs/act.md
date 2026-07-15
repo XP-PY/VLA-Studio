@@ -553,7 +553,6 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --fps 30 \
     --num-episodes 20 \
     --io-read-source aloha \
-    --control-arm right \
     --teleop-active-io 1 \
     --record-button-io 2 \
     --record-button-mode toggle
@@ -659,7 +658,6 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --num-episodes 20 \
     --log-path logs/record_$TASK_NAME.log \
     --io-read-source aloha \
-    --control-arm right \
     --teleop-active-io 1 \
     --record-button-io 2 \
     --record-button-mode toggle

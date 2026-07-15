@@ -10,6 +10,8 @@ This directory collects training notes, evaluation results, and lessons learned 
 
 - [Action Flow Training Log](action_flow.md): Policy structure, dataset recording, hyperparameter experiments, rollout evaluation, failure analysis, and the final conclusion for training `Action Flow` on the RM65 tasks.
 
+- [Pi0 or Pi0-FAST Training Log](pi_0.md):
+
 ## Notes
 
 The logs are written as experiment records. They include both successful and failed runs, because the failure categories are useful for deciding the next data collection or training change.

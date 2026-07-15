@@ -17,13 +17,18 @@ export HF_LEROBOT_HOME="$STORAGE_ROOT/cache/lerobot"
 export PYTHONPATH="$PROJECT_ROOT/repos/lerobot/src:${PYTHONPATH}"
 
 # ===== Robot =====
-export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_top.yaml"
+export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
+# export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_top.yaml"
+# export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export TASK_ID="rm65_bimanual_bottle_multitask_three_cameras"
-export TASK_PROMPT="grasp the visible assembly parts from farthest to closest relative to the front camera, and place each pair in the center"
+export TASK_ID="rm65_single_table_preparation_and_bussing"
+
+export TASK_PROMPT="Put all vegetables into the collection box."
+
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
-export TASK_EPISODES=160
+export TASK_SUBSET_ID="bus_the_table"
+export TASK_EPISODES=204
 export TASK_FPS=30
 
 # ===== Training common settings =====

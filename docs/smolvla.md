@@ -15,8 +15,8 @@ Before training, download the base SmolVLA policy and the SmolVLM model used by 
 
 The local paths used in the training command are:
 
-- SmolVLA base policy: `./models/smolvla_base`
-- SmolVLM model: `./models/SmolVLM2-500M-Video-Instruct`
+- SmolVLA base policy: `${STORAGE_ROOT}/models/smolvla_base`
+- SmolVLM model: `${STORAGE_ROOT}/models/SmolVLM2-500M-Video-Instruct`
 
 ---
 

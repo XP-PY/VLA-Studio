@@ -1,16 +1,17 @@
 # RM65 hardware profile for local RealMan RM65 + two Intel RealSense D435 cameras.
 #
 # Camera naming:
-# - wrist: end-effector camera
-# - front: overview camera that can see the whole arm
+# - wrist: mounted on the robotic arm end effector
+# - top: looking down at the workspace
 #
 # This file is intended to be reused by LeRobot scripts that accept a top-level
 # `robot` config, for example:
-#   --config_path=configs/rm65_wrist_front.yaml
+#   --config_path=configs/rm65_wrist_top.yaml
 robot:
   type: rm65
   id: rm65
   mode: single
+  control_arm: single
 
   calibration_dir: /tmp/lerobot-rm65-calibration
 
@@ -63,7 +64,7 @@ robot:
       use_depth: false
       warmup_s: 1
 
-    front:
+    top:
       type: intelrealsense
       serial_number_or_name: "335522070090"
       width: 640

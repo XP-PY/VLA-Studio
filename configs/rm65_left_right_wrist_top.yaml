@@ -24,6 +24,7 @@ robot:
   type: rm65
   id: rm65_bimanual
   mode: bimanual
+  control_arm: right
 
   left_arm:
     ip: 192.168.1.18

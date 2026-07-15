@@ -9,7 +9,8 @@ motion commands during recording.
 For the RealMan Aloha-style teleoperator, use ``--io-read-source aloha`` with
 ``--teleop-active-io 1`` and ``--record-button-io 2``. IO1 indicates that the
 teleoperator is active, and IO2 is the momentary enable button used as a
-recording toggle.
+recording toggle. The robot config's ``control_arm`` field selects which arm
+provides these signals. It defaults to ``right`` in bimanual mode.
 
 If ``--root`` already contains a LeRobot dataset, new episodes are appended to
 that dataset so collection can be split across multiple recording sessions.
@@ -42,7 +43,6 @@ from lerobot.utils.robot_utils import precise_sleep
 logger = logging.getLogger(__name__)
 
 IO_READ_SOURCES = ("state", "input", "output", "tool", "aloha", "auto")
-CONTROL_ARMS = ("auto", "single", "left", "right")
 
 
 @dataclass
@@ -166,9 +166,10 @@ def _read_indexed_io_values(values: Any, io_num: int, label: str) -> bool:
     return bool(value)
 
 
-def resolve_control_side(robot: RM65Robot, control_arm: str) -> str:
-    if control_arm == "auto":
-        return "right" if robot.is_bimanual else ""
+def resolve_control_side(robot: RM65Robot) -> str:
+    control_arm = robot.config.control_arm
+    if control_arm is None:
+        raise RuntimeError("RM65 control_arm was not resolved during configuration")
     if control_arm == "single":
         control_side = ""
     else:
@@ -176,7 +177,7 @@ def resolve_control_side(robot: RM65Robot, control_arm: str) -> str:
 
     if control_side not in robot.arm_configs:
         available = ["single" if side == "" else side for side in robot.arm_configs]
-        raise ValueError(f"--control-arm={control_arm} is invalid for this config. Available: {available}")
+        raise ValueError(f"control_arm={control_arm!r} is invalid for this config. Available: {available}")
     return control_side
 
 
@@ -802,15 +803,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--control-arm",
-        choices=CONTROL_ARMS,
-        default="auto",
-        help=(
-            "Arm controller used for IO/Aloha recording triggers. "
-            "'auto' uses the single arm in single mode and the right arm in bimanual mode."
-        ),
-    )
-    parser.add_argument(
         "--aloha-target-ip",
         default=None,
         help=(
@@ -912,7 +904,7 @@ def main() -> None:
 
     robot_cfg = load_robot_config(args.config_path)
     robot = RM65Robot(robot_cfg)
-    control_side = resolve_control_side(robot, args.control_arm)
+    control_side = resolve_control_side(robot)
     use_videos = not args.no_video
     features = make_dataset_features(robot, use_videos=use_videos)
 

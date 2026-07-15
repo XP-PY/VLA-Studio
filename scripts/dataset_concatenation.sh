@@ -6,14 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
 # Input subset dataset directory
-SUBSET_ROOT="$STORAGE_ROOT/runs/dataset/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subset"
+SUBSET_ROOT="${TASK_ROOT}_subsets"
 
-# Remove "_subset" to create output name
-NEW_ROOT="${SUBSET_ROOT%_subset}"
-
-# Repo id name
-DATASET_NAME=$(basename "$NEW_ROOT")
-NEW_REPO_ID="local/${DATASET_NAME}"
+NEW_ROOT="${TASK_ROOT}"
+NEW_REPO_ID="local/${TASK_ID}"
 
 # Automatically collect subfolders
 ROOTS=()

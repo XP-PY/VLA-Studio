@@ -68,10 +68,10 @@ source "$SCRIPT_DIR/env.sh"
 #     echo "Finished training: $TRAINING_ID"
 # done
 
-# ========================== Pi_0 ==========================
+# ========================== Pi0 ==========================
 
 for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
-    TRAINING_ID=rm65_pi_0_bimanual_bottle_multitask_left_right_wrist_top_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}
+    TRAINING_ID=rm65_pi0_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}
     ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=bf16)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
@@ -85,8 +85,8 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     CUDA_VISIBLE_DEVICES=$GPU_IDS accelerate launch \
       "${ACCELERATE_ARGS[@]}" \
       -m lerobot.scripts.lerobot_train \
-      --dataset.repo_id="$TASK_ID" \
-      --dataset.root="$TASK_ROOT" \
+      --dataset.repo_id="${TASK_ID}_pi" \
+      --dataset.root="${TASK_ROOT}_pi" \
       --dataset.return_uint8=true \
       --policy.path="${STORAGE_ROOT}/models/pi0_base" \
       --policy.input_features=null \

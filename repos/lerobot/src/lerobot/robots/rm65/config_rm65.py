@@ -31,10 +31,13 @@ class RM65RobotConfig(RobotConfig):
 
     In `bimanual` mode, `left_arm` and `right_arm` define the two arms and
     action/observation keys are prefixed, for example `left_joint_1.pos` and
-    `right_joint_1.pos`. Camera keys stay unprefixed.
+    `right_joint_1.pos`. Camera keys stay unprefixed. `control_arm` selects the
+    arm that provides IO/Aloha recording triggers; it defaults to `single` in
+    single-arm mode and `right` in bimanual mode.
     """
 
     mode: str = "single"
+    control_arm: str | None = None
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
     single_arm: "RM65ArmConfig | None" = None
@@ -48,11 +51,19 @@ class RM65RobotConfig(RobotConfig):
                 raise ValueError("`single_arm` must be provided when `mode` is 'single'.")
             if self.left_arm is not None or self.right_arm is not None:
                 raise ValueError("`left_arm` and `right_arm` must be omitted when `mode` is 'single'.")
+            if self.control_arm is None:
+                self.control_arm = "single"
+            elif self.control_arm != "single":
+                raise ValueError("`control_arm` must be 'single' when `mode` is 'single'.")
         elif self.mode == "bimanual":
             if self.left_arm is None or self.right_arm is None:
                 raise ValueError("`left_arm` and `right_arm` must be provided when `mode` is 'bimanual'.")
             if self.single_arm is not None:
                 raise ValueError("`single_arm` must be omitted when `mode` is 'bimanual'.")
+            if self.control_arm is None:
+                self.control_arm = "right"
+            elif self.control_arm not in ("left", "right"):
+                raise ValueError("`control_arm` must be 'left' or 'right' when `mode` is 'bimanual'.")
         else:
             raise ValueError(f"Unsupported RM65 mode: {self.mode}")
 
