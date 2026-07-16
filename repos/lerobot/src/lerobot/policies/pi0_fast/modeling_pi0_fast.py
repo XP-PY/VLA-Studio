@@ -1035,10 +1035,24 @@ class PI0FastPolicy(PreTrainedPolicy):
         return self.config.rtc_config is not None and self.config.rtc_config.enabled
 
     def _preprocess_images(self, batch: dict[str, Tensor]) -> tuple[list[Tensor], list[Tensor]]:
-        """Preprocess images for the model.
+        """Resize, normalize, and mask the configured camera observations.
 
-        Images from LeRobot are typically in [B, C, H, W] format and normalized to [0, 1].
-        PaliGemma expects images in [B, C, H, W] format and normalized to [-1, 1].
+        Args:
+            batch: Training or inference batch containing configured image features. Each image tensor has
+                shape ``(batch_size, channels, image_height, image_width)`` or
+                ``(batch_size, image_height, image_width, channels)`` and values in ``[0, 1]``.
+
+        Returns:
+            A tuple ``(images, img_masks)``:
+
+            - ``images`` contains one float32 tensor per configured camera, resized with padding to
+              ``self.config.image_resolution`` and normalized to ``[-1, 1]``. The input channel layout is
+              preserved, so each tensor has shape
+              ``(batch_size, channels, image_resolution[0], image_resolution[1])`` or
+              ``(batch_size, image_resolution[0], image_resolution[1], channels)``. Missing cameras are
+              represented by tensors filled with ``-1``.
+            - ``img_masks`` contains one Boolean tensor of shape ``(batch_size,)`` per camera. Values are
+              ``True`` for present camera observations and ``False`` for missing cameras.
         """
         images = []
         img_masks = []
@@ -1283,6 +1297,8 @@ class PI0FastPolicy(PreTrainedPolicy):
         """Predict a chunk of actions given environment observations."""
         self.eval()
         # Prepare inputs
+        # images shape: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks shape: List[(batch_size,)]
         images, img_masks = self._preprocess_images(batch)
 
         # FAST-only mode: use autoregressive decoding

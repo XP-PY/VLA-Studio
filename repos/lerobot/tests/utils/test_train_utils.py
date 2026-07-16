@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -94,6 +95,16 @@ def test_update_last_checkpoint(tmp_path):
     last_checkpoint = tmp_path / LAST_CHECKPOINT_LINK
     assert last_checkpoint.is_symlink()
     assert last_checkpoint.resolve() == checkpoint
+
+
+def test_update_last_checkpoint_ignores_unsupported_symlink(tmp_path, caplog):
+    checkpoint = tmp_path / "0005"
+    checkpoint.mkdir()
+
+    with patch.object(Path, "symlink_to", side_effect=PermissionError(errno.EPERM, "Operation not permitted")):
+        assert update_last_checkpoint(checkpoint) == checkpoint
+
+    assert "Filesystem does not support" in caplog.text
 
 
 @patch("lerobot.common.train_utils.save_training_state")

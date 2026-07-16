@@ -1,0 +1,75 @@
+Encountered exception while importing scipy: No module named 'scipy'
+
+====================================================================================================
+Dataset / PI0-FAST Configuration
+====================================================================================================
+dataset.root=/home/ubuntu/py/vla_studio/runs/dataset/rm65_single_table_preparation_and_bussing_pi
+dataset.num_episodes=204
+dataset.num_frames=93199
+dataset.camera_keys=['observation.images.wrist', 'observation.images.top']
+dataset.fps=30
+policy.image_features=['observation.images.wrist', 'observation.images.top']
+policy.text_tokenizer_name=/home/ubuntu/py/vla_studio/models/paligemma-3b-pt-224
+policy.action_tokenizer_name=/home/ubuntu/py/vla_studio/models/fast-action-tokenizer
+policy.chunk_size=50
+policy.max_action_tokens=256
+
+====================================================================================================
+FAST Action Tokenizer Warning
+====================================================================================================
+ImportError: This modeling file requires the following packages that were not found in your environment: scipy. Run `pip install scipy`
+Language + state tokens are real; FAST action tokens below are shape-only placeholders.
+[WARNING] Valid FAST action-token counts are zero because placeholders are being used.
+
+====================================================================================================
+Batch Passed To PI0FastPolicy.forward(batch)
+====================================================================================================
+action: shape=(1, 50, 7) dtype=torch.float32 device=cpu
+action.token_mask: shape=(1, 256) dtype=torch.bool device=cpu
+action.tokens: shape=(1, 256) dtype=torch.int64 device=cpu
+action_is_pad: shape=(1, 50) dtype=torch.bool device=cpu
+episode_index: shape=(1,) dtype=torch.int64 device=cpu
+frame_index: shape=(1,) dtype=torch.int64 device=cpu
+index: shape=(1,) dtype=torch.int64 device=cpu
+observation.images.top: shape=(1, 3, 480, 640) dtype=torch.float32 device=cpu
+observation.images.wrist: shape=(1, 3, 480, 640) dtype=torch.float32 device=cpu
+observation.language.attention_mask: shape=(1, 200) dtype=torch.bool device=cpu
+observation.language.tokens: shape=(1, 200) dtype=torch.int64 device=cpu
+observation.state: shape=(1, 7) dtype=torch.float32 device=cpu
+task: list value=['Put all vegetables into the collection box.']
+task_index: shape=(1,) dtype=torch.int64 device=cpu
+timestamp: shape=(1,) dtype=torch.float32 device=cpu
+
+====================================================================================================
+PI0FastPolicy.forward Prepares
+====================================================================================================
+images[observation.images.wrist]: shape=(1, 3, 224, 224) dtype=torch.float32 device=cpu
+images[observation.images.top]: shape=(1, 3, 224, 224) dtype=torch.float32 device=cpu
+img_masks[observation.images.wrist_mask]: shape=(1,) dtype=torch.bool device=cpu
+img_masks[observation.images.top_mask]: shape=(1,) dtype=torch.bool device=cpu
+tokens: shape=(1, 200) dtype=torch.int64 device=cpu
+masks: shape=(1, 200) dtype=torch.bool device=cpu
+fast_action_tokens: shape=(1, 256) dtype=torch.int64 device=cpu
+fast_action_masks: shape=(1, 256) dtype=torch.bool device=cpu
+valid language tokens per sample: [38]
+valid FAST action tokens per sample: [0]
+
+====================================================================================================
+Decoded Language + Robot-State Prompt
+====================================================================================================
+sample[0]: 'Task: Put all vegetables into the collection box., State: 255 78 150 255 86 83 -1;\n'
+
+====================================================================================================
+PI0FastPytorch.forward Receives / Produces
+====================================================================================================
+images: list of 2 tensors
+img_masks: list of 2 tensors, each shape=(1,)
+tokens: shape=(1, 200) dtype=torch.int64 device=cpu
+masks: shape=(1, 200) dtype=torch.bool device=cpu
+fast_action_tokens: shape=(1, 256) dtype=torch.int64 device=cpu
+fast_action_masks: shape=(1, 256) dtype=torch.bool device=cpu
+embedded prefix: (1, 968, 2048) = 512 image + 200 prompt + 256 FAST positions
+2D attention mask: (1, 968, 968)
+FAST logits before shifting: (1, 256, paligemma_vocab_size)
+FAST logits/targets used by cross entropy after shifting: (1, 255, paligemma_vocab_size) / (1, 255)
+PI0FastPolicy.forward returns: scalar loss and {'loss': float, 'ce_loss': float}

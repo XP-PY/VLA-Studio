@@ -13,6 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import errno
+import logging
 from pathlib import Path
 
 from torch.optim import Optimizer
@@ -85,7 +87,17 @@ def update_last_checkpoint(checkpoint_dir: Path) -> Path:
     if last_checkpoint_dir.is_symlink():
         last_checkpoint_dir.unlink()
     relative_target = checkpoint_dir.relative_to(checkpoint_dir.parent)
-    last_checkpoint_dir.symlink_to(relative_target)
+    try:
+        last_checkpoint_dir.symlink_to(relative_target)
+    except OSError as error:
+        if error.errno not in {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP}:
+            raise
+        logging.warning(
+            "Filesystem does not support the '%s' checkpoint symlink; use numbered checkpoint '%s' instead.",
+            LAST_CHECKPOINT_LINK,
+            checkpoint_dir.name,
+        )
+    return checkpoint_dir
 
 
 def save_checkpoint(
