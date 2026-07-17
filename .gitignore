@@ -2,10 +2,13 @@
 .cache
 .codex
 .vscode
+.ruff_cache
 __pycache__/
 backup
 runs
 models
+dataset
+spaces
 logs
 repos/*
 !repos/lerobot/

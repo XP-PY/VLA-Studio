@@ -381,12 +381,12 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
         - FAST: attend to images + language, causal among themselves
 
         Args:
-            images: List of image tensors
-            img_masks: List of image masks
-            tokens: Language instruction tokens
-            masks: Attention masks for tokens
-            fast_action_tokens: FAST action tokens (discrete token IDs)
-            fast_action_masks: Padding masks for FAST action tokens
+            images: List of image tensors. List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+            img_masks: List of image masks. List[(batch_size,)]
+            tokens: Language instruction tokens. (batch_size, tokenizer_max_length)
+            masks: Attention masks for tokens. (batch_size, tokenizer_max_length)
+            fast_action_tokens: FAST action tokens (discrete token IDs). (batch_size, max_action_tokens)
+            fast_action_masks: Padding masks for FAST action tokens. (batch_size, max_action_tokens)
 
         Returns:
             embs: Concatenated embeddings [images, tokens, fast_action_tokens]
@@ -507,12 +507,12 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
         using cross-entropy loss.
 
         Args:
-            images: List of image tensors
-            img_masks: List of image masks
-            tokens: Language instruction tokens
-            masks: Attention masks for tokens
-            fast_action_tokens: Discrete action token IDs [B, max_action_tokens]
-            fast_action_masks: Padding masks for fast action tokens [B, max_action_tokens]
+            images: List of image tensors. List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+            img_masks: List of image masks. List[(batch_size,)]
+            tokens: Language instruction tokens. (batch_size, tokenizer_max_length)
+            masks: Attention masks for tokens. (batch_size, tokenizer_max_length)
+            fast_action_tokens: Discrete action token IDs. (batch_size, max_action_tokens)
+            fast_action_masks: Padding masks for fast action tokens. (batch_size, max_action_tokens)
 
         Returns:
             Dictionary with 'fast_loss' and 'loss' keys
@@ -1343,13 +1343,19 @@ class PI0FastPolicy(PreTrainedPolicy):
         """Run the batch through the model and compute the loss for training."""
 
         # Prepare inputs
+        # images shape: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks shape: List[(batch_size,)]
         images, img_masks = self._preprocess_images(batch)
 
         # Get FAST action tokens from batch
-        fast_action_tokens = batch.get(ACTION_TOKENS)  # (B, max_action_tokens)
-        fast_action_masks = batch.get(ACTION_TOKEN_MASK)  # (B, max_action_tokens)
+        # fast_action_tokens shape: (batch_size, max_action_tokens)
+        # fast_action_masks shape: (batch_size, max_action_tokens)
+        fast_action_tokens = batch.get(ACTION_TOKENS)
+        fast_action_masks = batch.get(ACTION_TOKEN_MASK)
 
         # Use full language tokens (no separation into high_level_task and subtask)
+        # tokens shape: (batch_size, tokenizer_max_length)
+        # masks shape: (batch_size, tokenizer_max_length)
         tokens = batch.get(OBS_LANGUAGE_TOKENS)
         masks = batch.get(OBS_LANGUAGE_ATTENTION_MASK)
 

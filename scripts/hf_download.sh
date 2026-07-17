@@ -10,17 +10,20 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/model_download.sh REPO_ID [OUTPUT_DIR] [--repo-type model|dataset|space] [--revision REV] [--include PATTERN] [--exclude PATTERN]
+  scripts/hf_download.sh REPO_ID [OUTPUT_DIR] [--repo-type model|dataset|space] [--revision REV] [--include PATTERN] [--exclude PATTERN]
 
 Examples:
-  scripts/model_download.sh lerobot/act_aloha_sim_transfer_cube_human
-  scripts/model_download.sh microsoft/resnet-50 ./models/resnet-50
-  scripts/model_download.sh openai/clip-vit-base-patch32 ./models/clip --include "*.json" --include "*.safetensors"
+  scripts/hf_download.sh lerobot/act_aloha_sim_transfer_cube_human
+  scripts/hf_download.sh lerobot/pusht --repo-type dataset
+  scripts/hf_download.sh microsoft/resnet-50 ./models/resnet-50
+  scripts/hf_download.sh openai/clip-vit-base-patch32 ./models/clip --include "*.json" --include "*.safetensors"
 
 Environment:
   HF_ENDPOINT defaults to https://hf-mirror.com
-  HF_HOME defaults to $STORAGE_ROOT/cache/huggingface
+  HF_HOME defaults to $STORAGE_ROOT/.cache/huggingface
   HF_HUB_DISABLE_XET defaults to 1, which helps with mirrors that cannot serve Xet blobs.
+  OUTPUT_DIR defaults to $STORAGE_ROOT/models/<repo>, $STORAGE_ROOT/dataset/<repo>,
+  or $STORAGE_ROOT/spaces/<repo>, according to --repo-type.
 EOF
 }
 
@@ -32,8 +35,9 @@ fi
 REPO_ID="$1"
 shift
 
-OUTPUT_DIR="${1:-${STORAGE_ROOT}/models/${REPO_ID##*/}}"
+OUTPUT_DIR=""
 if [[ $# -gt 0 && "${1:0:2}" != "--" ]]; then
+    OUTPUT_DIR="$1"
     shift
 fi
 
@@ -66,6 +70,21 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+case "$REPO_TYPE" in
+    model) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/models" ;;
+    dataset) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/dataset" ;;
+    space) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/spaces" ;;
+    *)
+        echo "Unsupported repo type: $REPO_TYPE" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [[ -z "$OUTPUT_DIR" ]]; then
+    OUTPUT_DIR="${DEFAULT_OUTPUT_ROOT}/${REPO_ID##*/}"
+fi
 
 mkdir -p "$OUTPUT_DIR"
 

@@ -5,12 +5,15 @@ export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ===== Storage root =====
 export STORAGE_ROOT="/media/ubuntu/BW_500G/vla_studio_storage"
+if [ ! -d "$STORAGE_ROOT" ]; then
+    STORAGE_ROOT="${PROJECT_ROOT}"
+fi
 
 # ===== HuggingFace / LeRobot cache =====
-export TORCH_HOME="$STORAGE_ROOT/cache/torch"
-export HF_HOME="$STORAGE_ROOT/cache/huggingface"
+export TORCH_HOME="$STORAGE_ROOT/.cache/torch"
+export HF_HOME="$STORAGE_ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"
-export HF_LEROBOT_HOME="$STORAGE_ROOT/cache/lerobot"
+export HF_LEROBOT_HOME="$STORAGE_ROOT/.cache/lerobot"
 # export HF_ENDPOINT="https://hf-mirror.com"
 
 # ===== Python path =====

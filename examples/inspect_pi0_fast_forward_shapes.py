@@ -374,6 +374,10 @@ def main() -> None:
     batch = clone_batch(next(iter(dataloader)))
     convert_camera_uint8_like_training(batch, dataset)
 
+    print_section("Batch Passed To Preprocessor")
+    for key in sorted(batch):
+        print(shape_line(key, batch[key]))
+
     using_placeholder_action_tokens = False
     try:
         preprocessor, _ = make_pi0_fast_pre_post_processors(
