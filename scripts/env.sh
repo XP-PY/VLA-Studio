@@ -26,17 +26,15 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 
 # ===== Dataset =====
 export TASK_ID="rm65_single_table_preparation_and_bussing"
-
-export TASK_PROMPT="Put all vegetables into the collection box."
-
+export TASK_PROMPT="Place the tomato on the pink plate."
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
 export TASK_SUBSET_ID="bus_the_table"
 export TASK_EPISODES=204
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_40"
-export POLICY_TYPE=""
+export POLICY_ID="rm65_pi0_single_table_preparation_and_bussing_episodes_204_steps_30000_batch_16_chunk_50"
+export POLICY_TYPE="pi0"
 export STEPS=30000
 export PER_DEVICE_BATCH_SIZE=16
 export SAVE_FREQ=10000
@@ -47,20 +45,17 @@ export NUM_GPUS=1
 
 # ===== Rollout common settings =====
 export N_ACTION_STEPS=1
-export ROLLOUT_FPS=10
+export NUM_INFERENCE_STEP=10
+export ROLLOUT_FPS=30
 export ROLLOUT_DURATION=360
 export ROLLOUT_CANFD_FOLLOW=false
 export ROLLOUT_STRATEGY_TYPE=highlight
 export ROLLOUT_DIR="$STORAGE_ROOT/runs/rollout_dataset/rollout_${POLICY_ID}"
-
 export ROLLOUT_INFERENCE_TYPE=rtc
 export RTC_EXECUTION_HORIZON=10
 export RTC_MAX_GUIDANCE_WEIGHT=10
 export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
-export RTC_QUEUE_THRESHOLD=10
-
-
+export RTC_QUEUE_THRESHOLD=30
 
 # ===== W&B =====
-export WANDB_PROJECT="lerobot_pi0_rm65"
 export WANDB_ENABLE=true

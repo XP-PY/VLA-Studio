@@ -56,5 +56,6 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch \
     -m lerobot.scripts.lerobot_train \
     --config_path="${CONFIG_PATH}" \
     --resume=true \
+    --wandb.disable_artifact=true \
     --output_dir="${RESUME_OUTPUT_DIR}" \
     2>&1 | tee -a "${LOG_PATH}"

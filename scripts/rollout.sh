@@ -49,7 +49,7 @@ if [[ ! -d "$POLICY_PATH" ]]; then
     exit 1
 fi
 
-# ===== Rollout with RTC =====
+# ===== Single Rollout with RTC =====
 
 lerobot-rollout \
     --config_path="$ROBOT_CONFIG_PATH" \
@@ -59,13 +59,11 @@ lerobot-rollout \
     --inference.rtc.max_guidance_weight=$RTC_MAX_GUIDANCE_WEIGHT \
     --inference.rtc.prefix_attention_schedule="$RTC_PREFIX_ATTENTION_SCHEDULE" \
     --inference.queue_threshold=$RTC_QUEUE_THRESHOLD \
-    --robot.left_arm.canfd_follow=$ROLLOUT_CANFD_FOLLOW \
-    --robot.right_arm.canfd_follow=$ROLLOUT_CANFD_FOLLOW \
-    --robot.left_arm.max_relative_target=1000.0 \
-    --robot.right_arm.max_relative_target=1000.0 \
+    --robot.single_arm.canfd_follow=$ROLLOUT_CANFD_FOLLOW \
+    --robot.single_arm.max_relative_target=1000.0 \
     --policy.path="$POLICY_PATH" \
     --policy.n_action_steps=$N_ACTION_STEPS \
-    --policy.num_inference_steps=5 \
+    --policy.num_inference_steps=$NUM_INFERENCE_STEP \
     --dataset.repo_id="local/rollout_$POLICY_ID" \
     --dataset.root="$ROLLOUT_DIR" \
     --dataset.single_task="$TASK_PROMPT" \
@@ -77,3 +75,32 @@ lerobot-rollout \
     --task="$TASK_PROMPT" \
     --return_to_initial_position=false \
     2>&1 | tee "$STORAGE_ROOT/logs/rollout_$POLICY_ID.log"
+
+# ===== Bimanual Rollout with RTC =====
+
+# lerobot-rollout \
+#     --config_path="$ROBOT_CONFIG_PATH" \
+#     --strategy.type=$ROLLOUT_STRATEGY_TYPE \
+#     --inference.type=$ROLLOUT_INFERENCE_TYPE \
+#     --inference.rtc.execution_horizon=$RTC_EXECUTION_HORIZON \
+#     --inference.rtc.max_guidance_weight=$RTC_MAX_GUIDANCE_WEIGHT \
+#     --inference.rtc.prefix_attention_schedule="$RTC_PREFIX_ATTENTION_SCHEDULE" \
+#     --inference.queue_threshold=$RTC_QUEUE_THRESHOLD \
+#     --robot.left_arm.canfd_follow=$ROLLOUT_CANFD_FOLLOW \
+#     --robot.right_arm.canfd_follow=$ROLLOUT_CANFD_FOLLOW \
+#     --robot.left_arm.max_relative_target=1000.0 \
+#     --robot.right_arm.max_relative_target=1000.0 \
+#     --policy.path="$POLICY_PATH" \
+#     --policy.n_action_steps=$N_ACTION_STEPS \
+#     --policy.num_inference_steps=5 \
+#     --dataset.repo_id="local/rollout_$POLICY_ID" \
+#     --dataset.root="$ROLLOUT_DIR" \
+#     --dataset.single_task="$TASK_PROMPT" \
+#     --dataset.push_to_hub=false \
+#     --resume=$RESUME \
+#     --device=cuda \
+#     --fps=$ROLLOUT_FPS \
+#     --duration=$ROLLOUT_DURATION \
+#     --task="$TASK_PROMPT" \
+#     --return_to_initial_position=false \
+#     2>&1 | tee "$STORAGE_ROOT/logs/rollout_$POLICY_ID.log"

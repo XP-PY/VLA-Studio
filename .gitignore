@@ -13,3 +13,4 @@ logs
 repos/*
 !repos/lerobot/
 !repos/chassis_sdk/
+temp.sh
