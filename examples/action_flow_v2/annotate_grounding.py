@@ -1,0 +1,977 @@
+#!/usr/bin/env python3
+"""Initialize Action Flow V2 object tracks with Grounding DINO.
+
+The script derives the task-relevant entities from each episode prompt,
+assigns deterministic object IDs, scans sampled video frames, and ranks views
+that show each entity clearly and completely. The same object IDs and names
+are used for every selected camera in an episode.
+
+This is an inspection stage only. It does not run SAM2 and does not modify the
+source LeRobot dataset. Inspect ``inspection/index.html`` before using these
+boxes as SAM2 prompts.
+
+Quick test:
+    python examples/action_flow_v2/annotate_grounding.py \
+        --episodes 156 --cameras top --device cuda --overwrite
+
+Process the complete dataset:
+    python examples/action_flow_v2/annotate_grounding.py \
+        --episodes all --cameras top wrist --device cuda
+
+Outputs default to
+``runs/sam/<dataset-name>/grounding_dino``. Existing completed
+episode-camera results are skipped unless ``--overwrite`` is supplied.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import logging
+import math
+import re
+import textwrap
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Iterator
+
+import av
+import numpy as np
+import pandas as pd
+import torch
+from PIL import Image, ImageDraw, ImageFont
+from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
+
+
+WORKSPACE = Path(__file__).resolve().parents[2]
+DEFAULT_DATASET_ROOT = WORKSPACE / "runs" / "dataset" / "rm65_single_table_preparation_and_bussing"
+DEFAULT_MODEL_PATH = WORKSPACE / "models" / "grounding-dino-tiny"
+SUPPORTED_CAMERAS = ("top", "wrist")
+VEGETABLE_NAMES = ("tomato", "garlic", "corn", "cucumber")
+PLATE_COLORS = ("pink", "yellow", "blue")
+BOX_THRESHOLD = 0.3
+TEXT_THRESHOLD = 0.3
+PREVIEW_PANEL_SIZE = (384, 288)
+PREVIEW_COLORS = (
+    (230, 70, 70),
+    (70, 190, 100),
+    (70, 130, 235),
+    (235, 170, 45),
+    (180, 90, 220),
+    (40, 190, 200),
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EntitySpec:
+    """A task-relevant entity with an episode-local deterministic ID."""
+
+    object_id: int
+    object_name: str
+    object_role: str
+    query: str
+    task_step: int
+
+
+@dataclass(frozen=True)
+class Detection:
+    """One Grounding DINO proposal with complete-view quality metrics."""
+
+    visible: bool
+    frame_index: int
+    timestamp_s: float | None
+    score: float | None
+    box_xyxy: tuple[float, float, float, float] | None
+    image_width: int
+    image_height: int
+    area_ratio: float | None
+    border_margin: float | None
+    sharpness_score: float | None
+    quality_score: float | None
+    border_truncated: bool | None
+
+
+class EpisodeVideoSource:
+    """Stream sampled frames from episode segments in a LeRobot v3 dataset."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self.info = json.loads((self.root / "meta" / "info.json").read_text())
+        episode_paths = sorted((self.root / "meta" / "episodes").glob("chunk-*/*.parquet"))
+        if not episode_paths:
+            raise FileNotFoundError(f"No episode metadata found under {self.root}")
+        episodes = pd.concat((pd.read_parquet(path) for path in episode_paths), ignore_index=True)
+        self.episodes = episodes.set_index("episode_index", drop=False)
+        self.fps = int(self.info["fps"])
+
+    @property
+    def episode_indices(self) -> list[int]:
+        return sorted(int(index) for index in self.episodes.index)
+
+    def row(self, episode_index: int) -> pd.Series:
+        if episode_index not in self.episodes.index:
+            raise ValueError(f"Episode {episode_index} does not exist")
+        return self.episodes.loc[episode_index]
+
+    def task(self, episode_index: int) -> str:
+        tasks = self.row(episode_index)["tasks"]
+        if isinstance(tasks, str):
+            return tasks
+        if len(tasks) != 1:
+            raise ValueError(f"Episode {episode_index} has {len(tasks)} tasks; expected one")
+        return str(tasks[0])
+
+    def _video_segment(self, episode_index: int, camera: str) -> tuple[Path, float, int]:
+        row = self.row(episode_index)
+        video_key = f"observation.images.{camera}"
+        prefix = f"videos/{video_key}"
+        required = [f"{prefix}/chunk_index", f"{prefix}/file_index", f"{prefix}/from_timestamp"]
+        missing = [name for name in required if name not in row.index]
+        if missing:
+            raise KeyError(f"Camera {camera!r} is unavailable; missing metadata fields: {missing}")
+
+        relative_path = self.info["video_path"].format(
+            video_key=video_key,
+            chunk_index=int(row[f"{prefix}/chunk_index"]),
+            file_index=int(row[f"{prefix}/file_index"]),
+        )
+        path = self.root / relative_path
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        return path, float(row[f"{prefix}/from_timestamp"]), int(row["length"])
+
+    def sampled_frames(
+        self,
+        episode_index: int,
+        camera: str,
+        frame_stride: int,
+        max_sampled_frames: int,
+    ) -> Iterator[tuple[int, float, Image.Image]]:
+        video_path, start_s, episode_length = self._video_segment(episode_index, camera)
+        yielded = 0
+        decoded_index = 0
+        with av.open(str(video_path)) as container:
+            stream = container.streams.video[0]
+            stream.thread_type = "AUTO"
+            if start_s > 0:
+                seek_pts = max(0, int((start_s - 1.0 / self.fps) / float(stream.time_base)))
+                container.seek(seek_pts, stream=stream, backward=True)
+
+            tolerance_s = 0.5 / self.fps
+            for frame in container.decode(stream):
+                if frame.pts is None:
+                    continue
+                timestamp_s = float(frame.pts * stream.time_base)
+                if timestamp_s < start_s - tolerance_s:
+                    continue
+                if decoded_index >= episode_length:
+                    break
+
+                should_sample = decoded_index % frame_stride == 0 or decoded_index == episode_length - 1
+                if should_sample:
+                    yield decoded_index, timestamp_s, Image.fromarray(frame.to_ndarray(format="rgb24"))
+                    yielded += 1
+                    if max_sampled_frames > 0 and yielded >= max_sampled_frames:
+                        return
+                decoded_index += 1
+
+
+PLACE_PATTERN = re.compile(
+    r"place the (tomato|garlic|corn|cucumber) on the (pink|yellow|blue) plate",
+    flags=re.IGNORECASE,
+)
+CLEAR_PATTERN = re.compile(
+    r"put the vegetable from the (pink|yellow|blue) plate into the collection box",
+    flags=re.IGNORECASE,
+)
+
+
+def entities_from_task(task: str) -> list[EntitySpec]:
+    """Convert a known dataset task prompt into ordered grounding queries."""
+    placements = PLACE_PATTERN.findall(task)
+    if placements:
+        entities: list[EntitySpec] = []
+        for step, (vegetable, plate_color) in enumerate(placements, start=1):
+            vegetable = vegetable.lower()
+            plate_name = f"{plate_color.lower()} plate"
+            entities.append(
+                EntitySpec(
+                    object_id=len(entities) + 1,
+                    object_name=vegetable,
+                    object_role="source",
+                    query=vegetable,
+                    task_step=step,
+                )
+            )
+            entities.append(
+                EntitySpec(
+                    object_id=len(entities) + 1,
+                    object_name=plate_name,
+                    object_role="destination",
+                    query=plate_name,
+                    task_step=step,
+                )
+            )
+        return entities
+
+    clear_match = CLEAR_PATTERN.fullmatch(task.rstrip("."))
+    if clear_match:
+        plate_name = f"{clear_match.group(1).lower()} plate"
+        return [
+            EntitySpec(1, f"vegetable on {plate_name}", "source", f"vegetable on the {plate_name}", 1),
+            EntitySpec(2, plate_name, "source container", plate_name, 1),
+            EntitySpec(3, "collection box", "destination", "collection box", 1),
+        ]
+
+    if task.rstrip(".").lower() == "put all vegetables into the collection box":
+        entities = [
+            EntitySpec(index + 1, name, "source", name, 1)
+            for index, name in enumerate(VEGETABLE_NAMES)
+        ]
+        entities.append(EntitySpec(len(entities) + 1, "collection box", "destination", "collection box", 1))
+        return entities
+
+    raise ValueError(f"Unsupported task prompt: {task!r}")
+
+
+def parse_episode_selection(value: str, available: list[int]) -> list[int]:
+    """Parse ``all``, comma-separated indices, and start:stop ranges."""
+    if value.strip().lower() == "all":
+        return available
+    selected: set[int] = set()
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" in item:
+            parts = item.split(":")
+            if len(parts) != 2:
+                raise ValueError(f"Invalid episode range {item!r}; use start:stop")
+            start = int(parts[0]) if parts[0] else min(available)
+            stop = int(parts[1]) if parts[1] else max(available) + 1
+            selected.update(range(start, stop))
+        else:
+            selected.add(int(item))
+    missing = sorted(selected.difference(available))
+    if missing:
+        raise ValueError(f"Episodes do not exist: {missing}")
+    return sorted(selected)
+
+
+def detect_entities(
+    image: Image.Image,
+    entities: list[EntitySpec],
+    processor,
+    model,
+    device: torch.device,
+    box_threshold: float,
+    text_threshold: float,
+) -> dict[int, tuple[float, tuple[float, float, float, float]]]:
+    """Ground entities with one contrastive vocabulary prompt."""
+    if not entities:
+        return {}
+    vocabulary = [
+        *VEGETABLE_NAMES,
+        *(f"{color} plate" for color in PLATE_COLORS),
+        "collection box",
+    ]
+    for entity in entities:
+        if not entity.query.startswith("vegetable on the ") and entity.query not in vocabulary:
+            vocabulary.append(entity.query)
+    prompt = ". ".join(vocabulary) + "."
+    inputs = processor(
+        images=image,
+        text=prompt,
+        return_tensors="pt",
+    ).to(device)
+    with torch.inference_mode():
+        outputs = model(**inputs)
+    result = processor.post_process_grounded_object_detection(
+        outputs,
+        input_ids=inputs.input_ids,
+        threshold=box_threshold,
+        text_threshold=text_threshold,
+        target_sizes=[(image.height, image.width)],
+    )[0]
+
+    candidates = [
+        (
+            " ".join(str(label).lower().split()),
+            float(score.item()),
+            tuple(float(value) for value in box.detach().cpu().tolist()),
+        )
+        for label, score, box in zip(
+            result["text_labels"],
+            result["scores"],
+            result["boxes"],
+            strict=True,
+        )
+    ]
+
+    def best_candidate(query: str):
+        normalized_query = " ".join(query.lower().split())
+        exact = [candidate for candidate in candidates if candidate[0] == normalized_query]
+        matches = exact or [candidate for candidate in candidates if normalized_query in candidate[0]]
+        return max(matches, key=lambda candidate: candidate[1]) if matches else None
+
+    def containment(inner_box, outer_box) -> float:
+        ix0 = max(inner_box[0], outer_box[0])
+        iy0 = max(inner_box[1], outer_box[1])
+        ix1 = min(inner_box[2], outer_box[2])
+        iy1 = min(inner_box[3], outer_box[3])
+        intersection = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        inner_area = max(1.0, inner_box[2] - inner_box[0]) * max(1.0, inner_box[3] - inner_box[1])
+        return intersection / inner_area
+
+    detections = {}
+    for entity in entities:
+        relation_match = re.fullmatch(r"vegetable on the (pink|yellow|blue) plate", entity.query)
+        if relation_match:
+            plate = best_candidate(f"{relation_match.group(1)} plate")
+            vegetables = [candidate for name in VEGETABLE_NAMES if (candidate := best_candidate(name))]
+            if plate is None or not vegetables:
+                continue
+            ranked = [(containment(candidate[2], plate[2]), candidate) for candidate in vegetables]
+            overlap, selected = max(ranked, key=lambda item: (item[0], item[1][1]))
+            if overlap < 0.2:
+                continue
+        else:
+            selected = best_candidate(entity.query)
+            if selected is None:
+                continue
+        _, score, box = selected
+        if score < box_threshold:
+            continue
+        detections[entity.object_id] = (score, box)
+    return detections
+
+
+def score_detection_view(
+    image: Image.Image,
+    frame_index: int,
+    timestamp_s: float,
+    score: float,
+    box: tuple[float, float, float, float],
+) -> Detection:
+    """Score whether a detection is large, sharp, and fully inside the view."""
+    width, height = image.size
+    x0, y0, x1, y1 = box
+    box_width = max(0.0, x1 - x0)
+    box_height = max(0.0, y1 - y0)
+    area_ratio = box_width * box_height / max(1.0, width * height)
+    border_margin = min(x0 / width, y0 / height, (width - x1) / width, (height - y1) / height)
+    border_truncated = border_margin < 0.01
+
+    left = int(np.clip(math.floor(x0), 0, width - 1))
+    top = int(np.clip(math.floor(y0), 0, height - 1))
+    right = int(np.clip(math.ceil(x1), left + 1, width))
+    bottom = int(np.clip(math.ceil(y1), top + 1, height))
+    crop = np.asarray(image.convert("L"), dtype=np.float32)[top:bottom, left:right]
+    if crop.shape[0] > 1 and crop.shape[1] > 1:
+        gradient = (np.abs(np.diff(crop, axis=0)).mean() + np.abs(np.diff(crop, axis=1)).mean()) / 2
+        sharpness_score = float(np.clip(gradient / 24.0, 0.0, 1.0))
+    else:
+        sharpness_score = 0.0
+
+    area_score = float(np.clip(np.sqrt(area_ratio / 0.12), 0.0, 1.0))
+    border_score = float(np.clip(border_margin / 0.05, 0.0, 1.0))
+    quality_score = 0.50 * score + 0.30 * area_score + 0.15 * border_score + 0.05 * sharpness_score
+    if border_truncated:
+        quality_score -= 0.50
+    if area_ratio > 0.65:
+        quality_score -= 0.25 * min((area_ratio - 0.65) / 0.35, 1.0)
+
+    return Detection(
+        visible=True,
+        frame_index=frame_index,
+        timestamp_s=timestamp_s,
+        score=score,
+        box_xyxy=box,
+        image_width=width,
+        image_height=height,
+        area_ratio=area_ratio,
+        border_margin=border_margin,
+        sharpness_score=sharpness_score,
+        quality_score=quality_score,
+        border_truncated=border_truncated,
+    )
+
+
+def missing_detection(width: int, height: int) -> Detection:
+    return Detection(
+        visible=False,
+        frame_index=-1,
+        timestamp_s=None,
+        score=None,
+        box_xyxy=None,
+        image_width=width,
+        image_height=height,
+        area_ratio=None,
+        border_margin=None,
+        sharpness_score=None,
+        quality_score=None,
+        border_truncated=None,
+    )
+
+
+def retain_ranked_candidate(
+    candidates: list[tuple[Detection, Image.Image]],
+    detection: Detection,
+    image: Image.Image,
+    top_k: int,
+    minimum_frame_gap: int,
+) -> None:
+    """Keep high-quality candidates while avoiding nearly identical nearby frames."""
+    for index, (existing, _) in enumerate(candidates):
+        if abs(existing.frame_index - detection.frame_index) < minimum_frame_gap:
+            if detection.quality_score > existing.quality_score:
+                candidates[index] = (detection, image.copy())
+            break
+    else:
+        candidates.append((detection, image.copy()))
+    candidates.sort(key=lambda item: item[0].quality_score, reverse=True)
+    del candidates[top_k:]
+
+
+def ground_episode_camera(
+    source: EpisodeVideoSource,
+    episode_index: int,
+    camera: str,
+    entities: list[EntitySpec],
+    processor,
+    model,
+    device: torch.device,
+    frame_stride: int,
+    max_sampled_frames: int,
+    box_threshold: float,
+    text_threshold: float,
+    top_k: int,
+) -> tuple[
+    list[Detection],
+    dict[int, Image.Image],
+    dict[int, list[tuple[Detection, Image.Image]]],
+    Image.Image | None,
+    int,
+]:
+    """Scan an episode and retain the best complete-view candidates per entity."""
+    ranked_candidates: dict[int, list[tuple[Detection, Image.Image]]] = {
+        entity.object_id: [] for entity in entities
+    }
+    fallback_frame: Image.Image | None = None
+    sampled_count = 0
+    minimum_frame_gap = max(frame_stride * 2, 1)
+
+    for frame_index, timestamp_s, image in source.sampled_frames(
+        episode_index,
+        camera,
+        frame_stride,
+        max_sampled_frames,
+    ):
+        sampled_count += 1
+        if fallback_frame is None:
+            fallback_frame = image.copy()
+        frame_detections = detect_entities(
+            image,
+            entities,
+            processor,
+            model,
+            device,
+            box_threshold,
+            text_threshold,
+        )
+        for object_id, (score, box) in frame_detections.items():
+            detection = score_detection_view(image, frame_index, timestamp_s, score, box)
+            retain_ranked_candidate(
+                ranked_candidates[object_id],
+                detection,
+                image,
+                top_k,
+                minimum_frame_gap,
+            )
+
+    width = fallback_frame.width if fallback_frame is not None else 0
+    height = fallback_frame.height if fallback_frame is not None else 0
+    detections = [
+        ranked_candidates[entity.object_id][0][0]
+        if ranked_candidates[entity.object_id]
+        else missing_detection(width, height)
+        for entity in entities
+    ]
+    detection_frames = {
+        entity.object_id: ranked_candidates[entity.object_id][0][1]
+        for entity in entities
+        if ranked_candidates[entity.object_id]
+    }
+    return detections, detection_frames, ranked_candidates, fallback_frame, sampled_count
+
+
+def detection_row(
+    episode_index: int,
+    camera: str,
+    task: str,
+    entity: EntitySpec,
+    detection: Detection,
+    model_path: str,
+    frame_stride: int,
+    sampled_frames: int,
+    candidate_rank: int = 1,
+) -> dict:
+    box = detection.box_xyxy
+    width = detection.image_width
+    height = detection.image_height
+    row = {
+        "episode_index": np.int64(episode_index),
+        "camera": camera,
+        "task": task,
+        **asdict(entity),
+        "visible": detection.visible,
+        "frame_index": np.int64(detection.frame_index),
+        "timestamp_s": detection.timestamp_s if detection.timestamp_s is not None else np.nan,
+        "score": detection.score if detection.score is not None else np.nan,
+        "quality_score": detection.quality_score if detection.quality_score is not None else np.nan,
+        "area_ratio": detection.area_ratio if detection.area_ratio is not None else np.nan,
+        "border_margin": detection.border_margin if detection.border_margin is not None else np.nan,
+        "sharpness_score": detection.sharpness_score if detection.sharpness_score is not None else np.nan,
+        "border_truncated": detection.border_truncated,
+        "candidate_rank": np.int32(candidate_rank),
+        "selected": detection.visible and candidate_rank == 1,
+        "image_width": np.int32(width),
+        "image_height": np.int32(height),
+        "model_path": model_path,
+        "frame_stride": np.int32(frame_stride),
+        "sampled_frames": np.int32(sampled_frames),
+    }
+    for index, axis in enumerate(("x0", "y0", "x1", "y1")):
+        value = box[index] if box is not None else np.nan
+        row[f"box_{axis}"] = value
+        normalizer = width if axis.startswith("x") else height
+        row[f"box_{axis}_norm"] = value / normalizer if normalizer > 0 else np.nan
+    return row
+
+
+def draw_preview_panel(
+    image: Image.Image,
+    entity: EntitySpec,
+    detection: Detection,
+    candidate_rank: int | None = None,
+) -> Image.Image:
+    panel_width, image_height = PREVIEW_PANEL_SIZE
+    label_height = 54
+    panel = Image.new("RGB", (panel_width, image_height + label_height), color=(25, 25, 25))
+    resized = image.resize((panel_width, image_height))
+    panel.paste(resized, (0, label_height))
+    draw = ImageDraw.Draw(panel)
+    font = ImageFont.load_default()
+    color = PREVIEW_COLORS[(entity.object_id - 1) % len(PREVIEW_COLORS)]
+
+    draw.text(
+        (8, 7),
+        f"ID {entity.object_id} | {entity.object_name} | {entity.object_role}"
+        + (f" | candidate {candidate_rank}" if candidate_rank is not None else ""),
+        fill=color,
+        font=font,
+    )
+    if detection.visible and detection.box_xyxy is not None:
+        draw.text(
+            (8, 29),
+            f"frame {detection.frame_index} | conf {detection.score:.3f} | "
+            f"quality {detection.quality_score:.3f} | area {detection.area_ratio:.3f}",
+            fill=(235, 235, 235),
+            font=font,
+        )
+        scale_x = panel_width / detection.image_width
+        scale_y = image_height / detection.image_height
+        x0, y0, x1, y1 = detection.box_xyxy
+        box = (x0 * scale_x, y0 * scale_y + label_height, x1 * scale_x, y1 * scale_y + label_height)
+        draw.rectangle(box, outline=color, width=4)
+    else:
+        draw.text((8, 29), f"NOT FOUND | query: {entity.query}", fill=(255, 100, 100), font=font)
+    return panel
+
+
+def write_contact_sheet(
+    path: Path,
+    episode_index: int,
+    camera: str,
+    task: str,
+    entities: list[EntitySpec],
+    detections: list[Detection],
+    detection_frames: dict[int, Image.Image],
+    fallback_frame: Image.Image | None,
+) -> None:
+    if fallback_frame is None:
+        fallback_frame = Image.new("RGB", PREVIEW_PANEL_SIZE, color=(40, 40, 40))
+    panels = [
+        draw_preview_panel(detection_frames.get(entity.object_id, fallback_frame), entity, detection)
+        for entity, detection in zip(entities, detections, strict=True)
+    ]
+    columns = 2
+    rows = math.ceil(len(panels) / columns)
+    panel_width, panel_height = panels[0].size
+    header_height = 72
+    sheet = Image.new("RGB", (columns * panel_width, header_height + rows * panel_height), color=(15, 15, 15))
+    draw = ImageDraw.Draw(sheet)
+    draw.text((10, 8), f"Episode {episode_index} | camera {camera}", fill=(255, 255, 255))
+    for line_index, line in enumerate(textwrap.wrap(task, width=105)[:2]):
+        draw.text((10, 30 + 17 * line_index), line, fill=(210, 210, 210))
+    for index, panel in enumerate(panels):
+        x = index % columns * panel_width
+        y = header_height + index // columns * panel_height
+        sheet.paste(panel, (x, y))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path, quality=92)
+
+
+def write_candidate_contact_sheet(
+    path: Path,
+    episode_index: int,
+    camera: str,
+    task: str,
+    entities: list[EntitySpec],
+    ranked_candidates: dict[int, list[tuple[Detection, Image.Image]]],
+    fallback_frame: Image.Image | None,
+    top_k: int,
+) -> None:
+    """Write one row of ranked candidate views for each task entity."""
+    if fallback_frame is None:
+        fallback_frame = Image.new("RGB", PREVIEW_PANEL_SIZE, color=(40, 40, 40))
+    missing = missing_detection(fallback_frame.width, fallback_frame.height)
+    panels = []
+    for entity in entities:
+        candidates = ranked_candidates[entity.object_id]
+        for candidate_index in range(top_k):
+            if candidate_index < len(candidates):
+                detection, image = candidates[candidate_index]
+            else:
+                detection, image = missing, fallback_frame
+            panels.append(draw_preview_panel(image, entity, detection, candidate_index + 1))
+
+    columns = top_k
+    rows = len(entities)
+    panel_width, panel_height = panels[0].size
+    header_height = 72
+    sheet = Image.new("RGB", (columns * panel_width, header_height + rows * panel_height), color=(15, 15, 15))
+    draw = ImageDraw.Draw(sheet)
+    draw.text(
+        (10, 8),
+        f"Episode {episode_index} | camera {camera} | top {top_k} complete-view candidates",
+        fill=(255, 255, 255),
+    )
+    for line_index, line in enumerate(textwrap.wrap(task, width=105)[:2]):
+        draw.text((10, 30 + 17 * line_index), line, fill=(210, 210, 210))
+    for index, panel in enumerate(panels):
+        x = index % columns * panel_width
+        y = header_height + index // columns * panel_height
+        sheet.paste(panel, (x, y))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path, quality=92)
+
+
+def write_json_atomic(path: Path, payload: dict | list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(
+            payload,
+            indent=2,
+            default=lambda value: value.item() if isinstance(value, np.generic) else str(value),
+        )
+        + "\n"
+    )
+    temporary.replace(path)
+
+
+def write_parquet_atomic(path: Path, table: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    table.to_parquet(temporary, index=False)
+    temporary.replace(path)
+
+
+def result_paths(
+    output_root: Path,
+    episode_index: int,
+    camera: str,
+) -> tuple[Path, Path, Path, Path, Path]:
+    stem = f"camera-{camera}"
+    episode_dir = f"episode-{episode_index:06d}"
+    return (
+        output_root / "data" / episode_dir / f"{stem}.parquet",
+        output_root / "candidates" / episode_dir / f"{stem}.parquet",
+        output_root / "json" / episode_dir / f"{stem}.json",
+        output_root / "previews" / episode_dir / f"{stem}.jpg",
+        output_root / "candidate_previews" / episode_dir / f"{stem}.jpg",
+    )
+
+
+def rebuild_summary(output_root: Path) -> None:
+    data_paths = sorted((output_root / "data").glob("episode-*/*.parquet"))
+    if not data_paths:
+        return
+    detections = pd.concat((pd.read_parquet(path) for path in data_paths), ignore_index=True)
+    detections = detections.sort_values(["episode_index", "camera", "object_id"]).reset_index(drop=True)
+    write_parquet_atomic(output_root / "meta" / "detections.parquet", detections)
+    candidate_paths = sorted((output_root / "candidates").glob("episode-*/*.parquet"))
+    if candidate_paths:
+        candidates = pd.concat((pd.read_parquet(path) for path in candidate_paths), ignore_index=True)
+        candidates = candidates.sort_values(
+            ["episode_index", "camera", "object_id", "candidate_rank"]
+        ).reset_index(drop=True)
+        write_parquet_atomic(output_root / "meta" / "candidates.parquet", candidates)
+
+    rows = []
+    for (episode_index, camera), group in detections.groupby(["episode_index", "camera"], sort=True):
+        found = int(group["visible"].sum())
+        total = len(group)
+        task = str(group.iloc[0]["task"])
+        preview = f"../previews/episode-{int(episode_index):06d}/camera-{camera}.jpg"
+        candidate_preview = (
+            f"../candidate_previews/episode-{int(episode_index):06d}/camera-{camera}.jpg"
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{int(episode_index)}</td><td>{html.escape(str(camera))}</td>"
+            f"<td>{found}/{total}</td><td>{html.escape(task)}</td>"
+            f'<td><a href="{preview}"><img loading="lazy" src="{preview}" width="480"></a></td>'
+            f'<td><a href="{candidate_preview}">Compare top candidates</a></td>'
+            "</tr>"
+        )
+    document = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Grounding DINO inspection</title>
+<style>
+body { font-family: sans-serif; margin: 20px; background: #f5f5f5; color: #222; }
+table { border-collapse: collapse; width: 100%; background: white; }
+th, td { border: 1px solid #ccc; padding: 7px; text-align: left; vertical-align: top; }
+th { position: sticky; top: 0; background: #222; color: white; }
+img { display: block; }
+</style></head><body>
+<h1>Grounding DINO initialization inspection</h1>
+<p>Review every selected box and compare alternatives before using detections as SAM2 prompts.</p>
+<table><thead><tr>
+<th>Episode</th><th>Camera</th><th>Found</th><th>Task</th><th>Selected</th><th>Candidates</th>
+</tr></thead>
+<tbody>""" + "\n".join(rows) + """</tbody></table></body></html>\n"""
+    index_path = output_root / "inspection" / "index.html"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = index_path.with_suffix(".html.tmp")
+    temporary.write_text(document)
+    temporary.replace(index_path)
+
+
+def setup_logging(output_root: Path) -> None:
+    output_root.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    log_path = output_root / "grounding_dino.log"
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setFormatter(formatter)
+    logging.basicConfig(level=logging.INFO, handlers=[console, file_handler], force=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
+    parser.add_argument("--output-root", type=Path)
+    parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL_PATH)
+    parser.add_argument(
+        "--episodes",
+        default="all",
+        help="all, comma-separated indices, or end-exclusive ranges such as 0:20,156",
+    )
+    parser.add_argument("--cameras", nargs="+", choices=SUPPORTED_CAMERAS, default=list(SUPPORTED_CAMERAS))
+    parser.add_argument("--frame-stride", type=int, default=10)
+    parser.add_argument("--top-k", type=int, default=3, help="Complete-view candidates retained per object.")
+    parser.add_argument(
+        "--max-sampled-frames",
+        type=int,
+        default=0,
+        help="Maximum sampled frames per episode-camera; 0 scans the complete episode.",
+    )
+    parser.add_argument("--box-threshold", type=float, default=BOX_THRESHOLD)
+    parser.add_argument("--text-threshold", type=float, default=TEXT_THRESHOLD)
+    parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or cuda:N")
+    parser.add_argument("--overwrite", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.frame_stride < 1:
+        raise ValueError("--frame-stride must be at least 1")
+    if args.top_k < 1:
+        raise ValueError("--top-k must be at least 1")
+    source = EpisodeVideoSource(args.dataset_root)
+    episode_indices = parse_episode_selection(args.episodes, source.episode_indices)
+    task_entities = {
+        episode_index: entities_from_task(source.task(episode_index)) for episode_index in episode_indices
+    }
+    output_root = (
+        args.output_root
+        if args.output_root is not None
+        else WORKSPACE / "runs" / "sam" / args.dataset_root.resolve().name / "grounding_dino"
+    ).resolve()
+    setup_logging(output_root)
+
+    device_name = "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
+    if device_name == "auto":
+        device_name = "cpu"
+    device = torch.device(device_name)
+    model_path = args.model_path.resolve()
+    if not model_path.is_dir():
+        raise FileNotFoundError(model_path)
+
+    metadata = {
+        "format_version": 2,
+        "role": "Grounding DINO initialization proposals for SAM2",
+        "dataset_root": str(source.root),
+        "model_path": str(model_path),
+        "episodes": episode_indices,
+        "cameras": args.cameras,
+        "frame_stride": args.frame_stride,
+        "top_k": args.top_k,
+        "max_sampled_frames": args.max_sampled_frames,
+        "box_threshold": args.box_threshold,
+        "text_threshold": args.text_threshold,
+        "object_id_scope": "episode; IDs are identical across cameras for the same episode",
+        "selection": "highest complete-view quality score across sampled frames",
+        "quality_score": (
+            "0.50*confidence + 0.30*area + 0.15*border_clearance + 0.05*sharpness; "
+            "border-truncated and oversized boxes are penalized"
+        ),
+    }
+    write_json_atomic(output_root / "meta" / "info.json", metadata)
+
+    logger.info("Loading Grounding DINO from %s on %s", model_path, device)
+    processor = AutoProcessor.from_pretrained(str(model_path), local_files_only=True)
+    model = AutoModelForZeroShotObjectDetection.from_pretrained(
+        str(model_path), local_files_only=True
+    ).to(device).eval()
+
+    total_jobs = len(episode_indices) * len(args.cameras)
+    completed_jobs = 0
+    for episode_index in episode_indices:
+        task = source.task(episode_index)
+        entities = task_entities[episode_index]
+        for camera in args.cameras:
+            parquet_path, candidates_path, json_path, preview_path, candidate_preview_path = result_paths(
+                output_root,
+                episode_index,
+                camera,
+            )
+            completed_outputs = (
+                parquet_path,
+                candidates_path,
+                json_path,
+                preview_path,
+                candidate_preview_path,
+            )
+            if all(path.is_file() for path in completed_outputs) and not args.overwrite:
+                completed_jobs += 1
+                logger.info(
+                    "[%d/%d] Skipping episode %d camera %s; output exists",
+                    completed_jobs,
+                    total_jobs,
+                    episode_index,
+                    camera,
+                )
+                continue
+
+            logger.info(
+                "[%d/%d] Grounding episode %d camera %s: %s",
+                completed_jobs + 1,
+                total_jobs,
+                episode_index,
+                camera,
+                task,
+            )
+            detections, detection_frames, ranked_candidates, fallback_frame, sampled_count = ground_episode_camera(
+                source,
+                episode_index,
+                camera,
+                entities,
+                processor,
+                model,
+                device,
+                args.frame_stride,
+                args.max_sampled_frames,
+                args.box_threshold,
+                args.text_threshold,
+                args.top_k,
+            )
+            records = [
+                detection_row(
+                    episode_index,
+                    camera,
+                    task,
+                    entity,
+                    detection,
+                    str(model_path),
+                    args.frame_stride,
+                    sampled_count,
+                )
+                for entity, detection in zip(entities, detections, strict=True)
+            ]
+            candidate_records = []
+            for entity, selected_detection in zip(entities, detections, strict=True):
+                candidates = ranked_candidates[entity.object_id]
+                ranked_detections = [item[0] for item in candidates] or [selected_detection]
+                for candidate_rank, detection in enumerate(ranked_detections, start=1):
+                    candidate_records.append(
+                        detection_row(
+                            episode_index,
+                            camera,
+                            task,
+                            entity,
+                            detection,
+                            str(model_path),
+                            args.frame_stride,
+                            sampled_count,
+                            candidate_rank,
+                        )
+                    )
+            write_parquet_atomic(parquet_path, pd.DataFrame(records))
+            write_parquet_atomic(candidates_path, pd.DataFrame(candidate_records))
+            write_json_atomic(json_path, {"selected": records, "candidates": candidate_records})
+            write_contact_sheet(
+                preview_path,
+                episode_index,
+                camera,
+                task,
+                entities,
+                detections,
+                detection_frames,
+                fallback_frame,
+            )
+            write_candidate_contact_sheet(
+                candidate_preview_path,
+                episode_index,
+                camera,
+                task,
+                entities,
+                ranked_candidates,
+                fallback_frame,
+                args.top_k,
+            )
+            completed_jobs += 1
+            found_count = sum(detection.visible for detection in detections)
+            logger.info(
+                "[%d/%d] Saved best views for %d/%d objects after scanning %d sampled frames",
+                completed_jobs,
+                total_jobs,
+                found_count,
+                len(detections),
+                sampled_count,
+            )
+
+    rebuild_summary(output_root)
+    logger.info("Detection table: %s", output_root / "meta" / "detections.parquet")
+    logger.info("Candidate table: %s", output_root / "meta" / "candidates.parquet")
+    logger.info("Inspection index: %s", output_root / "inspection" / "index.html")
+
+
+if __name__ == "__main__":
+    main()

@@ -63,33 +63,26 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --log-path ./logs/record_$TASK_NAME.log
 ```
 
-#### Training script
+#### Training Configuration
 
 I trained ACT with a batch size of 8, 20,000 training steps, and a chunk size of 100:
 
-```bash
-DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_close_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_50_steps_20000_batch_8_chunck_100
+Dataset: `rm65_aloha_pick_screwdriver_to_fixed_box_close_front`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 20 \
-    --batch_size 8 \
-    --steps 20000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+Output policy: `rm65_act_pick_screwdriver_to_fixed_box_close_front_episodes_50_steps_20000_batch_8_chunck_100`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `20` | `100` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** `policy.chunk_size=100` and `batch_size=8` use the ACT and training-pipeline defaults. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
@@ -124,9 +117,23 @@ lerobot-train \
 
 I used the same dataset as in [Training Log 1](#training-log-1).
 
-#### Training script
+#### Training Configuration
 
 I used the same training hyperparameters as in [Training Log 1](#training-log-1), except that I set `chunk_size=20`. The purpose was to test whether ACT really needs a chunk size of 100, which corresponds to more than three seconds of future actions at 30 FPS.
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.chunk_size` | `20` | `100` |
+| `policy.n_action_steps` | `20` | `100` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** Parameters not listed in this table use their default values.
 
 #### Evaluation
 
@@ -150,13 +157,28 @@ I used the same training hyperparameters as in [Training Log 1](#training-log-1)
 
 This time, I recorded 50 additional episodes based on the dataset from [Training Log 1](#training-log-1) to test whether the original dataset was too small. The dataset now contains 100 episodes in total. During this round of data collection, I paid more attention to balancing the distribution of the demonstrations, especially for harder screwdriver positions and orientations.
 
-#### Training script
+#### Training Configuration
 
 I trained three policies on the 100-episode dataset:
 
-1. One policy used the same hyperparameters as in [Training Log 1](#training-log-1).
-2. One policy changed the batch size to 32.
-3. One policy changed the chunk size to 50.
+1. Policy 1 used the same hyperparameters as in [Training Log 1](#training-log-1).
+2. Policy 2 changed the batch size to 32.
+3. Policy 3 changed the chunk size to 50.
+
+| Parameter | Policy 1 | Policy 2 | Policy 3 | Default value |
+|---|---:|---:|---:|---:|
+| `policy.push_to_hub` | `false` | `false` | `false` | `true` |
+| `policy.chunk_size` | `100` | `100` | `50` | `100` |
+| `policy.n_action_steps` | `20` | `20` | `20` | `100` |
+| `batch_size` | `8` | `32` | `8` | `8` |
+| `steps` | `20,000` | `20,000` | `20,000` | `100,000` |
+| `eval_freq` | `0` | `0` | `0` | `20,000` |
+| `save_freq` | `5,000` | `5,000` | `5,000` | `20,000` |
+| `log_freq` | `100` | `100` | `100` | `200` |
+| `wandb.enable` | `true` | `true` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot_rm65_act` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** Parameters not listed in this table use their default values.
 
 #### Evaluation
 
@@ -209,35 +231,27 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --log-path ./logs/record_$TASK_NAME.log
 ```
 
-#### Training script
+#### Training Configuration
 
-I trained ACT with `chunk_size=100`, `batch_size=32`, and 20,000 training steps:
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
+I trained ACT with `chunk_size=100`, `batch_size=32`, and 20,000 training steps.
 
-DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100
+Dataset: `rm65_aloha_pick_screwdriver_to_fixed_box_closer_front`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 1 \
-    --batch_size 32 \
-    --steps 20000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+Output policy: `rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_100_steps_20000_batch_32_chunck_100`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `1` | `100` |
+| `batch_size` | `32` | `8` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** `policy.chunk_size=100` uses the ACT default. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
@@ -284,35 +298,27 @@ In this evaluation, `canfd_follow` was enabled.
 
 In this experiment, I added 100 more episodes based on [Training Log 4](#training-log-4), bringing the dataset to 200 episodes in total. The recording method was the same as in Log 4: I kept the data distribution as balanced as possible across workspace areas and screwdriver orientations. The main difference is that, in the new 100 episodes, I intentionally focused on grasping the thinner parts of the screwdriver.
 
-#### Training script
+#### Training Configuration
 
-I trained ACT with `chunk_size=100`, `batch_size=32`, and 40,000 training steps:
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
+I trained ACT with `chunk_size=100`, `batch_size=32`, and 40,000 training steps.
 
-DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100
+Dataset: `rm65_aloha_pick_screwdriver_to_fixed_box_closer_front`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 1 \
-    --batch_size 32 \
-    --steps 40000 \
-    --eval_freq 0 \
-    --save_freq 10000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+Output policy: `rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_200_steps_40000_batch_32_chunck_100`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `1` | `100` |
+| `batch_size` | `32` | `8` |
+| `steps` | `40,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** `policy.chunk_size=100` uses the ACT default. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
@@ -367,59 +373,50 @@ For a quick test, I cut the predicted action chunk to 50 during rollout, even th
 
 In this experiment, I added 50 more episodes based on [Training Log 5](#training-log-5), bringing the dataset to 250 episodes in total. These new episodes focus on thin-part grasping. During recording, I intentionally paused after the gripper reached the screwdriver and before closing, so the policy could learn a clearer stop-and-grasp phase.
 
-#### Training script
+#### Training Configuration
 
-I trained ACT with `chunk_size=50`, `batch_size=32`, and 40,000 training steps:
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
+I trained ACT with `chunk_size=50`, `batch_size=32`, and 40,000 training steps.
 
-DATASET_ID=rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
-TRAINING_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+Dataset: `rm65_aloha_pick_screwdriver_to_fixed_box_closer_front`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 50 \
-    --policy.n_action_steps 1 \
-    --batch_size 32 \
-    --steps 40000 \
-    --eval_freq 0 \
-    --save_freq 10000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+Output policy: `rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.chunk_size` | `50` | `100` |
+| `policy.n_action_steps` | `1` | `100` |
+| `batch_size` | `32` | `8` |
+| `steps` | `40,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** Parameters not listed in this table use their default values.
 
 #### Evaluation
 
-In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20:
+In this evaluation, `canfd_follow` was enabled and rollout `fps` was set to 20.
 
-```bash
-PRETRAINED_ID=rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50
+Robot config: `configs/rm65_wrist_front.yaml`
 
-lerobot-rollout \
-    --config_path=configs/rm65_wrist_front.yaml \
-    --strategy.type=base \
-    --inference.type=sync \
-    --robot.single_arm.canfd_follow=true \
-    --robot.single_arm.max_relative_target=1000.0 \
-    --policy.path=./runs/train/$PRETRAINED_ID/checkpoints/last/pretrained_model \
-    --policy.temporal_ensemble_coeff=0.01 \
-    --policy.n_action_steps=1 \
-    --device=cuda \
-    --fps=20 \
-    --duration=20 \
-    --task="pick screwdriver and put it in box" \
-    --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED_ID.log
-```
+Checkpoint: `rm65_act_pick_screwdriver_to_fixed_box_closer_front_episodes_250_steps_40000_batch_32_chunck_50/checkpoints/last/pretrained_model`
+
+Task: `pick screwdriver and put it in box`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `robot.single_arm.canfd_follow` | `true` | `false` |
+| `robot.single_arm.max_relative_target` | `1000.0` | `10.0` |
+| `policy.temporal_ensemble_coeff` | `0.01` | `None` |
+| `policy.n_action_steps` | `1` | `100` |
+| `fps` | `20` | `30` |
+| `duration` | `20` | `0` (unlimited) |
+| `return_to_initial_position` | `false` | `true` |
+
+> **Note:** `strategy.type=base` and `inference.type=sync` use the rollout defaults. All other unlisted parameters also use their default values.
 
 - Success rate: 24 / 25
 
@@ -558,64 +555,50 @@ python repos/lerobot/examples/rm65/passive_record.py \
     --record-button-mode toggle
 ```
 
-#### Training script
+#### Training Configuration
 
 I set `chunk_size=50`, `n_action_steps=1`, `batch_size=16`, and 20,000 training steps.
 
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
-export HF_ENDPOINT=https://hf-mirror.com
+Dataset: `rm65_bimanual_grasp_and_place`
 
-DATASET_ID=rm65_bimanual_grasp_and_place
-TRAINING_ID=rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+Output policy: `rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 50 \
-    --policy.n_action_steps 1 \
-    --batch_size 16 \
-    --steps 20000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.chunk_size` | `50` | `100` |
+| `policy.n_action_steps` | `1` | `100` |
+| `batch_size` | `16` | `8` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** Parameters not listed in this table use their default values.
 
 #### Evaluation
 
 In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed.
 
-```bash
-PRETRAINED=rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
-TASK_PROMPT="grasp two assembly parts and place them in the center"
+Robot config: `configs/rm65_left_right_wrist_front_top.yaml`
 
-lerobot-rollout \
-    --config_path=configs/rm65_left_right_wrist_front_top.yaml \
-    --strategy.type=base \
-    --inference.type=sync \
-    --robot.left_arm.canfd_follow=false \
-    --robot.right_arm.canfd_follow=false \
-    --robot.left_arm.max_relative_target=1000.0 \
-    --robot.right_arm.max_relative_target=1000.0 \
-    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
-    --policy.temporal_ensemble_coeff=0.01 \
-    --policy.n_action_steps=1 \
-    --device=cuda \
-    --fps=10 \
-    --duration=20 \
-    --task="$TASK_PROMPT" \
-    --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED.log
-```
+Checkpoint: `rm65_act_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50/checkpoints/last/pretrained_model`
+
+Task: `grasp two assembly parts and place them in the center`
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `robot.left_arm.max_relative_target` | `1000.0` | `10.0` |
+| `robot.right_arm.max_relative_target` | `1000.0` | `10.0` |
+| `policy.temporal_ensemble_coeff` | `0.01` | `None` |
+| `policy.n_action_steps` | `1` | `100` |
+| `fps` | `10` | `30` |
+| `duration` | `20` | `0` (unlimited) |
+| `return_to_initial_position` | `false` | `true` |
+
+> **Note:** `strategy.type=base`, `inference.type=sync`, and both arms' `canfd_follow=false` use their defaults. All other unlisted parameters also use their default values.
 
 - Success rate: 8 / 8
 
@@ -669,37 +652,26 @@ Dataset information:
   | :---: | :---: | :---: | :---: |
   | rm65_bimanual_nearest_assembly_parts_to_center | 30 | 20 | 16756 |
 
-#### Training
+#### Training Configuration
 
-Compared with [Training Objective 1](#training-objective-1-rm65-screwdriver-to-box-task), each demonstration is much longer, taking about 30 seconds. Therefore, I set `chunk_size` to 100 so the ACT policy predicts a longer future action sequence:
+Compared with [Training Objective 1](#training-objective-1-rm65-screwdriver-to-box-task), each demonstration is much longer, taking about 30 seconds. Therefore, I kept the ACT default `chunk_size=100` so the policy predicts a longer future action sequence.
 
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
-export HF_ENDPOINT=https://hf-mirror.com
+Dataset: `rm65_bimanual_nearest_assembly_parts_to_center`
 
-DATASET_ID=rm65_bimanual_nearest_assembly_parts_to_center
-TRAINING_ID=rm65_act_bimanual_nearest_assembly_parts_to_center_episodes_20_steps_20000_batch_8_chunk_100
+Output policy: `rm65_act_bimanual_nearest_assembly_parts_to_center_episodes_20_steps_20000_batch_8_chunk_100`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 1 \
-    --batch_size 8 \
-    --steps 20000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_act_rm65 \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `1` | `100` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_act_rm65` | `lerobot` |
+
+> **Note:** `policy.chunk_size=100` and `batch_size=8` use their defaults. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
@@ -751,79 +723,50 @@ The final combined dataset is named:
 rm65_bimanual_farthest_to_closest_assembly_parts_to_center
 ```
 
-#### Training
+#### Training Configuration
 
-Because each episode is relatively long, I set `chunk_size` to 100 so the ACT policy can predict a longer future action sequence. I train for 60,000 steps with batch size 8:
+Because each episode is relatively long, I kept the ACT default `chunk_size=100` so the policy can predict a longer future action sequence. I trained for 60,000 steps with batch size 8.
 
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
-export HF_ENDPOINT=https://hf-mirror.com
+Dataset: `rm65_bimanual_farthest_to_closest_assembly_parts_to_center`
 
-DATASET_ID=rm65_bimanual_farthest_to_closest_assembly_parts_to_center
-TRAINING_ID=rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100
+Output policy: `rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type act \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 100 \
-    --policy.n_action_steps 1 \
-    --batch_size 8 \
-    --steps 60000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_act_rm65 \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `1` | `100` |
+| `steps` | `60,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_act_rm65` | `lerobot` |
+
+> **Note:** `policy.chunk_size=100` and `batch_size=8` use their defaults. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
-The rollout uses the `highlight` strategy so the rollout process can be recorded as a LeRobot dataset. I use temporal ensembling with `temporal_ensemble_coeff=0.01` and keep `n_action_steps=1`:
+The rollout uses the `highlight` strategy so the rollout process can be recorded as a LeRobot dataset. I use temporal ensembling with `policy.temporal_ensemble_coeff=0.01` and keep `policy.n_action_steps=1`. The rollout dataset is resumed when its output directory already exists.
 
-```bash
-PRETRAINED=rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100
-TASK_PROMPT="grasp the visible assembly parts from farthest to closest relative to the front camera, and place each pair in the center"
+Robot config: `configs/rm65_left_right_wrist_front_top.yaml`
 
-CONFIG_PATH=configs/rm65_left_right_wrist_front_top.yaml
-TASK_NAME=rollout_$PRETRAINED
-FOLDER_PATH="./runs/rollout_dataset/$TASK_NAME"
+Checkpoint: `rm65_act_bimanual_assembly_parts_to_center_episodes_240_steps_60000_batch_8_chunk_100/checkpoints/last/pretrained_model`
 
-if [ -d "$FOLDER_PATH" ]; then
-    RESUME=true
-else
-    RESUME=false
-fi
+Task: `grasp the visible assembly parts from farthest to closest relative to the front camera, and place each pair in the center`
 
-lerobot-rollout \
-    --config_path=$CONFIG_PATH \
-    --strategy.type=highlight \
-    --inference.type=sync \
-    --robot.left_arm.canfd_follow=false \
-    --robot.right_arm.canfd_follow=false \
-    --robot.left_arm.max_relative_target=1000.0 \
-    --robot.right_arm.max_relative_target=1000.0 \
-    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
-    --policy.temporal_ensemble_coeff=0.01 \
-    --policy.n_action_steps=1 \
-    --dataset.repo_id=local/$TASK_NAME \
-    --dataset.root=./runs/rollout_dataset/$TASK_NAME \
-    --dataset.single_task="$TASK_PROMPT" \
-    --dataset.push_to_hub=false \
-    --resume=$RESUME \
-    --device=cuda \
-    --fps=10 \
-    --duration=360 \
-    --task="$TASK_PROMPT" \
-    --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `strategy.type` | `highlight` | `base` |
+| `robot.left_arm.max_relative_target` | `1000.0` | `10.0` |
+| `robot.right_arm.max_relative_target` | `1000.0` | `10.0` |
+| `policy.temporal_ensemble_coeff` | `0.01` | `None` |
+| `policy.n_action_steps` | `1` | `100` |
+| `dataset.push_to_hub` | `false` | `true` |
+| `fps` | `10` | `30` |
+| `duration` | `360` | `0` (unlimited) |
+| `return_to_initial_position` | `false` | `true` |
+
+> **Note:** `inference.type=sync` and both arms' `canfd_follow=false` use their defaults. All other unlisted parameters also use their default values.
 
 - Success rate: 9 / 20
 
@@ -900,13 +843,32 @@ Dataset information:
   | 3 | 3 visible parts on each side | 30 | 80 | 67884 |
   | 4 | Mixed visibility between left and right sides | 30 | 60 | 32852 |
 
-#### Training
+#### Training Configuration
 
-Based on the analysis in [Training Log 3 of Objective 2](#training-log-3-of-objective-2), I test smaller action chunk sizes to reduce the long-horizon averaging problem. I train three policies with `chunk_size` values of 40, 30, and 20. Each policy uses 60,000 training steps and batch size 8.
+Based on the analysis in [Training Log 3 of Objective 2](#training-log-3-of-objective-2), I tested smaller action chunk sizes to reduce the long-horizon averaging problem. I trained three policies with `policy.chunk_size` values of 40, 30, and 20. Each policy used 60,000 training steps and batch size 8.
+
+| Parameter | Policy 1 | Policy 2 | Policy 3 | Default value |
+|---|---:|---:|---:|---:|
+| `policy.push_to_hub` | `false` | `false` | `false` | `true` |
+| `policy.chunk_size` | `20` | `30` | `40` | `100` |
+| `policy.n_action_steps` | `1` | `1` | `1` | `100` |
+| `steps` | `60,000` | `60,000` | `60,000` | `100,000` |
+| `eval_freq` | `0` | `0` | `0` | `20,000` |
+| `log_freq` | `100` | `100` | `100` | `200` |
+| `wandb.enable` | `true` | `true` | `true` | `false` |
+| `wandb.project` | `lerobot_act_rm65` | `lerobot_act_rm65` | `lerobot_act_rm65` | `lerobot` |
+
+> **Note:** `batch_size=8` and `save_freq=20,000` use the training-pipeline defaults. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
-For rollout, I tune temporal ensembling separately for each chunk size. I use `temporal_ensemble_coeff=0.1` for `chunk_size=20`, `temporal_ensemble_coeff=0.05` for `chunk_size=30`, and `temporal_ensemble_coeff=0.03` for `chunk_size=40`.
+For rollout, I tuned temporal ensembling separately for each chunk size:
+
+| Parameter | `policy.chunk_size=20` | `policy.chunk_size=30` | `policy.chunk_size=40` | Default value |
+|---|---:|---:|---:|---:|
+| `policy.temporal_ensemble_coeff` | `0.1` | `0.05` | `0.03` | `None` |
+
+> **Note:** Parameters not listed in this table use the same rollout configuration as Training Log 3 or their default values.
 
 - Success rate: 4 / 8
 

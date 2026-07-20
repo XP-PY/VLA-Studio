@@ -14,3 +14,5 @@ repos/*
 !repos/lerobot/
 !repos/chassis_sdk/
 temp.sh
+temp.py
+annotations

@@ -256,7 +256,7 @@ class RM65Robot(Robot):
         return sent_action
 
     @check_if_not_connected
-    def send_action(self, action: RobotAction, log_angles_info: bool = True) -> RobotAction:
+    def send_action(self, action: RobotAction, log_angles_info: bool = False) -> RobotAction:
         if not self.is_bimanual:
             return self._send_arm_action("", action, self.arm_configs[""], log_angles_info)
 

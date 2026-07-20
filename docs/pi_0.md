@@ -3,7 +3,7 @@
 - [Pi0 paper](https://arxiv.org/abs/2410.24164)
 - [Pi0-FAST paper](https://arxiv.org/abs/2501.09747)
 
-*Last updated: July 15, 2026*
+*Last updated: July 20, 2026*
 
 ---
 
@@ -99,36 +99,97 @@ Use the prompt templates exactly as written. Save only successful demonstrations
 
 The absolute joint-angle dataset was copied to a PI0-specific dataset whose action statistics were recomputed in relative space. During training, the six joint targets are represented as offsets from the current joint state, while `gripper.pos` remains absolute. The stored trajectories themselves remain unchanged.
 
-| Category | Parameter | Value | Description |
-|---|---|---|---|
-| Dataset | Repository ID | `rm65_single_table_preparation_and_bussing_pi` | PI0-specific copy containing relative-action normalization statistics. |
-| Dataset | Size | 204 episodes, 93,199 frames, 52 prompts | Includes all four training tasks recorded at 30 FPS. |
-| Dataset | Camera inputs | `wrist`, `top` | Both RGB streams are loaded as `uint8` images and processed by PI0. |
-| Model | Base policy | `${STORAGE_ROOT}/models/pi0_base` | Fine-tunes the pretrained LeRobot PI0 checkpoint. |
-| Model | Language tokenizer | `${STORAGE_ROOT}/models/paligemma-3b-pt-224` | Local PaliGemma tokenizer path configured in `policy_preprocessor.json`. |
-| Model | Input and output features | Inferred from dataset | Two camera observations, a 7-dimensional robot state, and a 7-dimensional action are mapped to PI0's padded dimensions. |
-| Action | Action representation | Relative joint angles | For joints 1-6, `relative_action = target_angle - current_angle`. |
-| Action | Excluded relative dimension | `gripper` | `gripper.pos` remains an absolute target. |
-| Action | Chunk size | 50 | Predicts approximately 1.67 seconds of actions at the dataset's 30 FPS. The relative-action statistics use the same chunk size. |
-| Action | Action steps | 1 | Configures rollout queue behavior; it does not change the action-chunk training target. |
-| Inference | Flow-matching steps | 10 | Used during rollout rather than training-loss computation. |
-| Precision | Policy dtype | `bfloat16` | Reduces GPU memory use while retaining a wide numeric range. |
-| Precision | Accelerate mixed precision | `bf16` | Matches the policy dtype. |
-| Fine-tuning | Train expert only | `true` | Freezes PaliGemma and trains the action expert and action/state projections. |
-| Fine-tuning | Freeze vision encoder | `true` | Explicit but redundant because `train_expert_only=true` already freezes the complete PaliGemma model. |
-| Memory | Gradient checkpointing | `true` | Reduces activation memory at the cost of additional computation. |
-| Hardware | GPU configuration | One GPU: device `0` | `NUM_GPUS=1` and `GPU_IDS=0`. |
-| Optimization | Per-device/global batch size | 16 / 16 | No gradient accumulation is used. |
-| Optimization | Training steps | 30,000 | Processes 480,000 sampled frames, approximately 5.2 passes over the 93,199-frame dataset. |
-| Optimization | Optimizer | AdamW | Uses the PI0 policy training preset. |
-| Optimization | Learning rate | `2.5e-5` | Default PI0 peak learning rate. |
-| Optimization | AdamW parameters | betas `(0.9, 0.95)`, epsilon `1e-8`, weight decay `0.01` | Inherited from the PI0 policy preset. |
-| Optimization | Gradient clipping | `1.0` | Maximum gradient norm from the PI0 policy preset. |
-| Scheduler | Schedule | Cosine decay with warmup | Uses 1,000 warmup steps and decays across all 30,000 training steps. |
-| Scheduler | Final learning rate | `2.5e-6` | PI0 scheduler decay target. |
-| Logging | Log frequency | Every 100 steps | Reports training metrics to the terminal, log file, and Weights & Biases. |
-| Checkpoints | Save frequency | Every 10,000 steps | Saves checkpoints at 10k, 20k and 30k steps. |
-| Evaluation | Training-time evaluation | Disabled | `eval_freq=0`; checkpoints are evaluated on the real robot after training. |
-| Tracking | Weights & Biases | Enabled, project `lerobot_pi0_rm65` | Records the training loss, learning rate, gradient norm, throughput, and GPU memory. |
-| Reproducibility | Random seed | 1000 | Uses LeRobot's default training seed because no override is supplied. |
-| Output | Hub upload | Disabled | Checkpoints and logs are stored locally under `${STORAGE_ROOT}`. |
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `dataset.return_uint8` | `true` | `false` |
+| `policy.dtype` | `bfloat16` | `float32` |
+| `policy.use_relative_actions` | `true` | `false` |
+| `policy.freeze_vision_encoder` | `true` | `false` |
+| `policy.train_expert_only` | `true` | `false` |
+| `policy.gradient_checkpointing` | `true` | `false` |
+| `policy.push_to_hub` | `false` | `true` |
+| `batch_size` | `16` | `8` |
+| `steps` | `30,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_pi0_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
+
+> **Note:** Parameters not listed in this table use their default values.
+
+#### Evaluation
+
+The policy was evaluated with the prompt `Place the tomato on the pink plate.`. These initial rollouts were used to identify qualitative failure modes; a formal success rate has not yet been measured.
+
+Several flow-matching and RTC configurations were tested:
+
+| Parameter | Tested values |
+|---|---|
+| `policy.num_inference_steps` | `5`, `8`, `10` |
+| `inference.rtc.execution_horizon` | `8`, `10`, `15` |
+| `inference.rtc.max_guidance_weight` | `8`, `10` |
+| `inference.rtc.prefix_attention_schedule` | `EXP`, `LINEAR` |
+| `inference.queue_threshold` | `15`, `20`, `30` |
+
+All tested configurations produced similar behavior. Some combinations were slightly better than others, but none removed the main failure modes described below.
+
+- Rollout 1:
+
+  <video controls width="600">
+    <source src="assets/pi_0/ob_1_log_1_rollout_0.mp4" type="video/mp4">
+  </video>
+
+- Rollout 2:
+
+  <video controls width="600">
+    <source src="assets/pi_0/ob_1_log_1_rollout_1.mp4" type="video/mp4">
+  </video>
+
+##### Experimental Phenomena
+
+1. The motion is not continuous. Consecutive action updates sometimes conflict, causing the arm to move toward the target and then move backward before approaching it again.
+2. The policy shows partial prompt and object recognition. With the tomato instruction, the arm often moves toward the tomato, but it cannot align the gripper with sufficient precision. In some trials, it also approaches the wrong object.
+3. When the gripper misses the tomato, the policy does not stop or retry the grasp. Instead, it continues executing the later lift-and-place portion of the demonstrated trajectory as though the grasp had succeeded.
+
+##### Analysis
+
+1. The forward-and-backward motion suggests inconsistency between consecutive predicted action chunks. Each flow-matching inference begins from newly sampled noise, and RTC must reconcile the new prediction with the unexecuted portion of the previous chunk. Because broad changes to the inference-step and RTC parameters produced only minor differences, the oscillation is unlikely to be caused by one poorly chosen RTC setting alone. The learned action distribution, chunk-to-chunk variation, observation-to-action latency, and relative-action execution may all contribute.
+2. The policy has learned a coarse association between the language instruction and the target area, but not sufficiently accurate visual grounding for grasping. Each exact vegetable-and-plate combination has only four demonstrations, while the full dataset contains 52 prompts. In addition, the vision encoder is frozen, so adaptation to the cameras, toy vegetables, and workspace must mainly occur through the action expert.
+3. Continuing after a failed grasp is expected from success-only behavior cloning. The dataset contains trajectories in which approaching the object is always followed by lifting and placement, but it does not teach the conditional rule that lifting should occur only after a successful grasp. The policy also has no explicit grasp-success or object-contact signal, so it tends to replay the learned phase sequence instead of recovering from failure.
+4. The next evaluation should measure these problems separately: target-selection accuracy, gripper-alignment accuracy, grasp success, and post-failure recovery. This will distinguish visual-grounding errors from action-continuity and recovery errors.
+
+---
+
+### Training Log 2 of Objective 1
+
+This run uses the same 204-episode PI0 dataset as Training Log 1, but changes the optimization scope from expert-only training to full-model fine-tuning. The run uses a chunk size of 50, a per-device batch size of 8, and 100,000 optimization steps.
+
+#### Why Fine-Tune More Than the Action Expert
+
+Training Log 1 froze the PaliGemma VLM and trained only the action expert and projection layers. Its evaluation showed some coarse prompt-to-target association, but target selection and gripper alignment remained unreliable. With expert-only training, the policy can learn actions from the VLM's existing features, but the robot dataset cannot improve those features. This is restrictive because the wrist and top-camera views, toy vegetables, colored plates, and robot workspace differ substantially from PaliGemma's pretraining data.
+
+For this run, `policy.freeze_vision_encoder=false` and `policy.train_expert_only=false`. The action loss can therefore update the PaliGemma vision tower and multimodal model together with the action expert and projection layers. The intended benefit is stronger adaptation of object identity, plate color, spatial relationships, and prompt-image alignment to the recorded environment. This should be tested through target-selection and grasp accuracy rather than training loss alone.
+
+#### Training Configuration
+
+The relative-action conversion is unchanged from Training Log 1: the six arm joints are trained as offsets from the current state, while `gripper.pos` remains absolute. The following table lists only values that differ from the current LeRobot PI0 training defaults.
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `dataset.return_uint8` | `true` | `false` |
+| `policy.dtype` | `bfloat16` | `float32` |
+| `policy.use_relative_actions` | `true` | `false` |
+| `policy.scheduler_decay_steps` | `100,000` | `30,000` |
+| `policy.push_to_hub` | `false` | `true` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_pi0_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
+
+The explicitly configured `policy.freeze_vision_encoder=false`, `policy.train_expert_only=false`, `policy.gradient_checkpointing=false`, `policy.chunk_size=50`, `batch_size=8`, and `steps=100,000` already match their defaults, so they are not repeated in the override table.
+
+> **Note:** Parameters not listed in this table use their default values.

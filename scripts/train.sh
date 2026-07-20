@@ -2,8 +2,8 @@
 set -e
 set -o pipefail
 
-# SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# source "$SCRIPT_DIR/env.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/env.sh"
 
 # ========================== ACT ==========================
 if [ "$POLICY_TYPE" = "act" ]; then
@@ -75,7 +75,7 @@ done
 
 elif [ "$POLICY_TYPE" = "pi0" ]; then
 for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
-    TRAINING_ID=rm65_pi0_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}
+    TRAINING_ID=rm65_pi0_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_freeze_gemma
     ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=bf16)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
@@ -100,9 +100,9 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
       --policy.chunk_size=$CHUNK_SIZE \
       --policy.use_relative_actions=true \
       --policy.relative_exclude_joints='["gripper"]' \
-      --policy.freeze_vision_encoder=true \
-      --policy.train_expert_only=true \
-      --policy.gradient_checkpointing=true \
+      --policy.freeze_vision_encoder=false \
+      --policy.train_expert_only=false \
+      --policy.gradient_checkpointing=false \
       --policy.scheduler_decay_steps=$STEPS \
       --policy.push_to_hub=false \
       --batch_size=$PER_DEVICE_BATCH_SIZE \

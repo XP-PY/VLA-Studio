@@ -7,10 +7,10 @@ source "$SCRIPT_DIR/env.sh"
 
 VIDEO_DIR="${ROLLOUT_DIR}/videos"
 
-POLICY="action_flow"
+POLICY="pi_0"
 CHUNK_ID="chunk-000"
-FILE_ID="file-005"
-OUTPUT="docs/assets/${POLICY}/ob_1_log_2_rollout_5.mp4"
+FILE_ID="file-000"
+OUTPUT="docs/assets/${POLICY}/ob_1_log_1_rollout_1.mp4"
 
 
 # Find all observation images folders

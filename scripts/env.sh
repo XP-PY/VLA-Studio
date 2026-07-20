@@ -15,6 +15,7 @@ export HF_HOME="$STORAGE_ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export HF_LEROBOT_HOME="$STORAGE_ROOT/.cache/lerobot"
 # export HF_ENDPOINT="https://hf-mirror.com"
+export HF_ENDPOINT="https://huggingface.co"
 
 # ===== Python path =====
 export PYTHONPATH="$PROJECT_ROOT/repos/lerobot/src:${PYTHONPATH}"
@@ -35,8 +36,8 @@ export TASK_FPS=30
 # ===== Training common settings =====
 export POLICY_ID="rm65_pi0_single_table_preparation_and_bussing_episodes_204_steps_30000_batch_16_chunk_50"
 export POLICY_TYPE="pi0"
-export STEPS=30000
-export PER_DEVICE_BATCH_SIZE=16
+export STEPS=100000
+export PER_DEVICE_BATCH_SIZE=8
 export SAVE_FREQ=10000
 export LOG_FREQ=100
 export CHUNK_SIZES=(50)
@@ -45,17 +46,18 @@ export NUM_GPUS=1
 
 # ===== Rollout common settings =====
 export N_ACTION_STEPS=1
-export NUM_INFERENCE_STEP=10
+export NUM_INFERENCE_STEP=5
 export ROLLOUT_FPS=30
 export ROLLOUT_DURATION=360
 export ROLLOUT_CANFD_FOLLOW=false
 export ROLLOUT_STRATEGY_TYPE=highlight
 export ROLLOUT_DIR="$STORAGE_ROOT/runs/rollout_dataset/rollout_${POLICY_ID}"
 export ROLLOUT_INFERENCE_TYPE=rtc
-export RTC_EXECUTION_HORIZON=10
-export RTC_MAX_GUIDANCE_WEIGHT=10
+export RTC_EXECUTION_HORIZON=8
+export RTC_MAX_GUIDANCE_WEIGHT=8
 export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
-export RTC_QUEUE_THRESHOLD=30
+# export RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"
+export RTC_QUEUE_THRESHOLD=20
 
 # ===== W&B =====
 export WANDB_ENABLE=true

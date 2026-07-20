@@ -151,78 +151,51 @@ This experiment uses the same task and hardware setup as [ACT Training Objective
 
 I used the dataset recorded for [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2).
 
-#### Training script
+#### Training Configuration
 
 I used the same setting as [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2):
 
-```bash
-export HF_HOME=./.cache/huggingface
-export HF_LEROBOT_HOME=./.cache/lerobot
-export HF_ENDPOINT=https://hf-mirror.com
+Dataset: `rm65_bimanual_grasp_and_place`
 
-DATASET_ID=rm65_bimanual_grasp_and_place
-TRAINING_ID=rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
+Output policy: `rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50`
 
-lerobot-train \
-    --dataset.repo_id $DATASET_ID \
-    --dataset.root ./runs/dataset/$DATASET_ID \
-    --policy.type action_flow_v1 \
-    --policy.device cuda \
-    --policy.push_to_hub false \
-    --policy.chunk_size 50 \
-    --policy.n_action_steps 1 \
-    --batch_size 16 \
-    --steps 20000 \
-    --eval_freq 0 \
-    --save_freq 5000 \
-    --log_freq 100 \
-    --output_dir ./runs/train/$TRAINING_ID \
-    --wandb.enable true \
-    --wandb.project lerobot_rm65_act \
-    --job_name $TRAINING_ID \
-    2>&1 | tee ./logs/train_$TRAINING_ID.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `policy.push_to_hub` | `false` | `true` |
+| `policy.n_action_steps` | `1` | `10` |
+| `batch_size` | `16` | `8` |
+| `steps` | `20,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `5,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_rm65_act` | `lerobot` |
+
+> **Note:** `policy.chunk_size=50` uses the Action Flow V1 default. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
-In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed.
+In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed. The rollout dataset was resumed when its output directory already existed.
 
-```bash
-PRETRAINED=rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50
-TASK_PROMPT="grasp two assembly parts and place them in the center"
+Robot config: `configs/rm65_left_right_wrist_front_top.yaml`
 
-TASK_NAME=rollout_$PRETRAINED
-FOLDER_PATH="./runs/rollout_dataset/$TASK_NAME"
+Checkpoint: `rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50/checkpoints/last/pretrained_model`
 
-if [ -d "$FOLDER_PATH" ]; then
-    RESUME=true
-else
-    RESUME=false
-fi
+Task: `grasp two assembly parts and place them in the center`
 
-lerobot-rollout \
-    --config_path=configs/rm65_left_right_wrist_front_top.yaml \
-    --strategy.type=highlight \
-    --inference.type=sync \
-    --robot.left_arm.canfd_follow=false \
-    --robot.right_arm.canfd_follow=false \
-    --robot.left_arm.max_relative_target=1000.0 \
-    --robot.right_arm.max_relative_target=1000.0 \
-    --policy.path=./runs/train/$PRETRAINED/checkpoints/last/pretrained_model \
-    --policy.temporal_ensemble_coeff=0.01 \
-    --policy.n_action_steps=1 \
-    --dataset.repo_id=local/$TASK_NAME \
-    --dataset.root=$FOLDER_PATH \
-    --dataset.single_task="$TASK_PROMPT" \
-    --dataset.push_to_hub=false \
-    --resume=$RESUME \
-    --device=cuda \
-    --fps=10 \
-    --duration=120 \
-    --task="$TASK_PROMPT" \
-    --return_to_initial_position=false \
-    2>&1 | tee ./logs/rollout_$PRETRAINED.log
-```
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `strategy.type` | `highlight` | `base` |
+| `robot.left_arm.max_relative_target` | `1000.0` | `10.0` |
+| `robot.right_arm.max_relative_target` | `1000.0` | `10.0` |
+| `policy.temporal_ensemble_coeff` | `0.01` | `None` |
+| `policy.n_action_steps` | `1` | `10` |
+| `dataset.push_to_hub` | `false` | `true` |
+| `fps` | `10` | `30` |
+| `duration` | `120` | `0` (unlimited) |
+| `return_to_initial_position` | `false` | `true` |
+
+> **Note:** `inference.type=sync` and both arms' `canfd_follow=false` use their defaults. All other unlisted parameters also use their default values.
 
 - Success rate: 8 / 8
 
@@ -260,13 +233,45 @@ The final combined dataset is named:
 rm65_bimanual_farthest_to_closest_assembly_parts_to_center
 ```
 
-#### Training
+#### Training Configuration
 
-Similar to [ACT Training Log 4 of Objective 2](act.md#training-log-4-of-objective-2), I train `Action Flow V1` with different `chunk_size` values: 20, 30, and 40. Each policy is trained for 60,000 steps with batch size 8.
+Similar to [ACT Training Log 4 of Objective 2](act.md#training-log-4-of-objective-2), I trained Action Flow V1 with `policy.chunk_size` values of 20, 30, and 40. The saved training configurations show that each policy was trained for 40,000 steps with batch size 8.
+
+Output policies:
+
+- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_20`
+- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_30`
+- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_40`
+
+| Parameter | Policy 1 | Policy 2 | Policy 3 | Default value |
+|---|---:|---:|---:|---:|
+| `policy.push_to_hub` | `false` | `false` | `false` | `true` |
+| `policy.chunk_size` | `20` | `30` | `40` | `50` |
+| `policy.n_action_steps` | `1` | `1` | `1` | `10` |
+| `steps` | `40,000` | `40,000` | `40,000` | `100,000` |
+| `eval_freq` | `0` | `0` | `0` | `20,000` |
+| `log_freq` | `100` | `100` | `100` | `200` |
+| `wandb.enable` | `true` | `true` | `true` | `false` |
+| `wandb.project` | `lerobot_action_flow_rm65` | `lerobot_action_flow_rm65` | `lerobot_action_flow_rm65` | `lerobot` |
+
+> **Note:** `batch_size=8` and `save_freq=20,000` use the training-pipeline defaults. All other unlisted parameters also use their default values.
 
 #### Evaluation
 
-In this rollout evaluation, I enable Real-Time Chunking (RTC) with `RTC_QUEUE_THRESHOLD=10`, `RTC_EXECUTION_HORIZON=10`, `RTC_MAX_GUIDANCE_WEIGHT=10` and `RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"`. RTC is more suitable than ACT-style temporal ensembling for this flow-matching policy because it explicitly reuses the unexecuted part of the previous chunk during the next denoising process.
+In this rollout evaluation, I enabled Real-Time Chunking (RTC). RTC is more suitable than ACT-style temporal ensembling for this flow-matching policy because it explicitly reuses the unexecuted part of the previous chunk during the next denoising process.
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `inference.type` | `rtc` | `sync` |
+| `inference.queue_threshold` | `10` | `30` |
+
+> **Note:** `inference.rtc.execution_horizon=10`, `inference.rtc.max_guidance_weight=10`, and `inference.rtc.prefix_attention_schedule=LINEAR` use their defaults. All other unlisted parameters also use their default values.
+
+Some individual rollouts changed the flow integration step count:
+
+| Parameter | Tested values | Default value |
+|---|---:|---:|
+| `policy.num_inference_steps` | `5`, `7` | `10` |
 
 - Phenomenon
     1. All three policies show different degrees of discontinuity between the current executed action and the next predicted chunk. Both arms often fail to align with the assembly parts. In some cases, the robot successfully grasps a part, but the gripper command is not stable: it slightly opens and closes during transfer, causing the part to drop.
@@ -325,466 +330,386 @@ In this rollout evaluation, I enable Real-Time Chunking (RTC) with `RTC_QUEUE_TH
 
 ### Motivation
 
-`Action Flow V1` improves action generation by replacing direct action regression with flow matching, but
-its observation encoder is still close to ACT. It encodes camera images with a ResNet and trains the visual
-features only through the final action-flow loss. More importantly, the current V1 model does not encode the
-dataset task prompt. The prompt passed to `lerobot-rollout` is therefore useful for dataset metadata, but it
-cannot change the actions predicted by the policy.
-
-This explains an important limitation observed in Objective 1: the policy can learn a correlation between a
-scene and a demonstrated trajectory, but it is not explicitly required to determine:
-
-- Which object is referred to by the instruction.
-- Whether that object is visible or absent.
-- Where the object should be grasped.
-- Where the object should be placed.
-- Which arm should be active.
-- Which stage of the manipulation task is currently being executed.
-
-Changing ResNet to a stronger visual backbone may improve image features, but it does not by itself guarantee
-that the policy uses the prompt or localizes the target. `Action Flow V2` should introduce an explicit,
-inspectable grounding representation between perception and action generation.
-
-### Design Goal
-
-The main goal of `Action Flow V2` is to build a prompt-conditioned flow policy that first forms an explicit
-representation of the requested target and destination, then conditions continuous action generation on that
-representation.
-
-The intended behavior is:
-
-```text
-instruction + images
-        |
-        v
-identify target, destination, visibility, and manipulation phase
-        |
-        v
-generate a continuous action chunk with flow matching
-```
-
-"Recognize first" does not need to mean that the model generates a discrete text answer and then starts robot
-control. A hard discrete boundary would prevent end-to-end gradients and make every detector error fatal.
-Instead, V2 should predict supervised spatial heatmaps and grounded visual tokens. These outputs can be
-visualized and evaluated independently while remaining differentiable inputs to the action decoder.
-
-The first V2 implementation is not intended to reproduce a complete general-purpose VLA such as PI0. It should
-remain small enough to train and debug on the available RM65 datasets while directly testing whether explicit
-visual grounding improves conditional behavior and grasp accuracy.
-
-### Proposed Architecture
-
-```text
-                                    +-----------------------+
-task prompt ----------------------->| Text encoder          |
-                                    +-----------+-----------+
-                                                |
-                                                | prompt tokens
-                                                v
-overview camera images --> visual features --> Grounding module
-                                                |
-                         +----------------------+----------------------+
-                         |                      |                      |
-                         v                      v                      v
-                 target heatmap        destination heatmap    presence/phase logits
-                         |                      |                      |
-                         +-----------+----------+----------------------+
-                                     |
-                                     v
-                              grounded tokens
-                                     |
-wrist images + robot state ----------+--------> Action Flow decoder
-                                                |
-                                                v
-                                      continuous action chunk
-```
-
-The policy should contain four main components:
-
-1. A pretrained visual-language feature extractor.
-2. A prompt-conditioned grounding module.
-3. A grounded condition encoder for camera, robot-state, and task information.
-4. The existing flow-matching action decoder, initially kept as close to V1 as possible.
-
-Keeping the action decoder stable makes the experiment easier to interpret. If V2 improves target selection or
-empty-side behavior, the improvement can be attributed mainly to perception and grounding rather than to an
-unrelated change in action generation.
-
-#### Visual And Language Encoders
-
-The recommended first implementation uses complementary pretrained encoders:
-
-- DINOv2 provides dense spatial image features that are useful for localization and geometry.
-- SigLIP provides aligned image and text features that are useful for matching the prompt to an object.
-- A small learned projector maps both feature types to `dim_model`.
-
-This follows the general motivation of the fused DINOv2 and SigLIP representation used by
-[OpenVLA](https://arxiv.org/abs/2406.09246), while retaining a continuous flow-matching action head.
-
-The encoders should initially be frozen. The grounding projections and action model can then learn without
-destroying the pretrained semantic representation. After the grounding outputs become reliable, the last one or
-two visual blocks can optionally be unfrozen with a learning rate substantially lower than the action decoder's
-learning rate.
-
-PaliGemma is an alternative when broader language reasoning is required. However, combining PaliGemma with a
-flow-matching action expert would make V2 structurally close to [PI0](https://arxiv.org/abs/2410.24164). Because
-PI0 is already available in LeRobot and is being evaluated separately, DINOv2 plus SigLIP is a more useful first
-V2 experiment: it isolates explicit grounding without duplicating the complete PI0 architecture.
-
-For multiple cameras, all cameras should share the same visual backbone, but each camera's tokens must receive a
-learned camera-identity embedding. The overview cameras should primarily support target and destination
-localization. Wrist-camera features should provide close-range information during approach, grasp, and transfer.
-
-#### Prompt-Conditioned Grounding Module
-
-The grounding module should use learned queries that cross-attend to prompt tokens and dense image tokens. The
-initial query set should include:
-
-- `source_query`: the object requested by the prompt.
-- `destination_query`: the requested placement area or container.
-- `left_arm_query`: whether the left arm has a valid target and should move.
-- `right_arm_query`: whether the right arm has a valid target and should move.
-- `phase_query`: the current manipulation stage.
+Action Flow V1 uses a ResNet observation encoder and does not encode the task prompt. It can learn smooth
+continuous trajectories, but the evaluation shows that it often follows fixed positions and demonstrated action
+sequences instead of selecting the target from the current image.
+
+Action Flow V2 should preserve the V1 flow-matching action decoder while replacing the observation path with a
+shared pretrained vision-language model (VLM). The normal VLM output remains the condition consumed by the action
+expert. A lightweight auxiliary grounding head predicts a prompt-conditioned target heatmap from the same shared
+features.
+
+The first experiment is intentionally narrower than PI0.5. It does not generate semantic subtasks, require
+destination labels, or feed a hard detector output into the controller. It tests one question:
+
+> Does auxiliary target-heatmap supervision improve the shared VLM representation and the resulting actions?
+
+### First Experiment
 
-For a single-arm dataset, only one arm-activity query is required. Keeping arm activity explicit is particularly
-important for the V1 failure where an arm moves toward an empty position.
-
-The grounding heads should predict:
-
-| Output | Meaning | Suggested representation |
-| --- | --- | --- |
-| Target presence | Whether the requested source object is visible | Binary logit per relevant camera or arm |
-| Target location | Spatial distribution of the requested object | Low-resolution heatmap per camera |
-| Grasp point | Preferred contact point rather than only object center | Normalized `(u, v)` or soft-argmax of a heatmap |
-| Grasp orientation | Preferred gripper alignment | `(sin(theta), cos(theta))` |
-| Destination presence | Whether the destination is visible | Binary logit |
-| Destination location | Region where the object should be placed | Heatmap or normalized point |
-| Arm activity | Whether each arm should move | Binary logit per arm |
-| Manipulation phase | Current high-level stage | Approach, grasp, transfer, place, finish |
-
-A bounding-box center or segmentation-mask center is not always a valid grasp point. This distinction is
-important for thin assembly parts, screwdrivers, and other elongated objects. V2 should therefore supervise a
-grasp affordance point and orientation when those labels are available. This is related to the motivation of
-[RoboPoint](https://arxiv.org/abs/2406.10721), which predicts language-conditioned spatial affordance points
-instead of relying only on broad object boxes.
-
-#### Grounded Token Construction
-
-The action decoder should not receive only a hard `argmax` coordinate. A hard coordinate discards uncertainty,
-appearance, and surrounding context. It also blocks gradients through the selection operation.
-
-Instead, each predicted heatmap should softly pool its corresponding dense image features:
-
-```python
-target_weights = softmax(target_heatmap.flatten(-2), dim=-1)
-target_token = sum(target_weights * spatial_image_features)
-```
-
-The resulting token contains information about both the selected location and its local appearance. A 2D
-position embedding should be added so that the action model can recover the selected image coordinates. The
-condition encoder should retain the complete scene tokens as well, because the robot still needs table,
-obstacle, gripper, and destination context.
-
-The final condition sequence can contain:
-
-```text
-[condition, prompt, robot_state, target, destination, phase, arm_activity, full_image_tokens]
-```
-
-The noisy action chunk then attends to this condition sequence through the existing transformer decoder.
-
-### Supervision And Dataset Features
-
-V2 requires supervision that is not present in a normal action-only LeRobot dataset. Dense segmentation masks
-are optional and expensive to store. A practical initial representation is to store compact labels in parquet
-and generate Gaussian heatmaps during loading:
-
-```text
-target.visible                 bool
-target.camera                  camera identifier
-target.point                   float32[2], normalized to [0, 1]
-target.orientation             float32[2], represented as sin/cos
-destination.visible            bool
-destination.point              float32[2], normalized to [0, 1]
-arm_active                     bool[num_arms]
-manipulation_phase             integer class
-```
-
-An optional sidecar annotation directory can store masks when mask supervision is useful. Invalid spatial
-labels must have a corresponding validity mask so that absent or occluded targets do not contribute to point or
-orientation losses.
-
-The task prompt must explicitly identify the source and destination. Prompts such as "grasp the tomato and place
-it on the light-green plate" are suitable. A generic prompt such as "grasp the parts" cannot teach the policy to
-distinguish one instance or category from another.
-
-#### Offline Annotation Pipeline
-
-Grounding DINO and SAM/SAM2 should initially be used as offline annotation teachers, rather than as mandatory
-models in the real-time control loop:
-
-1. Run Grounding DINO with the episode's source and destination phrases.
-2. Pass the detected boxes to SAM to obtain object masks.
-3. Use SAM2 or another tracker to propagate accepted masks through the episode.
-4. Derive object centers, approximate orientations, and visibility labels.
-5. Display the labels over the recorded videos for manual review.
-6. Correct frames or episodes where the teacher selected a distractor.
-
-Grounding DINO plus SAM supports open-vocabulary text-conditioned detection and segmentation, as described by
-[Grounded SAM](https://arxiv.org/abs/2401.14159). It should not be trusted without validation for small,
-domain-specific assembly parts. For those objects, manually annotating one or more keyframes and tracking the
-selection through the episode may be more reliable.
-
-The grasp point should preferably describe the demonstrated contact location, not merely the mask center. It can
-be annotated at the final pre-grasp frame and propagated to nearby approach frames. Grasp orientation can be
-annotated manually or estimated from an elongated mask and then corrected.
-
-### Dataset Design Requirements
-
-Explicit grounding cannot compensate for a dataset that allows a fixed-position shortcut. The V2 dataset must
-break correlations between prompt, object, and location. It should include:
-
-- The same target object at several positions and orientations.
-- Different target objects at the same position.
-- Distractor objects that must not be grasped.
-- Multiple prompts applied to visually similar scenes.
-- Target-absent and destination-absent observations.
-- Empty left-side and right-side examples for bimanual tasks.
-- Examples where one arm remains stationary while the other arm acts.
-- Different source and destination combinations.
-- Occlusion during approach and grasp.
-- Successful centered grasps with consistent gripper orientation.
-
-Prompt paraphrases can improve language robustness, but they should preserve an unambiguous source and
-destination. More demonstrations alone are insufficient if every demonstration keeps the same object-position
-relationship.
-
-A useful causal test can be created without collecting a robot trajectory for every prompt. The same image can
-be paired with several prompts for grounding-only training, as long as the source and destination labels are
-known. Action-flow training still uses the prompt associated with the demonstrated action, while a separate
-grounding pretraining stage can use these additional prompt-image pairs.
-
-### Training Objectives
-
-The main loss should combine action flow matching with explicit grounding losses:
-
-```text
-L_total = L_flow
-        + lambda_heatmap * L_target_heatmap
-        + lambda_point * L_grasp_point
-        + lambda_orientation * L_grasp_orientation
-        + lambda_destination * L_destination
-        + lambda_presence * L_presence
-        + lambda_arm * L_arm_activity
-        + lambda_phase * L_phase
-```
-
-Suggested loss types are:
-
-- `L_flow`: the existing padded flow-matching MSE.
-- `L_target_heatmap`: focal BCE or KL divergence against a Gaussian target heatmap.
-- `L_grasp_point`: Huber loss on normalized `(u, v)` coordinates.
-- `L_grasp_orientation`: cosine or MSE loss on normalized `(sin(theta), cos(theta))`.
-- `L_destination`: the same heatmap or point loss used for the source target.
-- `L_presence`: binary cross entropy.
-- `L_arm_activity`: binary cross entropy for each arm.
-- `L_phase`: cross entropy over manipulation stages.
-
-All losses should be normalized to similar numerical scales before selecting final weights. Reasonable initial
-weights are `1.0` for flow, heatmap, point, and destination losses; `0.2` for orientation, presence, and arm
-activity; and `0.1` for phase classification. These are starting values only. Training logs should report every
-loss independently, along with the gradient norm, so that a large auxiliary loss cannot silently dominate action
-learning.
-
-### Staged Training Plan
-
-V2 should be developed in stages rather than trained end to end immediately.
-
-#### Stage 1: Dataset And Label Audit
-
-1. Select a small representative subset of episodes.
-2. Produce target, destination, visibility, orientation, and phase labels.
-3. Build a visualization script that overlays all labels on every camera.
-4. Reject or correct visibly wrong labels before model training.
-
-#### Stage 2: Grounding Probe
-
-1. Freeze DINOv2 and SigLIP.
-2. Train only the projectors, grounding queries, and grounding heads.
-3. Evaluate target presence, point error, orientation error, and destination localization.
-4. Test the same image with different prompts and verify that the selected target changes.
-
-No robot rollout should be attempted until this stage reliably selects the prompted target and returns low
-confidence for absent targets.
-
-#### Stage 3: Frozen-Grounder Action Training
-
-1. Load the trained grounding module.
-2. Freeze the visual, language, and grounding modules.
-3. Train the V1 flow action decoder using grounded tokens as additional conditions.
-4. Compare against V1 using the same dataset, chunk size, training steps, RTC settings, and evaluation scenes.
-
-This stage determines whether correct grounding information actually improves action generation.
-
-#### Stage 4: Joint Fine-Tuning
-
-1. Unfreeze the grounding projectors and query transformer.
-2. Continue optimizing the combined loss with a smaller grounding learning rate.
-3. If necessary, unfreeze only the final visual blocks with an even smaller learning rate.
-4. Keep the pretrained text encoder frozen unless prompt understanding is demonstrably inadequate.
-
-Joint fine-tuning should be stopped if grounding metrics deteriorate while action loss improves. That pattern
-would indicate that action shortcuts are overwriting the explicit visual representation.
+The first architecture is:
+
+~~~text
+camera images + task prompt
+            |
+            v
+       shared VLM
+            |
+            +------------------------------+
+            |                              |
+            v                              v
+  shared condition tokens        auxiliary heatmap head
+            |                              |
+robot state + noisy actions               v
+            |                    target heatmap (optional
+            v                       during inference)
+    flow action expert
+            |
+            v
+ continuous action chunk
+~~~
+
+The action expert always receives the normal shared VLM tokens. In the first experiment, the predicted heatmap
+is not pooled, thresholded, or passed back to the action expert. This keeps the action interface unchanged and
+isolates the effect of auxiliary spatial supervision.
+
+A pretrained PaliGemma-style VLM is a practical first backbone because the project already uses this architecture
+for PI0 and has local model assets. Multiple cameras can share the same image encoder. Camera-identity embeddings
+must be added before the tokens are concatenated so the action expert can distinguish overview and wrist views.
+
+### Shared VLM Output
+
+The shared VLM must produce image tokens that retain their camera and patch-grid correspondence. The action expert
+receives:
+
+~~~text
+[VLM image tokens, VLM language tokens, robot-state token]
+~~~
+
+The noisy action chunk attends to these condition tokens while predicting the flow vector field. This is similar
+to the broad VLM-plus-action-expert structure used by PI0 and PI0.5, but Action Flow V2 retains the existing V1
+flow decoder so that the perception change can be evaluated independently.
+
+The heatmap head should read the prompt-conditioned image-token outputs. If the selected VLM exposes image tokens
+before language fusion, the grounding head must first apply a small cross-attention layer from the image tokens to
+the language tokens. Otherwise, the head could learn a generic objectness map that does not change with the
+prompt.
+
+### Auxiliary Target-Heatmap Head
+
+The grounding head should remain lightweight:
+
+1. Select the VLM tokens belonging to each camera.
+2. Project them to a smaller grounding dimension.
+3. Apply a small MLP or one cross-attention block.
+4. Produce one scalar logit per image patch.
+5. Reshape the logits to the original patch grid.
+6. Optionally upsample the grid for visualization.
+
+For B samples, C supervised cameras, and a VLM patch grid of H_p by W_p, the output shape is:
+
+~~~text
+target_heatmap_logits: (B, C, H_p, W_p)
+target_heatmap_valid:  (B, C)
+~~~
+
+The validity mask indicates whether a reliable target label exists in that camera. Invalid or fully occluded
+targets must not contribute to the heatmap loss.
+
+The first version should predict only the requested target heatmap. It should not require:
+
+- A destination heatmap.
+- A source-versus-destination class.
+- A grasp point or gripper orientation.
+- A manipulation-phase class.
+- An arm-activity class.
+
+These can be introduced later only when a measured failure requires them.
+
+### Target Definition
+
+The heatmap represents the spatial region that the prompt asks the policy to attend to. It is an object-location
+label, not necessarily a grasp point.
+
+| Prompt example | Initial heatmap target |
+|---|---|
+| Place the tomato on the pink plate. | Tomato |
+| Transfer the bottle to the right arm. | Bottle |
+| Clear the pink plate. | Pink plate and its relevant region |
+| Put all vegetables into the box. | Ambiguous; exclude from the first experiment |
+
+A handover does not require a destination label in the first version: the bottle remains the target, while the
+prompt and full VLM context tell the action expert that a handover is required.
+
+Sequential prompts, such as arranging two vegetables, require the target label to change over time. They should
+not be included until the single-target experiment works reliably.
+
+### Grounding Labels
+
+The initial grounding dataset should use the Place one vegetable subset of
+rm65_single_table_preparation_and_bussing. These episodes have one unambiguous manipulated target throughout
+most of the trajectory.
+
+The annotation sidecar should contain compact labels rather than precomputed dense heatmaps:
+
+~~~text
+episode_index
+frame_index
+camera
+target_query
+target_visible
+target_point_u
+target_point_v
+target_box_x1
+target_box_y1
+target_box_x2
+target_box_y2
+annotation_confidence
+~~~
+
+Coordinates should be normalized to [0, 1]. The data loader can generate a Gaussian heatmap on the VLM patch
+grid from a point, box center, or mask center. The current Grounding DINO probe can provide initial boxes.
+SAM/SAM2 is optional when a mask or more stable tracking is needed.
+
+Automatic labels must be reviewed as video overlays. Frames with an incorrect target, severe occlusion, or
+uncertain tracking should be corrected or marked invalid rather than used as positive supervision.
+
+### Training Objective
+
+The first training objective is:
+
+~~~text
+L_total = L_flow + lambda_heatmap * L_target_heatmap
+~~~
+
+Where:
+
+- L_flow is the existing Action Flow V1 flow-matching loss.
+- L_target_heatmap is focal BCE or KL divergence between the predicted and Gaussian target heatmaps.
+- lambda_heatmap controls the auxiliary supervision strength.
+
+Both losses should be averaged before weighting, and they must be logged independently. Start with a conservative
+heatmap weight, such as 0.1, then compare gradient norms and heatmap accuracy before increasing it. The heatmap
+loss should not dominate the flow loss.
+
+### Gradient Requirement
+
+The auxiliary head improves action generation only if its loss changes a representation shared with the action
+expert.
+
+If the complete VLM is frozen and the heatmap head is attached directly to fixed VLM tokens, the heatmap loss
+trains only the new head. This is still a useful diagnostic baseline, but it cannot make the VLM representation
+more spatially grounded.
+
+At least one shared component must therefore be trainable:
+
+- LoRA adapters inside the VLM.
+- A trainable projector shared by the action expert and heatmap head.
+- Selected final VLM or vision layers.
+
+### VLM Adaptation Experiments
+
+All three adaptation strategies should be tested under the same dataset split, initialization, action decoder,
+batch size, number of steps, heatmap loss weight, and random seeds.
+
+#### Frozen Control
+
+Freeze the complete VLM and train only the action expert and heatmap head. This control measures how much target
+location is already linearly recoverable from the pretrained features. It does not test representation
+adaptation.
+
+#### Shared Projector
+
+Keep the VLM frozen and add a trainable projector after its output. Both the action expert and heatmap head must
+consume the projected tokens:
+
+~~~text
+frozen VLM tokens -> shared trainable projector -> action expert
+                                             \-> heatmap head
+~~~
+
+This is the smallest and least expensive adaptation strategy. Although it does not modify the VLM backbone, it
+allows the heatmap loss to reshape the exact representation consumed by the action expert.
+
+#### LoRA
+
+Keep the base VLM weights frozen and add LoRA adapters to selected attention projections. The first LoRA
+experiment should target the visual and multimodal/language attention q_proj and v_proj layers, not only the
+action expert.
+
+The action expert, auxiliary head, and LoRA weights are trainable. Initial LoRA ranks of 8 or 16 are reasonable
+comparison points. The LoRA learning rate can be lower than the new head's learning rate.
+
+#### Partial Unfreezing
+
+Unfreeze only the last one or two vision blocks and, if necessary, the last one or two multimodal language
+blocks. Keep the earlier pretrained layers frozen.
+
+Use a backbone learning rate substantially smaller than the action expert and heatmap head learning rates.
+Gradient checkpointing should be enabled. This strategy has the highest memory cost and the greatest risk of
+overfitting or damaging pretrained semantics.
+
+### Controlled Experiment Matrix
+
+| Experiment | Shared representation training | Heatmap loss | Heatmap used by action expert |
+|---|---|---:|---:|
+| V1 baseline | ResNet trained by action loss | No | No |
+| V2 VLM baseline | Frozen VLM | No | No |
+| V2 frozen diagnostic | Frozen VLM | Yes | No |
+| V2 shared projector | Shared projector | Yes | No |
+| V2 LoRA | VLM LoRA adapters | Yes | No |
+| V2 partial unfreezing | Final VLM/vision blocks | Yes | No |
+
+The frozen diagnostic separates heatmap readout quality from representation learning. The comparison between the
+V2 VLM baseline and the three adaptation variants measures whether heatmap supervision improves action quality.
+
+A later experiment may construct a heatmap-weighted target token and feed it to the action expert. That is not
+part of the first experiment because it would mix two effects:
+
+1. Improving shared features with an auxiliary loss.
+2. Explicitly conditioning actions on the predicted heatmap.
+
+### Dataset Splits And Counterfactual Tests
+
+Dataset splits must be made by episode and object layout, not by individual frames. Otherwise, nearly identical
+neighboring frames can appear in both training and validation.
+
+The initial split should preserve unseen combinations of:
+
+- Target vegetable.
+- Target position.
+- Plate position and color.
+- Distractor layout.
+
+Grounding-only counterfactual examples can reuse the same image with different target queries and corresponding
+heatmaps. They do not require additional robot actions. These pairs are important because they force the
+heatmap to change with the prompt instead of learning a fixed workspace prior.
+
+### Staged Implementation Plan
+
+#### Stage 1: Label Audit
+
+1. Annotate a small set of Place one vegetable episodes.
+2. Generate Gaussian target heatmaps on the VLM patch grid.
+3. Overlay the labels on the top-camera video.
+4. Correct false detections and mark occluded frames invalid.
+
+#### Stage 2: VLM Action Baseline
+
+1. Add the pretrained VLM observation path.
+2. Feed its normal output tokens to the V1 action expert.
+3. Train without a heatmap loss.
+4. Confirm that the policy and rollout pipeline work before adding auxiliary supervision.
+
+#### Stage 3: Heatmap Diagnostic
+
+1. Add the auxiliary heatmap head.
+2. Keep the VLM frozen.
+3. Train the action expert and heatmap head.
+4. Evaluate whether pretrained VLM tokens can localize the prompted target.
+
+#### Stage 4: Representation Adaptation
+
+Train and compare the shared-projector, LoRA, and partial-unfreezing variants. Do not change the action decoder or
+rollout parameters between variants.
+
+#### Stage 5: Optional Explicit Grounding
+
+Only if the best auxiliary-supervision policy predicts accurate heatmaps but action target selection remains poor,
+feed a heatmap-pooled target token to the action expert and compare it with the auxiliary-only policy.
 
 ### Inference And Rollout
 
-The inference path should be:
+The heatmap head must be optional during inference:
 
-1. Tokenize and encode the task prompt. Cache the language tokens for the episode.
-2. Encode the latest camera observations.
-3. Predict target, destination, presence, arm activity, and phase outputs.
-4. Construct differentiable grounded tokens.
-5. Encode the full observation condition once per action-chunk prediction.
-6. Run flow denoising and return a continuous action chunk.
-7. Use RTC to maintain consistency with the unexecuted portion of the previous chunk.
+- Disabled: skip the final heatmap projection and run the normal VLM-to-action path.
+- Enabled: compute the heatmap and record it for visualization without changing the action-expert input.
 
-RTC and visual grounding solve different problems. RTC improves continuity between action chunks, while the
-grounding module decides what the chunk should act on. V2 should retain RTC support but should not treat RTC as a
-solution for incorrect target selection.
+For a fixed observation, random seed, and action state, enabling heatmap output should not change the generated
+action. This should be covered by a unit test.
 
-For debugging, rollout should optionally record:
+When enabled, rollout should record:
 
-- Target and destination heatmaps overlaid on each camera frame.
-- Presence probabilities.
-- Per-arm activity probabilities.
-- Predicted manipulation phase.
-- Selected grasp point and orientation.
-- The generated action chunk and RTC-guided action chunk.
+- Target heatmap overlaid on the supervised camera.
+- Target query and visibility mask.
+- Heatmap peak and confidence.
+- Raw action chunk.
+- RTC-guided action chunk.
 
-Initially, low target-presence confidence should only produce a warning and visualization. After the presence
-head is validated, a configurable safety rule can hold the corresponding arm when the target is absent. A hard
-gate should not be enabled before measuring false-negative rates, because an incorrect absence prediction would
-prevent a valid task from starting.
+RTC remains independent of grounding. It addresses consistency between action chunks; it cannot correct a
+heatmap that selects the wrong object.
 
-### Evaluation Plan
+### Evaluation
 
-V2 should be evaluated at both perception and control levels.
+#### Offline Grounding Metrics
 
-#### Offline Perception Metrics
-
-- Target-presence precision, recall, and F1 score.
-- Target-point error in pixels and as a fraction of the image diagonal.
-- Percentage of predicted points inside the target mask.
-- Grasp-orientation angular error.
-- Destination-point error.
-- Arm-activity accuracy, especially for empty-side observations.
-- Manipulation-phase accuracy and confusion matrix.
-
-#### Counterfactual Grounding Tests
-
-These tests are necessary to distinguish prompt understanding from position memorization:
-
-1. Keep the image fixed and change the target name in the prompt.
-2. Keep the prompt fixed and move the target to a different position.
-3. Remove the target while keeping distractors visible.
-4. Swap source and destination descriptions.
-5. Hide the object on one side of a bimanual scene.
-
-The predicted heatmap and arm activity should change consistently with the prompt and scene.
+- Heatmap loss on held-out episodes.
+- Peak-point error in pixels.
+- Percentage of heatmap peaks inside the target box or mask.
+- Target-selection accuracy when distractors are present.
+- Counterfactual prompt consistency.
+- Performance on unseen object layouts.
 
 #### Real-Robot Metrics
 
-- Correct-target selection rate.
-- Empty-side false-motion rate.
+- Correct-target approach rate.
+- Gripper-alignment accuracy.
 - Grasp success rate.
-- Grasp-point and gripper-orientation quality.
-- Drop rate during transfer.
 - Placement success rate.
 - Complete task success rate.
 - Action discontinuity and RTC correction magnitude.
 
-Evaluation should separately report perception failures and control failures. For example, "correct target but
-missed grasp" is a controller or affordance error, while "moved to a distractor" is a grounding error. This
-separation is necessary to determine what V3 should improve.
+Failures should be separated into:
 
-### Required Ablations
+1. Wrong heatmap and wrong action target.
+2. Correct heatmap but wrong action target.
+3. Correct target approach but inaccurate grasp.
+4. Successful grasp but failed later trajectory.
 
-The following controlled comparisons should be performed:
+This separation determines whether the next change belongs in grounding, action conditioning, grasp supervision,
+or rollout execution.
 
-| Experiment | Purpose |
-| --- | --- |
-| V1 ResNet baseline | Establish the existing behavior |
-| DINOv2 without language | Measure the benefit of stronger spatial features alone |
-| DINOv2 plus SigLIP prompt tokens | Measure prompt conditioning without explicit grounding loss |
-| Add target/presence supervision | Measure explicit object grounding |
-| Add grasp point and orientation | Measure affordance precision |
-| Add phase and arm-activity heads | Measure conditional and empty-side behavior |
-| Frozen versus partially unfrozen backbone | Measure adaptation versus representation forgetting |
-| With and without RTC | Separate perception gains from chunk-continuity gains |
+### Proposed Configuration
 
-Only one major component should be changed in each ablation. Otherwise, improved performance cannot be assigned
-to the visual backbone, language conditioning, grounding supervision, or rollout strategy.
+The first implementation should expose configuration fields equivalent to:
 
-### Implementation Plan
-
-The initial repository structure should be:
-
-```text
-repos/lerobot/src/lerobot/policies/action_flow_v2/
-|-- __init__.py
-|-- configuration_action_flow_v2.py
-|-- modeling_action_flow_v2.py
-|-- processor_action_flow_v2.py
-`-- grounding_action_flow_v2.py
-
-examples/action_flow_v2/
-|-- annotate_grounding.py
-|-- inspect_grounding_labels.py
-|-- inspect_grounding_predictions.py
-`-- compare_prompts.py
-```
-
-`ActionFlowV2Config` should initially expose:
-
-```text
-vision_model_name
-text_model_name
-freeze_vision_encoder
-freeze_text_encoder
-grounding_dim
-grounding_num_heads
-grounding_num_layers
-use_target_heatmap
-use_destination_heatmap
-use_grasp_orientation
-use_phase_head
-use_arm_activity_head
-grounding_loss_weight
-presence_loss_weight
-orientation_loss_weight
-phase_loss_weight
+~~~text
+vlm_model_name
+vlm_adaptation_mode            # frozen, shared_projector, lora, partial
+freeze_vlm
+shared_projector_dim
+lora_rank
+lora_alpha
+num_unfrozen_vision_layers
+num_unfrozen_language_layers
+use_target_heatmap_head
+target_heatmap_loss_weight
+compute_target_heatmap_at_inference
 chunk_size
 num_inference_steps
 rtc_config
-```
+~~~
 
-The implementation should reuse V1's flow timestep embedding, action projection, velocity head, flow objective,
-action queue, normalization processors, and RTC integration. This minimizes duplicated code and keeps the V2
-experiment focused on grounded conditioning.
+The final field names should follow LeRobot's policy configuration conventions. Invalid combinations should fail
+early; for example, vlm_adaptation_mode=lora must require LoRA support and a pretrained VLM path.
+
+### Relationship To PI0.5
+
+Action Flow V2 and PI0.5 share a broad VLM-plus-action-expert structure. PI0.5 additionally uses heterogeneous
+web and robot co-training, FAST action-token pretraining, autoregressive semantic-subtask prediction, and
+hierarchical inference before continuous flow actions.
+
+The first Action Flow V2 experiment does not reproduce those components. Its contribution is narrower and
+inspectable: use an auxiliary prompt-conditioned heatmap to improve or diagnose the shared representation while
+leaving the normal VLM-to-action path unchanged.
 
 ### Initial Success Criteria
 
-Before considering V2 successful, it should satisfy all of the following:
+The first experiment is successful when:
 
-1. Changing the prompt for the same image changes the predicted target heatmap.
-2. Moving the target changes the predicted heatmap without changing the prompt.
-3. Removing the target produces a low presence probability and suppresses false arm motion.
-4. Grounding visualizations select the demonstrated object rather than a fixed workspace position.
-5. Grasp-point error is lower than using the object or mask center alone.
-6. Real-robot correct-target selection improves over V1 under matched training data.
-7. Grasp success improves without increasing action discontinuity or table contact.
-
-If V2 improves grounding metrics but not grasp success, the remaining bottleneck is likely 3D geometry,
-affordance prediction, calibration, or low-level control rather than target recognition. In that case, the next
-step should add depth-aware target features or explicit 3D grasp-point supervision instead of increasing model
-size alone.
+1. The heatmap selects the prompted target instead of a fixed workspace location.
+2. Changing the prompt for the same image changes the heatmap.
+3. Moving the target while keeping the prompt fixed moves the heatmap.
+4. At least one adaptation strategy improves held-out heatmap accuracy over the frozen diagnostic.
+5. The same strategy improves correct-target approach or grasp success over the V2 VLM baseline.
+6. Disabling heatmap output at inference does not change actions.
+7. Any action improvement is reported separately from RTC or rollout-hyperparameter changes.
