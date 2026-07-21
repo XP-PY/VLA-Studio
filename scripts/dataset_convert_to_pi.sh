@@ -19,3 +19,9 @@ lerobot-edit-dataset \
     --operation.chunk_size="${CHUNK_SIZE}" \
     --operation.relative_exclude_joints='["gripper"]' \
     --operation.num_workers=4
+
+python "$SCRIPT_DIR/recompute_dataset_stats.py" \
+    --root "$PI_TASK_ROOT" \
+    --relative-actions \
+    --chunk-size "$CHUNK_SIZE" \
+    --relative-exclude-joints gripper

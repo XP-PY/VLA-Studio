@@ -53,3 +53,6 @@ python -m lerobot.scripts.lerobot_edit_dataset \
     --operation.concatenate_videos false \
     --operation.concatenate_data false \
     --push_to_hub false
+
+python "$SCRIPT_DIR/recompute_dataset_stats.py" \
+    --root "$NEW_ROOT"

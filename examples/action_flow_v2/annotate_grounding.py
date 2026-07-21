@@ -52,6 +52,7 @@ VEGETABLE_NAMES = ("tomato", "garlic", "corn", "cucumber")
 PLATE_COLORS = ("pink", "yellow", "blue")
 BOX_THRESHOLD = 0.3
 TEXT_THRESHOLD = 0.3
+MIN_QUALITY = 0.35
 PREVIEW_PANEL_SIZE = (384, 288)
 PREVIEW_COLORS = (
     (230, 70, 70),
@@ -91,6 +92,8 @@ class Detection:
     border_margin: float | None
     sharpness_score: float | None
     quality_score: float | None
+    episode_progress: float | None
+    selection_score: float | None
     border_truncated: bool | None
 
 
@@ -355,6 +358,9 @@ def score_detection_view(
     timestamp_s: float,
     score: float,
     box: tuple[float, float, float, float],
+    entity: EntitySpec,
+    camera: str,
+    episode_length: int,
 ) -> Detection:
     """Score whether a detection is large, sharp, and fully inside the view."""
     width, height = image.size
@@ -378,11 +384,18 @@ def score_detection_view(
 
     area_score = float(np.clip(np.sqrt(area_ratio / 0.12), 0.0, 1.0))
     border_score = float(np.clip(border_margin / 0.05, 0.0, 1.0))
-    quality_score = 0.50 * score + 0.30 * area_score + 0.15 * border_score + 0.05 * sharpness_score
-    if border_truncated:
+    if entity.object_name == "collection box":
+        quality_score = 0.70 * score + 0.20 * area_score + 0.10 * border_score
+    else:
+        quality_score = 0.50 * score + 0.30 * area_score + 0.15 * border_score + 0.05 * sharpness_score
+    allow_border_truncation = camera == "top" and entity.object_name == "collection box"
+    if border_truncated and not allow_border_truncation:
         quality_score -= 0.50
     if area_ratio > 0.65:
         quality_score -= 0.25 * min((area_ratio - 0.65) / 0.35, 1.0)
+    episode_progress = frame_index / max(episode_length - 1, 1)
+    temporal_penalty = 0.50 * episode_progress if entity.object_role.startswith("source") else 0.0
+    selection_score = quality_score - temporal_penalty
 
     return Detection(
         visible=True,
@@ -396,6 +409,8 @@ def score_detection_view(
         border_margin=border_margin,
         sharpness_score=sharpness_score,
         quality_score=quality_score,
+        episode_progress=episode_progress,
+        selection_score=selection_score,
         border_truncated=border_truncated,
     )
 
@@ -413,6 +428,8 @@ def missing_detection(width: int, height: int) -> Detection:
         border_margin=None,
         sharpness_score=None,
         quality_score=None,
+        episode_progress=None,
+        selection_score=None,
         border_truncated=None,
     )
 
@@ -427,12 +444,12 @@ def retain_ranked_candidate(
     """Keep high-quality candidates while avoiding nearly identical nearby frames."""
     for index, (existing, _) in enumerate(candidates):
         if abs(existing.frame_index - detection.frame_index) < minimum_frame_gap:
-            if detection.quality_score > existing.quality_score:
+            if detection.selection_score > existing.selection_score:
                 candidates[index] = (detection, image.copy())
             break
     else:
         candidates.append((detection, image.copy()))
-    candidates.sort(key=lambda item: item[0].quality_score, reverse=True)
+    candidates.sort(key=lambda item: item[0].selection_score, reverse=True)
     del candidates[top_k:]
 
 
@@ -449,6 +466,7 @@ def ground_episode_camera(
     box_threshold: float,
     text_threshold: float,
     top_k: int,
+    min_quality: float,
 ) -> tuple[
     list[Detection],
     dict[int, Image.Image],
@@ -463,6 +481,8 @@ def ground_episode_camera(
     fallback_frame: Image.Image | None = None
     sampled_count = 0
     minimum_frame_gap = max(frame_stride * 2, 1)
+    episode_length = int(source.row(episode_index)["length"])
+    entities_by_id = {entity.object_id: entity for entity in entities}
 
     for frame_index, timestamp_s, image in source.sampled_frames(
         episode_index,
@@ -483,7 +503,16 @@ def ground_episode_camera(
             text_threshold,
         )
         for object_id, (score, box) in frame_detections.items():
-            detection = score_detection_view(image, frame_index, timestamp_s, score, box)
+            detection = score_detection_view(
+                image,
+                frame_index,
+                timestamp_s,
+                score,
+                box,
+                entities_by_id[object_id],
+                camera,
+                episode_length,
+            )
             retain_ranked_candidate(
                 ranked_candidates[object_id],
                 detection,
@@ -494,16 +523,27 @@ def ground_episode_camera(
 
     width = fallback_frame.width if fallback_frame is not None else 0
     height = fallback_frame.height if fallback_frame is not None else 0
+    accepted_candidates = {
+        entity.object_id: next(
+            (
+                candidate
+                for candidate in ranked_candidates[entity.object_id]
+                if candidate[0].quality_score >= min_quality
+            ),
+            None,
+        )
+        for entity in entities
+    }
     detections = [
-        ranked_candidates[entity.object_id][0][0]
-        if ranked_candidates[entity.object_id]
+        accepted_candidates[entity.object_id][0]
+        if accepted_candidates[entity.object_id] is not None
         else missing_detection(width, height)
         for entity in entities
     ]
     detection_frames = {
-        entity.object_id: ranked_candidates[entity.object_id][0][1]
+        entity.object_id: accepted_candidates[entity.object_id][1]
         for entity in entities
-        if ranked_candidates[entity.object_id]
+        if accepted_candidates[entity.object_id] is not None
     }
     return detections, detection_frames, ranked_candidates, fallback_frame, sampled_count
 
@@ -518,6 +558,7 @@ def detection_row(
     frame_stride: int,
     sampled_frames: int,
     candidate_rank: int = 1,
+    selected: bool | None = None,
 ) -> dict:
     box = detection.box_xyxy
     width = detection.image_width
@@ -532,12 +573,14 @@ def detection_row(
         "timestamp_s": detection.timestamp_s if detection.timestamp_s is not None else np.nan,
         "score": detection.score if detection.score is not None else np.nan,
         "quality_score": detection.quality_score if detection.quality_score is not None else np.nan,
+        "selection_score": detection.selection_score if detection.selection_score is not None else np.nan,
+        "episode_progress": detection.episode_progress if detection.episode_progress is not None else np.nan,
         "area_ratio": detection.area_ratio if detection.area_ratio is not None else np.nan,
         "border_margin": detection.border_margin if detection.border_margin is not None else np.nan,
         "sharpness_score": detection.sharpness_score if detection.sharpness_score is not None else np.nan,
         "border_truncated": detection.border_truncated,
         "candidate_rank": np.int32(candidate_rank),
-        "selected": detection.visible and candidate_rank == 1,
+        "selected": detection.visible and candidate_rank == 1 if selected is None else selected,
         "image_width": np.int32(width),
         "image_height": np.int32(height),
         "model_path": model_path,
@@ -578,7 +621,7 @@ def draw_preview_panel(
         draw.text(
             (8, 29),
             f"frame {detection.frame_index} | conf {detection.score:.3f} | "
-            f"quality {detection.quality_score:.3f} | area {detection.area_ratio:.3f}",
+            f"view {detection.quality_score:.3f} | select {detection.selection_score:.3f}",
             fill=(235, 235, 235),
             font=font,
         )
@@ -707,6 +750,17 @@ def result_paths(
     )
 
 
+def result_is_current(paths: tuple[Path, Path, Path, Path, Path]) -> bool:
+    """Return whether all artifacts use the role-aware ranking schema."""
+    if not all(path.is_file() for path in paths):
+        return False
+    try:
+        candidate_columns = set(pd.read_parquet(paths[1]).columns)
+    except Exception:
+        return False
+    return {"selection_score", "episode_progress"}.issubset(candidate_columns)
+
+
 def rebuild_summary(output_root: Path) -> None:
     data_paths = sorted((output_root / "data").glob("episode-*/*.parquet"))
     if not data_paths:
@@ -793,6 +847,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--box-threshold", type=float, default=BOX_THRESHOLD)
     parser.add_argument("--text-threshold", type=float, default=TEXT_THRESHOLD)
+    parser.add_argument(
+        "--min-quality",
+        type=float,
+        default=MIN_QUALITY,
+        help="Minimum complete-view quality required for a selected detection.",
+    )
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or cuda:N")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -825,7 +885,7 @@ def main() -> None:
         raise FileNotFoundError(model_path)
 
     metadata = {
-        "format_version": 2,
+        "format_version": 3,
         "role": "Grounding DINO initialization proposals for SAM2",
         "dataset_root": str(source.root),
         "model_path": str(model_path),
@@ -836,12 +896,14 @@ def main() -> None:
         "max_sampled_frames": args.max_sampled_frames,
         "box_threshold": args.box_threshold,
         "text_threshold": args.text_threshold,
+        "min_quality": args.min_quality,
         "object_id_scope": "episode; IDs are identical across cameras for the same episode",
         "selection": "highest complete-view quality score across sampled frames",
         "quality_score": (
-            "0.50*confidence + 0.30*area + 0.15*border_clearance + 0.05*sharpness; "
+            "View quality combines confidence, visible area, border clearance, and sharpness; "
             "border-truncated and oversized boxes are penalized"
         ),
+        "selection_score": "view quality minus 0.50*episode_progress for source-role entities",
     }
     write_json_atomic(output_root / "meta" / "info.json", metadata)
 
@@ -869,7 +931,7 @@ def main() -> None:
                 preview_path,
                 candidate_preview_path,
             )
-            if all(path.is_file() for path in completed_outputs) and not args.overwrite:
+            if result_is_current(completed_outputs) and not args.overwrite:
                 completed_jobs += 1
                 logger.info(
                     "[%d/%d] Skipping episode %d camera %s; output exists",
@@ -901,20 +963,35 @@ def main() -> None:
                 args.box_threshold,
                 args.text_threshold,
                 args.top_k,
+                args.min_quality,
             )
-            records = [
-                detection_row(
-                    episode_index,
-                    camera,
-                    task,
-                    entity,
-                    detection,
-                    str(model_path),
-                    args.frame_stride,
-                    sampled_count,
+            records = []
+            for entity, detection in zip(entities, detections, strict=True):
+                selected_rank = next(
+                    (
+                        rank
+                        for rank, (candidate, _) in enumerate(
+                            ranked_candidates[entity.object_id],
+                            start=1,
+                        )
+                        if candidate == detection
+                    ),
+                    1,
                 )
-                for entity, detection in zip(entities, detections, strict=True)
-            ]
+                records.append(
+                    detection_row(
+                        episode_index,
+                        camera,
+                        task,
+                        entity,
+                        detection,
+                        str(model_path),
+                        args.frame_stride,
+                        sampled_count,
+                        selected_rank,
+                        selected=detection.visible,
+                    )
+                )
             candidate_records = []
             for entity, selected_detection in zip(entities, detections, strict=True):
                 candidates = ranked_candidates[entity.object_id]
@@ -931,6 +1008,7 @@ def main() -> None:
                             args.frame_stride,
                             sampled_count,
                             candidate_rank,
+                            selected=selected_detection.visible and detection == selected_detection,
                         )
                     )
             write_parquet_atomic(parquet_path, pd.DataFrame(records))

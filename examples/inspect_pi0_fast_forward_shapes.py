@@ -6,7 +6,11 @@ prints the image, prompt-token, action-token, and mask shapes used for training.
 It does not instantiate the full PaliGemma model or run its expensive forward pass.
 
 Example:
-python examples/inspect_pi0_fast_forward_shapes.py --batch-size 2 \
+python examples/inspect_pi0_fast_forward_shapes.py \
+    2>&1 | tee examples/inspect_pi0_fast_forward_shapes.log
+
+or:
+python examples/inspect_pi0_fast_forward_shapes.py --seed 42 \
     2>&1 | tee examples/inspect_pi0_fast_forward_shapes.log
 """
 
@@ -21,7 +25,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 
 CURRENT_FILE = Path(__file__).resolve()
 WORKSPACE = CURRENT_FILE.parent.parent
@@ -32,7 +36,7 @@ if LEROBOT_SRC.exists() and str(LEROBOT_SRC) not in sys.path:
 os.environ.setdefault("HF_HOME", str(WORKSPACE / ".cache" / "huggingface"))
 os.environ.setdefault("HF_LEROBOT_HOME", str(WORKSPACE / ".cache" / "lerobot"))
 
-from lerobot.configs import FeatureType  # noqa: E402
+from lerobot.configs import FeatureType, NormalizationMode  # noqa: E402
 from lerobot.configs.default import DatasetConfig  # noqa: E402
 from lerobot.configs.train import TrainPipelineConfig  # noqa: E402
 from lerobot.datasets import EpisodeAwareSampler, make_dataset  # noqa: E402
@@ -51,6 +55,7 @@ from lerobot.utils.constants import (  # noqa: E402
 from lerobot.utils.feature_utils import dataset_to_policy_features  # noqa: E402
 
 
+# DEFAULT_DATASET_ID = "rm65_single_table_preparation_and_bussing"
 DEFAULT_DATASET_ID = "rm65_single_table_preparation_and_bussing_pi"
 DEFAULT_DATASET_ROOT = WORKSPACE / "runs" / "dataset" / DEFAULT_DATASET_ID
 DEFAULT_TEXT_TOKENIZER = WORKSPACE / "models" / "paligemma-3b-pt-224"
@@ -112,6 +117,7 @@ def fill_policy_features_from_dataset(config: PI0FastConfig, dataset) -> None:
 
 
 def make_config(args: argparse.Namespace) -> TrainPipelineConfig:
+    normalization_mode = NormalizationMode(args.normalization_mode)
     dataset_config = DatasetConfig(
         repo_id=args.dataset_repo_id,
         root=str(args.dataset_root),
@@ -131,6 +137,11 @@ def make_config(args: argparse.Namespace) -> TrainPipelineConfig:
         text_tokenizer_name=str(args.text_tokenizer_name),
         action_tokenizer_name=str(args.action_tokenizer_name),
         use_relative_actions=args.use_relative_actions,
+        normalization_mapping={
+            "VISUAL": NormalizationMode.IDENTITY,
+            "STATE": normalization_mode,
+            "ACTION": normalization_mode,
+        },
     )
     return TrainPipelineConfig(
         dataset=dataset_config,
@@ -203,6 +214,106 @@ def decode_prompts(tokens: torch.Tensor, masks: torch.Tensor, tokenizer_name: st
         tokenizer.decode(sample_tokens[sample_mask], skip_special_tokens=True)
         for sample_tokens, sample_mask in zip(tokens.cpu(), masks.cpu(), strict=True)
     ]
+
+
+def print_decoded_action_tokens(
+    action_tokens: torch.Tensor,
+    action_masks: torch.Tensor,
+    tokenizer_name: str,
+    action_tokenizer_name: str,
+    fast_skip_tokens: int,
+    action_targets: torch.Tensor,
+    action_names: list[str] | None,
+) -> None:
+    """Inspect the full PaliGemma-token-to-continuous-action decoding path."""
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_name,
+        trust_remote_code=True,
+        add_eos_token=True,
+        add_bos_token=False,
+        local_files_only=Path(tokenizer_name).exists(),
+    )
+    decoded_tokens = [
+        tokenizer.convert_ids_to_tokens(sample.tolist()) for sample in action_tokens.cpu()
+    ]
+
+    print_section("PaliGemma Token Strings Before FAST Detokenization")
+    print("Equivalent to modeling_pi0_fast.py detokenize_actions() decoded_tokens.")
+    print(
+        "decoded_tokens: Python list with equivalent shape="
+        f"({len(decoded_tokens)}, {len(decoded_tokens[0]) if decoded_tokens else 0})"
+    )
+
+    if not action_masks.any():
+        print("FAST detokenization skipped because the action tokens are placeholders.")
+        return
+
+    action_tokenizer = AutoProcessor.from_pretrained(
+        action_tokenizer_name,
+        trust_remote_code=True,
+        local_files_only=Path(action_tokenizer_name).exists(),
+    )
+    action_prefix_ids = tokenizer.encode("Action: ", add_special_tokens=False)
+    action_prefix_tokens = tokenizer.convert_ids_to_tokens(action_prefix_ids)
+    bos_id = tokenizer.bos_token_id
+    action_horizon = action_targets.shape[-2]
+    action_dim = action_targets.shape[-1]
+    paligemma_action_token_max = tokenizer.vocab_size - 1 - fast_skip_tokens
+
+    for index, (sample_ids, sample_tokens, sample_mask) in enumerate(
+        zip(action_tokens.cpu(), decoded_tokens, action_masks.cpu(), strict=True)
+    ):
+        valid_mask = sample_mask.bool()
+        valid_ids = sample_ids[valid_mask].tolist()
+        valid_tokens = [token for token, valid in zip(sample_tokens, valid_mask.tolist(), strict=True) if valid]
+        padding_count = len(sample_tokens) - len(valid_tokens)
+
+        print(f"sample[{index}].valid_length={len(valid_tokens)} padding_length={padding_count}")
+        print(f"sample[{index}].valid_token_ids={valid_ids}")
+        print(f"sample[{index}].valid_decoded_tokens={valid_tokens!r}")
+
+        # During inference BOS is supplied as the generation seed, so it is not part
+        # of the tokens returned by sample_actions_fast[_kv_cache].
+        generated_ids = valid_ids[1:] if valid_ids and valid_ids[0] == bos_id else valid_ids
+        generated_tokens = tokenizer.convert_ids_to_tokens(generated_ids)
+        print(f"sample[{index}].expected_generated_tokens={generated_tokens!r}")
+
+        if "|" in generated_tokens:
+            generated_tokens = generated_tokens[: generated_tokens.index("|")]
+
+        prefix_length = len(action_prefix_tokens)
+        if generated_tokens[:prefix_length] == action_prefix_tokens:
+            cleaned_tokens = generated_tokens[prefix_length:]
+        else:
+            cleaned_tokens = generated_tokens
+
+        raw_action_token_ids = tokenizer.convert_tokens_to_ids(cleaned_tokens)
+        fast_token_ids = [paligemma_action_token_max - token_id for token_id in raw_action_token_ids]
+        decoded_action = action_tokenizer.decode(
+            [fast_token_ids],
+            time_horizon=action_horizon,
+            action_dim=action_dim,
+        )[0]
+        target_action = action_targets[index].detach().cpu().numpy()
+
+        print(f"sample[{index}].cleaned_action_tokens={cleaned_tokens!r}")
+        print(f"sample[{index}].raw_paligemma_action_token_ids={raw_action_token_ids}")
+        print(f"sample[{index}].fast_token_ids={fast_token_ids}")
+        print(f"sample[{index}].decoded_continuous_action_shape={decoded_action.shape}")
+        print(f"sample[{index}].decoded_action_first_step={decoded_action[0].tolist()}")
+        print(f"sample[{index}].decoded_action_last_step={decoded_action[-1].tolist()}")
+        print(f"sample[{index}].FAST_round_trip_MAE={np.abs(decoded_action - target_action).mean():.6f}")
+
+        if action_names is not None:
+            for gripper_index, name in enumerate(action_names[:action_dim]):
+                if "gripper" not in name.lower():
+                    continue
+                gripper_values = decoded_action[:, gripper_index]
+                print(
+                    f"sample[{index}].decoded_{name}: shape={gripper_values.shape} "
+                    f"min={gripper_values.min():.6f} max={gripper_values.max():.6f} "
+                    f"first_10={gripper_values[:10].tolist()}"
+                )
 
 
 def prepare_without_action_tokenizer(
@@ -285,6 +396,7 @@ def print_forward_shapes(batch: dict[str, Any], config: PI0FastConfig) -> None:
     print(shape_line("masks", language_masks))
     print(shape_line("fast_action_tokens", action_tokens))
     print(shape_line("fast_action_masks", action_masks))
+    print(f"normalized observation.state values: {batch[OBS_STATE].detach().cpu().tolist()}")
     print(f"valid language tokens per sample: {language_masks.sum(dim=1).tolist()}")
     print(f"valid FAST action tokens per sample: {action_masks.sum(dim=1).tolist()}")
 
@@ -292,6 +404,16 @@ def print_forward_shapes(batch: dict[str, Any], config: PI0FastConfig) -> None:
     prompts = decode_prompts(language_tokens, language_masks, config.text_tokenizer_name)
     for index, prompt in enumerate(prompts):
         print(f"sample[{index}]: {prompt!r}")
+
+    print_decoded_action_tokens(
+        action_tokens,
+        action_masks,
+        config.text_tokenizer_name,
+        config.action_tokenizer_name,
+        config.fast_skip_tokens,
+        batch[ACTION],
+        config.action_feature_names,
+    )
 
     batch_size = language_tokens.shape[0]
     num_cameras = len(images)
@@ -342,6 +464,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-action-dim", type=int, default=32)
     parser.add_argument("--max-action-tokens", type=int, default=256)
     parser.add_argument("--tokenizer-max-length", type=int, default=200)
+    parser.add_argument(
+        "--normalization-mode",
+        choices=("MEAN_STD", "MIN_MAX", "QUANTILES", "QUANTILE10"),
+        default="QUANTILES",
+    )
     parser.add_argument("--use-relative-actions", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--allow-placeholder-action-tokens",
@@ -369,6 +496,7 @@ def main() -> None:
     print(f"policy.action_tokenizer_name={config.policy.action_tokenizer_name}")
     print(f"policy.chunk_size={config.policy.chunk_size}")
     print(f"policy.max_action_tokens={config.policy.max_action_tokens}")
+    print(f"policy.normalization_mapping={config.policy.normalization_mapping}")
 
     dataloader = make_training_dataloader(config, dataset)
     batch = clone_batch(next(iter(dataloader)))

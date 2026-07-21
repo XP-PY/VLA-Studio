@@ -32,8 +32,8 @@ class PI0FastConfig(PreTrainedConfig):
     action_expert_variant: str = "gemma_300m"
     dtype: str = "float32"  # Options: "bfloat16", "float32"
 
-    chunk_size: int = 50  # Number of action steps to predict, in openpi called "action_horizon"
-    n_action_steps: int = 50  # Number of action steps to execute
+    chunk_size: int = 50        # Number of action steps to predict, in openpi called "action_horizon"
+    n_action_steps: int = 50    # Number of action steps to execute
 
     # Shorter state and action vectors will be padded to these dimensions
     max_state_dim: int = 32
@@ -58,12 +58,12 @@ class PI0FastConfig(PreTrainedConfig):
     # Add empty images. Used to add empty cameras when no image features are present.
     empty_cameras: int = 0
 
-    tokenizer_max_length: int = 200  # see openpi `__post_init__`
+    tokenizer_max_length: int = 200 # see openpi `__post_init__`
     text_tokenizer_name: str = "google/paligemma-3b-pt-224"
     action_tokenizer_name: str = "lerobot/fast-action-tokenizer"
     temperature: float = 0.0
     max_decoding_steps: int = 256
-    fast_skip_tokens: int = 128
+    fast_skip_tokens: int = 128     # skip last 128 segmentation tokens of PaliGemma vocab
 
     # Whether to validate that decoded action tokens start with "Action: " prefix
     validate_action_token_prefix: bool = True
@@ -74,8 +74,10 @@ class PI0FastConfig(PreTrainedConfig):
     normalization_mapping: dict[str, NormalizationMode] = field(
         default_factory=lambda: {
             "VISUAL": NormalizationMode.IDENTITY,
-            "STATE": NormalizationMode.MEAN_STD,  # Pi0Fast uses quantiles for state
-            "ACTION": NormalizationMode.MEAN_STD,  # Pi0Fast uses quantiles for action
+            "STATE": NormalizationMode.MEAN_STD,    # Pi0Fast uses quantiles for state
+            "ACTION": NormalizationMode.MEAN_STD,   # Pi0Fast uses quantiles for action
+            # "STATE": NormalizationMode.QUANTILES,
+            # "ACTION": NormalizationMode.QUANTILES,
         }
     )
 

@@ -194,26 +194,26 @@ class PI0FastPaliGemma(nn.Module):
     def __init__(
         self,
         vlm_config,
-        use_adarms=None,
+        use_adarms=None,    # [False, True]
         precision: Literal["bfloat16", "float32"] = "bfloat16",
     ):
         if use_adarms is None:
             use_adarms = [False, False]
         super().__init__()
 
-        vlm_config_hf = CONFIG_MAPPING["paligemma"]()
+        vlm_config_hf = CONFIG_MAPPING["paligemma"]()   # Default HF config
         vlm_config_hf._vocab_size = 257152  # noqa: SLF001
         vlm_config_hf.image_token_index = 257152
-        vlm_config_hf.text_config.hidden_size = vlm_config.width
-        vlm_config_hf.text_config.intermediate_size = vlm_config.mlp_dim
-        vlm_config_hf.text_config.num_attention_heads = vlm_config.num_heads
-        vlm_config_hf.text_config.head_dim = vlm_config.head_dim
-        vlm_config_hf.text_config.num_hidden_layers = vlm_config.depth
-        vlm_config_hf.text_config.num_key_value_heads = vlm_config.num_kv_heads
+        vlm_config_hf.text_config.hidden_size = vlm_config.width                # 2048
+        vlm_config_hf.text_config.intermediate_size = vlm_config.mlp_dim        # 16_384
+        vlm_config_hf.text_config.num_attention_heads = vlm_config.num_heads    # 8
+        vlm_config_hf.text_config.head_dim = vlm_config.head_dim                # 256
+        vlm_config_hf.text_config.num_hidden_layers = vlm_config.depth          # 18
+        vlm_config_hf.text_config.num_key_value_heads = vlm_config.num_kv_heads # 1
         vlm_config_hf.text_config.hidden_activation = "gelu_pytorch_tanh"
         vlm_config_hf.text_config.dtype = "float32"
         vlm_config_hf.text_config.vocab_size = 257152
-        vlm_config_hf.text_config.use_adarms = use_adarms[0]
+        vlm_config_hf.text_config.use_adarms = use_adarms[0]                    # False
         vlm_config_hf.text_config.adarms_cond_dim = vlm_config.width if use_adarms[0] else None
         vlm_config_hf.vision_config.intermediate_size = 4304
         vlm_config_hf.vision_config.projection_dim = 2048
@@ -503,9 +503,6 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
     ) -> dict:
         """Forward pass for PI0Fast.
 
-        This implements the Pi0FAST training objective: predict next action token
-        using cross-entropy loss.
-
         Args:
             images: List of image tensors. List[(batch_size, channels, image_resolution[0], image_resolution[1])]
             img_masks: List of image masks. List[(batch_size,)]
@@ -514,13 +511,31 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
             fast_action_tokens: Discrete action token IDs. (batch_size, max_action_tokens)
             fast_action_masks: Padding masks for fast action tokens. (batch_size, max_action_tokens)
 
+        Attention mask:
+            ``prefix_att_masks`` is a boolean tensor of shape
+            ``(batch_size, prefix_length, prefix_length)``, where ``True`` permits
+            a query-key attention pair. Image and language tokens attend
+            bidirectionally to image and language tokens, but not to FAST tokens.
+            FAST tokens attend to the complete image-language prefix and causally
+            to FAST tokens at their own or earlier positions. Padding positions
+            are disabled as both queries and keys. The mask is then converted to
+            ``(batch_size, 1, prefix_length, prefix_length)`` with ``0`` for
+            allowed pairs and ``OPENPI_ATTENTION_MASK_VALUE`` for blocked pairs.
+
         Returns:
-            Dictionary with 'fast_loss' and 'loss' keys
+            Dictionary with scalar ``fast_loss`` and ``loss`` tensors.
         """
         if fast_action_tokens is None or fast_action_masks is None:
             raise ValueError("fast_action_tokens and fast_action_masks are required for FAST-only mode")
 
-        # Embed prefix with FAST tokens
+        # Sequence order: [all image tokens, language tokens, FAST action tokens].
+        # prefix_embs: (batch_size, prefix_length, hidden_size).
+        #   where hidden_size = self.paligemma_with_expert.paligemma.config.text_config.hidden_size
+        # prefix_pad_masks: (batch_size, prefix_length); True marks a valid token.
+        # prefix_att_masks: (batch_size, prefix_length, prefix_length); True allows attention.
+        #   where prefix_length = total_t_images + tokenizer_max_length + num_fast_embs
+        # total_t_images: sum of image-token counts over every camera.
+        # num_fast_embs: fast_action_tokens.shape[1].
         prefix_embs, prefix_pad_masks, prefix_att_masks, total_t_images, num_fast_embs = (
             self.embed_prefix_fast(
                 images,
@@ -544,10 +559,14 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
         input_pad_masks = prefix_pad_masks
         input_att_masks = prefix_att_masks
 
+        # position_ids: (batch_size, prefix_length)
+        # att_2d_4d: (batch_size, 1, prefix_length, prefix_length)
+        #   where OPENPI_ATTENTION_MASK_VALUE replace False
         position_ids = torch.cumsum(input_pad_masks, dim=1) - 1
         att_2d_4d = self._prepare_attention_masks_4d(input_att_masks, dtype=input_embs.dtype)
 
         # forward pass through paligemma (language model)
+        # prefix_out: (batch_size, prefix_length, hidden_size).
         (prefix_out, _), _ = self.paligemma_with_expert.forward(
             attention_mask=att_2d_4d,
             position_ids=position_ids,
@@ -562,16 +581,18 @@ class PI0FastPytorch(nn.Module):  # see openpi `PI0Pytorch`
         lm_head = self.paligemma_with_expert.paligemma.lm_head
 
         # Targets are the FAST action tokens
-        fast_targets = fast_action_tokens  # (B, num_fast_embs)
+        fast_targets = fast_action_tokens           # (batch_size, max_action_tokens)
 
         # extract logits for FAST token prediction
+        # fast_hidden: (batch_size, max_action_tokens, hidden_size).
+        # fast_logits_for_pred: (batch_size, max_action_tokens, gemma_vocab_size).
         fast_hidden = prefix_out[:, -fast_targets.shape[1] :, :]
-        fast_logits_for_pred = lm_head(fast_hidden)  # (B, num_fast_embs, gemma_vocab_size)
+        fast_logits_for_pred = lm_head(fast_hidden)
 
         # Shift left for next-step prediction and shift target
         # logits[:, i] predicts targets[:, i+1]
         fast_logits_for_pred = fast_logits_for_pred[:, :-1, :]  # shift logits left
-        fast_targets = fast_targets[:, 1:]  # shift targets right
+        fast_targets = fast_targets[:, 1:]                      # shift targets right
         fast_action_masks = fast_action_masks[:, 1:]  # shift masks to match targets
 
         # compute cross-entropy loss
@@ -1214,7 +1235,14 @@ class PI0FastPolicy(PreTrainedPolicy):
             tokens = tokens.unsqueeze(0)
 
         # Convert token IDs to token strings
+        # decoded_tokens: list[batch_size][max_decoding_steps]
+        #   Each element is a PaliGemma token string:
+        #   [
+        #       ["Action", ":", "<token_1>", "<token_2>", "|", ...],
+        #       ["Action", ":", "<token_1>", "<token_2>", "|", ...],
+        #   ]
         decoded_tokens = [self._paligemma_tokenizer.convert_ids_to_tokens(seq.tolist()) for seq in tokens]
+        
         # Get the token sequence for "Action: " to remove it
         action_prefix_ids = self._paligemma_tokenizer.encode("Action: ", add_special_tokens=False)
         action_prefix_tokens = self._paligemma_tokenizer.convert_ids_to_tokens(action_prefix_ids)
@@ -1302,6 +1330,8 @@ class PI0FastPolicy(PreTrainedPolicy):
         images, img_masks = self._preprocess_images(batch)
 
         # FAST-only mode: use autoregressive decoding
+        # tokens shape: (batch_size, tokenizer_max_length)
+        # masks shape: (batch_size, tokenizer_max_length)
         tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
@@ -1311,6 +1341,9 @@ class PI0FastPolicy(PreTrainedPolicy):
 
         # Sample action tokens autoregressively
         if self.config.use_kv_cache:
+            # action_tokens: (batch_size, max_decoding_steps); 
+            #   an integer tensor containing generated PaliGemma vocabulary IDs,
+            #   including the expected sequence: Action: <mapped FAST tokens> | ...
             action_tokens = self.model.sample_actions_fast_kv_cache(
                 images,
                 img_masks,
