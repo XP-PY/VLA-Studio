@@ -1325,13 +1325,13 @@ class PI0FastPolicy(PreTrainedPolicy):
         """Predict a chunk of actions given environment observations."""
         self.eval()
         # Prepare inputs
-        # images shape: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
-        # img_masks shape: List[(batch_size,)]
+        # images: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks: List[(batch_size,)]
         images, img_masks = self._preprocess_images(batch)
 
         # FAST-only mode: use autoregressive decoding
-        # tokens shape: (batch_size, tokenizer_max_length)
-        # masks shape: (batch_size, tokenizer_max_length)
+        # tokens: (batch_size, tokenizer_max_length)
+        # masks: (batch_size, tokenizer_max_length)
         tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 

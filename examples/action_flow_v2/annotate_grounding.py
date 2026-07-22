@@ -12,7 +12,9 @@ boxes as SAM2 prompts.
 
 Quick test:
     python examples/action_flow_v2/annotate_grounding.py \
-        --episodes 156 --cameras top --device cuda --overwrite
+        --episodes 1 --device cuda --overwrite
+
+python examples/action_flow_v2/annotate_grounding.py --episodes 53 --cameras wrist --device cuda --overwrite
 
 Process the complete dataset:
     python examples/action_flow_v2/annotate_grounding.py \
@@ -49,10 +51,18 @@ DEFAULT_DATASET_ROOT = WORKSPACE / "runs" / "dataset" / "rm65_single_table_prepa
 DEFAULT_MODEL_PATH = WORKSPACE / "models" / "grounding-dino-tiny"
 SUPPORTED_CAMERAS = ("top", "wrist")
 VEGETABLE_NAMES = ("tomato", "garlic", "corn", "cucumber")
+GROUNDING_QUERIES = {       # tray / dish / bowl / plate
+    "cucumber": "green cucumber",
+    "garlic": "white garlic",
+    "pink plate": "pink square bowl",
+    "yellow plate": "cream square bowl",
+    "blue plate": "blue square bowl",
+    "collection box": "brown cardboard box",
+}
 PLATE_COLORS = ("pink", "yellow", "blue")
-BOX_THRESHOLD = 0.3
-TEXT_THRESHOLD = 0.3
-MIN_QUALITY = 0.35
+BOX_THRESHOLD = 0.4
+TEXT_THRESHOLD = 0.4
+MIN_QUALITY = 0.5
 PREVIEW_PANEL_SIZE = (384, 288)
 PREVIEW_COLORS = (
     (230, 70, 70),
@@ -79,7 +89,7 @@ class EntitySpec:
 
 @dataclass(frozen=True)
 class Detection:
-    """One Grounding DINO proposal with complete-view quality metrics."""
+    """One grounding proposal with complete-view quality metrics."""
 
     visible: bool
     frame_index: int
@@ -192,6 +202,11 @@ CLEAR_PATTERN = re.compile(
 )
 
 
+def grounding_query(object_name: str) -> str:
+    """Return the detector-specific phrase while preserving the semantic object name."""
+    return GROUNDING_QUERIES.get(object_name, object_name)
+
+
 def entities_from_task(task: str) -> list[EntitySpec]:
     """Convert a known dataset task prompt into ordered grounding queries."""
     placements = PLACE_PATTERN.findall(task)
@@ -205,7 +220,7 @@ def entities_from_task(task: str) -> list[EntitySpec]:
                     object_id=len(entities) + 1,
                     object_name=vegetable,
                     object_role="source",
-                    query=vegetable,
+                    query=grounding_query(vegetable),
                     task_step=step,
                 )
             )
@@ -214,7 +229,7 @@ def entities_from_task(task: str) -> list[EntitySpec]:
                     object_id=len(entities) + 1,
                     object_name=plate_name,
                     object_role="destination",
-                    query=plate_name,
+                    query=grounding_query(plate_name),
                     task_step=step,
                 )
             )
@@ -223,18 +238,33 @@ def entities_from_task(task: str) -> list[EntitySpec]:
     clear_match = CLEAR_PATTERN.fullmatch(task.rstrip("."))
     if clear_match:
         plate_name = f"{clear_match.group(1).lower()} plate"
+        source_name = f"vegetable on {plate_name}"
         return [
-            EntitySpec(1, f"vegetable on {plate_name}", "source", f"vegetable on the {plate_name}", 1),
-            EntitySpec(2, plate_name, "source container", plate_name, 1),
-            EntitySpec(3, "collection box", "destination", "collection box", 1),
+            EntitySpec(
+                1,
+                source_name,
+                "source",
+                grounding_query(f"vegetable on the {plate_name}"),
+                1,
+            ),
+            EntitySpec(2, plate_name, "source container", grounding_query(plate_name), 1),
+            EntitySpec(3, "collection box", "destination", grounding_query("collection box"), 1),
         ]
 
     if task.rstrip(".").lower() == "put all vegetables into the collection box":
         entities = [
-            EntitySpec(index + 1, name, "source", name, 1)
+            EntitySpec(index + 1, name, "source", grounding_query(name), 1)
             for index, name in enumerate(VEGETABLE_NAMES)
         ]
-        entities.append(EntitySpec(len(entities) + 1, "collection box", "destination", "collection box", 1))
+        entities.append(
+            EntitySpec(
+                len(entities) + 1,
+                "collection box",
+                "destination",
+                grounding_query("collection box"),
+                1,
+            )
+        )
         return entities
 
     raise ValueError(f"Unsupported task prompt: {task!r}")
@@ -277,9 +307,9 @@ def detect_entities(
     if not entities:
         return {}
     vocabulary = [
-        *VEGETABLE_NAMES,
-        *(f"{color} plate" for color in PLATE_COLORS),
-        "collection box",
+        *(grounding_query(name) for name in VEGETABLE_NAMES),
+        *(grounding_query(f"{color} plate") for color in PLATE_COLORS),
+        grounding_query("collection box"),
     ]
     for entity in entities:
         if not entity.query.startswith("vegetable on the ") and entity.query not in vocabulary:
@@ -300,6 +330,19 @@ def detect_entities(
         target_sizes=[(image.height, image.width)],
     )[0]
 
+    scores = result["scores"]
+    boxes = result["boxes"]
+    text_labels = result["text_labels"]
+    if len(scores) == 0 and len(boxes) == 0:
+        # Transformers 5.5.4 can return text_labels=[""] for an empty
+        # Grounding DINO result. Treat it as the no-detection case.
+        return {}
+    if len(text_labels) != len(scores) or len(scores) != len(boxes):
+        raise RuntimeError(
+            "Grounding DINO post-processing returned misaligned outputs: "
+            f"text_labels={len(text_labels)}, scores={len(scores)}, boxes={len(boxes)}"
+        )
+
     candidates = [
         (
             " ".join(str(label).lower().split()),
@@ -307,9 +350,9 @@ def detect_entities(
             tuple(float(value) for value in box.detach().cpu().tolist()),
         )
         for label, score, box in zip(
-            result["text_labels"],
-            result["scores"],
-            result["boxes"],
+            text_labels,
+            scores,
+            boxes,
             strict=True,
         )
     ]
@@ -331,10 +374,14 @@ def detect_entities(
 
     detections = {}
     for entity in entities:
-        relation_match = re.fullmatch(r"vegetable on the (pink|yellow|blue) plate", entity.query)
+        relation_match = re.fullmatch(r"vegetable on (pink|yellow|blue) plate", entity.object_name)
         if relation_match:
-            plate = best_candidate(f"{relation_match.group(1)} plate")
-            vegetables = [candidate for name in VEGETABLE_NAMES if (candidate := best_candidate(name))]
+            plate = best_candidate(grounding_query(f"{relation_match.group(1)} plate"))
+            vegetables = [
+                candidate
+                for name in VEGETABLE_NAMES
+                if (candidate := best_candidate(grounding_query(name)))
+            ]
             if plate is None or not vegetables:
                 continue
             ranked = [(containment(candidate[2], plate[2]), candidate) for candidate in vegetables]
@@ -618,9 +665,10 @@ def draw_preview_panel(
         font=font,
     )
     if detection.visible and detection.box_xyxy is not None:
+        score_text = "n/a" if detection.score is None else f"{detection.score:.3f}"
         draw.text(
             (8, 29),
-            f"frame {detection.frame_index} | conf {detection.score:.3f} | "
+            f"frame {detection.frame_index} | conf {score_text} | "
             f"view {detection.quality_score:.3f} | select {detection.selection_score:.3f}",
             fill=(235, 235, 235),
             font=font,
@@ -761,7 +809,7 @@ def result_is_current(paths: tuple[Path, Path, Path, Path, Path]) -> bool:
     return {"selection_score", "episode_progress"}.issubset(candidate_columns)
 
 
-def rebuild_summary(output_root: Path) -> None:
+def rebuild_summary(output_root: Path, detector_name: str = "Grounding DINO") -> None:
     data_paths = sorted((output_root / "data").glob("episode-*/*.parquet"))
     if not data_paths:
         return
@@ -793,8 +841,9 @@ def rebuild_summary(output_root: Path) -> None:
             f'<td><a href="{candidate_preview}">Compare top candidates</a></td>'
             "</tr>"
         )
+    escaped_detector_name = html.escape(detector_name)
     document = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Grounding DINO inspection</title>
+<html lang="en"><head><meta charset="utf-8"><title>""" + escaped_detector_name + """ inspection</title>
 <style>
 body { font-family: sans-serif; margin: 20px; background: #f5f5f5; color: #222; }
 table { border-collapse: collapse; width: 100%; background: white; }
@@ -802,7 +851,7 @@ th, td { border: 1px solid #ccc; padding: 7px; text-align: left; vertical-align:
 th { position: sticky; top: 0; background: #222; color: white; }
 img { display: block; }
 </style></head><body>
-<h1>Grounding DINO initialization inspection</h1>
+<h1>""" + escaped_detector_name + """ initialization inspection</h1>
 <p>Review every selected box and compare alternatives before using detections as SAM2 prompts.</p>
 <table><thead><tr>
 <th>Episode</th><th>Camera</th><th>Found</th><th>Task</th><th>Selected</th><th>Candidates</th>
@@ -815,12 +864,12 @@ img { display: block; }
     temporary.replace(index_path)
 
 
-def setup_logging(output_root: Path) -> None:
+def setup_logging(output_root: Path, log_filename: str = "grounding_dino.log") -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     console = logging.StreamHandler()
     console.setFormatter(formatter)
-    log_path = output_root / "grounding_dino.log"
+    log_path = output_root / log_filename
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
     logging.basicConfig(level=logging.INFO, handlers=[console, file_handler], force=True)

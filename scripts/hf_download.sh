@@ -10,20 +10,21 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/hf_download.sh REPO_ID [OUTPUT_DIR] [--repo-type model|dataset|space] [--revision REV] [--include PATTERN] [--exclude PATTERN]
+  scripts/hf_download.sh REPO_ID [--repo-type model|dataset|space] [--revision REV] [--include PATTERN] [--exclude PATTERN]
 
 Examples:
   scripts/hf_download.sh lerobot/act_aloha_sim_transfer_cube_human
   scripts/hf_download.sh lerobot/pusht --repo-type dataset
-  scripts/hf_download.sh microsoft/resnet-50 ./models/resnet-50
-  scripts/hf_download.sh openai/clip-vit-base-patch32 ./models/clip --include "*.json" --include "*.safetensors"
+  scripts/hf_download.sh openai/clip-vit-base-patch32 --include "*.json" --include "*.safetensors"
 
 Environment:
-  HF_ENDPOINT defaults to https://hf-mirror.com
-  HF_HOME defaults to $STORAGE_ROOT/.cache/huggingface
+  HF_ENDPOINT is configured by scripts/env.sh.
+  HF_HOME defaults to $STORAGE_ROOT/.cache/huggingface.
+  HF_HUB_CACHE defaults to $HF_HOME/hub.
   HF_HUB_DISABLE_XET defaults to 1, which helps with mirrors that cannot serve Xet blobs.
-  OUTPUT_DIR defaults to $STORAGE_ROOT/models/<repo>, $STORAGE_ROOT/dataset/<repo>,
-  or $STORAGE_ROOT/spaces/<repo>, according to --repo-type.
+
+Downloaded repositories use the standard Hugging Face cache layout. They can
+later be loaded by repository ID, for example AutoModel.from_pretrained(REPO_ID).
 EOF
 }
 
@@ -34,12 +35,6 @@ fi
 
 REPO_ID="$1"
 shift
-
-OUTPUT_DIR=""
-if [[ $# -gt 0 && "${1:0:2}" != "--" ]]; then
-    OUTPUT_DIR="$1"
-    shift
-fi
 
 REPO_TYPE="model"
 REVISION=""
@@ -72,9 +67,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$REPO_TYPE" in
-    model) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/models" ;;
-    dataset) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/dataset" ;;
-    space) DEFAULT_OUTPUT_ROOT="${STORAGE_ROOT}/spaces" ;;
+    model | dataset | space) ;;
     *)
         echo "Unsupported repo type: $REPO_TYPE" >&2
         usage >&2
@@ -82,13 +75,9 @@ case "$REPO_TYPE" in
         ;;
 esac
 
-if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="${DEFAULT_OUTPUT_ROOT}/${REPO_ID##*/}"
-fi
+mkdir -p "$HF_HUB_CACHE"
 
-mkdir -p "$OUTPUT_DIR"
-
-CMD=(hf download "$REPO_ID" --repo-type "$REPO_TYPE" --local-dir "$OUTPUT_DIR")
+CMD=(hf download "$REPO_ID" --repo-type "$REPO_TYPE" --cache-dir "$HF_HUB_CACHE")
 if [[ -n "$REVISION" ]]; then
     CMD+=(--revision "$REVISION")
 fi
@@ -96,8 +85,9 @@ CMD+=("${EXTRA_ARGS[@]}")
 
 echo "HF_ENDPOINT=$HF_ENDPOINT"
 echo "HF_HOME=$HF_HOME"
+echo "HF_HUB_CACHE=$HF_HUB_CACHE"
 echo "HF_HUB_DISABLE_XET=$HF_HUB_DISABLE_XET"
-echo "Downloading $REPO_TYPE '$REPO_ID' to $OUTPUT_DIR"
+echo "Downloading $REPO_TYPE '$REPO_ID' to the Hugging Face cache"
 if ! "${CMD[@]}"; then
     cat >&2 <<EOF
 

@@ -1469,24 +1469,24 @@ class PI0Policy(PreTrainedPolicy):
                 - "none": Return per-sample losses of shape (batch_size,) for RA-BC weighting
         """
         # Prepare inputs
-        # images shape: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
-        # img_masks shape: List[(batch_size,)]
-        # lang_tokens shape: (batch_size, tokenizer_max_length)
-        # lang_masks shape: (batch_size, tokenizer_max_length)
-        # state shape: (batch_size, max_state_dim)
-        # actions shape: (batch_size, chunk_size, max_action_dim)
+        # images: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks: List[(batch_size,)]
+        # lang_tokens: (batch_size, tokenizer_max_length)
+        # lang_masks: (batch_size, tokenizer_max_length)
+        # state: (batch_size, max_state_dim)
+        # actions: (batch_size, chunk_size, max_action_dim)
         images, img_masks = self._preprocess_images(batch)
         lang_tokens, lang_masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         state = self.prepare_state(batch)
         actions = self.prepare_action(batch)
 
-        # noise shape: (batch_size, chunk_size, max_action_dim)
-        # time shape: (batch_size, )
+        # noise: (batch_size, chunk_size, max_action_dim)
+        # time: (batch_size, )
         noise = self.model.sample_noise(actions.shape, actions.device)
         time = self.model.sample_time(actions.shape[0], actions.device)
 
         # Compute loss
-        # losses shape: (batch_size, chunk_size, max_action_dim)
+        # losses: (batch_size, chunk_size, max_action_dim)
         losses = self.model.forward(images, img_masks, lang_tokens, lang_masks, state, actions, noise, time)
 
         # Truncate losses to actual action dimensions

@@ -653,7 +653,37 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
     def embed_prefix(
         self, images, img_masks, tokens, masks
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Embed images with SigLIP and language tokens with embedding layer."""
+        """Embed visual and tokenized context for the PaliGemma prefix stream.
+
+        Args:
+            images: List of camera image tensors. The list has
+                `len(config.image_features)` entries, each with shape
+                `(batch_size, 3, config.image_resolution[0],
+                config.image_resolution[1])` after PI0.5 image preprocessing.
+            img_masks: List of camera-validity masks with the same length as
+                `images`. Each boolean tensor has shape `(batch_size,)`; `True`
+                means that camera image is present for the corresponding batch
+                item, while `False` marks a padded camera.
+            tokens: Token IDs containing the task prompt and discretized robot
+                state, with shape `(batch_size, config.tokenizer_max_length)`.
+            masks: Boolean validity mask for `tokens`, with shape
+                `(batch_size, config.tokenizer_max_length)`; `True` marks a
+                valid token and `False` marks tokenizer padding.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks)` where `prefix_seq_len` is the
+            total number of SigLIP image tokens across all cameras plus
+            `config.tokenizer_max_length`:
+
+            - `embs`: Prefix embeddings with shape
+              `(batch_size, prefix_seq_len, paligemma_hidden_size)`.
+            - `pad_masks`: Prefix-token validity mask with shape
+              `(batch_size, prefix_seq_len)`.
+            - `att_masks`: Prefix attention-group mask with shape
+              `(batch_size, prefix_seq_len)`. Every image and language/state
+              token is assigned `0`, placing the complete prefix in one
+              bidirectional context group.
+        """
         embs = []
         pad_masks = []
         att_masks = []
@@ -693,12 +723,39 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return embs, pad_masks, att_masks
 
     def embed_suffix(self, noisy_actions, timestep):
-        """Embed noisy_actions, timestep to prepare for Expert Gemma processing."""
+        """Embed the noisy action chunk and flow timestep for the action expert.
+
+        Args:
+            noisy_actions: Flow-interpolated action tensor with shape
+                `(batch_size, config.chunk_size, config.max_action_dim)`.
+            timestep: Flow timestep for each batch item with shape
+                `(batch_size,)`.
+
+        Returns:
+            A tuple `(embs, pad_masks, att_masks, adarms_cond)`, where
+            `action_expert_hidden_size = self.action_in_proj.out_features`:
+
+            - `embs`: Noisy-action embeddings with shape
+              `(batch_size, config.chunk_size, action_expert_hidden_size)`.
+            - `pad_masks`: Boolean validity mask with shape
+              `(batch_size, config.chunk_size)`. All action tokens are valid.
+            - `att_masks`: Attention-group mask with shape
+              `(batch_size, config.chunk_size)`, containing `[1, 0, ..., 0]`.
+              The initial `1` starts one suffix group and the remaining zeros
+              keep all action tokens in that group. After concatenation with
+              the all-zero prefix mask, prefix tokens cannot attend to action
+              tokens, while each action token can attend to every prefix token
+              and bidirectionally within the complete noisy-action chunk.
+            - `adarms_cond`: Timestep conditioning for the expert's adaptive
+              RMS normalization, with shape
+              `(batch_size, action_expert_hidden_size)`.
+        """
         embs = []
         pad_masks = []
         att_masks = []
 
         # Embed timestep using sine-cosine positional encoding
+        # time_emb: (batch_size, action_expert_hidden_size)
         time_emb = create_sinusoidal_pos_embedding(
             timestep,
             self.action_in_proj.out_features,
@@ -711,7 +768,9 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         # Fuse timestep + action information using an MLP
         def action_proj_func(noisy_actions):
             return self.action_in_proj(noisy_actions)
-
+        
+        # action_emb: (batch_size, action_time_dim, action_expert_hidden_size)
+        #   where action_time_dim = chunk_size
         action_emb = self._apply_checkpoint(action_proj_func, noisy_actions)
 
         def time_mlp_func(time_emb):
@@ -720,7 +779,9 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             x = self.time_mlp_out(x)
             return F.silu(x)
 
+        # time_emb: (batch_size, action_expert_hidden_size)
         time_emb = self._apply_checkpoint(time_mlp_func, time_emb)
+
         action_time_emb = action_emb
         adarms_cond = time_emb
 
@@ -741,11 +802,24 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
     def forward(self, images, img_masks, tokens, masks, actions, noise, time) -> Tensor:
         """Do a full training forward pass and compute the loss."""
+
+        # x_t: (batch_size, chunk_size, max_action_dim)
+        # u_t: (batch_size, chunk_size, max_action_dim)
         time_expanded = time[:, None, None]
         x_t = time_expanded * noise + (1 - time_expanded) * actions
         u_t = noise - actions
 
+        # prefix_embs: (batch_size, prefix_seq_len, paligemma_hidden_size)
+        #   where prefix_seq_len = num_img_embs + num_lang_embs(language/state)
+        # prefix_pad_masks: (batch_size, prefix_seq_len)
+        # prefix_att_masks: (batch_size, prefix_seq_len)
+        #   where Every image and language/state token is assigned `0`
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
+
+        # suffix_embs: (batch_size, chunk_size, action_expert_hidden_size)
+        # suffix_pad_masks: (batch_size, chunk_size)
+        # suffix_att_masks: (batch_size, chunk_size)
+        #   where contains `[1, 0, ..., 0]`
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(x_t, time)
 
         if (
@@ -1262,11 +1336,18 @@ class PI05Policy(PreTrainedPolicy):
                 - "none": Return per-sample losses of shape (batch_size,) for RA-BC weighting
         """
         # Prepare inputs
+        # images: List[(batch_size, channels, image_resolution[0], image_resolution[1])]
+        # img_masks: List[(batch_size,)]
+        # tokens: (batch_size, tokenizer_max_length)
+        # masks: (batch_size, tokenizer_max_length)
         images, img_masks = self._preprocess_images(batch)
         tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
+        # actions: (batch_size, chunk_size, max_action_dim)
         actions = self.prepare_action(batch)
 
+        # noise: (batch_size, chunk_size, max_action_dim)
+        # time: (batch_size,)
         noise = self.model.sample_noise(actions.shape, actions.device)
         time = self.model.sample_time(actions.shape[0], actions.device)
 

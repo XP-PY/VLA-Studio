@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Annotate task-relevance masks in LeRobot videos with SAM2.
+"""Annotate task-relevance masks in LeRobot videos with reviewed DINO boxes and SAM2.
 
 Brief user manual:
 1. Start the app and open the printed local URL in a browser.
-2. Load an episode and camera, then move to the first frame where a relevant
-   entity is visible.
-3. Give each relevant entity a distinct object ID and label. Select Positive
-   and click inside it; use Negative clicks to remove incorrectly selected
-   regions.
-4. Repeat for every task-relevant entity. For the wrist camera, introduce an
-   object when it first enters the view and optionally set its final visible
-   frame with "Set object end".
+2. Load an episode and camera. Reviewed Grounding DINO boxes are imported
+   automatically when no saved annotation workspace exists.
+3. Inspect each box at its initialization frame. Add positive/negative clicks
+   to refine it, or clear that object's prompts and initialize it manually.
+4. For the wrist camera, optionally set an object's final visible frame with
+   "Set object end". Resolve every item reported as manual or missing.
 5. Select "Propagate and save". Inspect the resulting mask with the frame
    slider and add correction clicks before propagating again if tracking drifts.
+
+Use ``--mode batch --episodes all --cameras top wrist`` to process all fully
+resolved episode-camera pairs. Batch mode skips unresolved pairs and writes a
+report under the SAM metadata directory for subsequent manual correction.
 
 Per-object SAM2 tracks, labels, clicks, and previews are saved under
 ``runs/sam`` for later experiments. Training rows under ``runs/dataset``
@@ -26,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import threading
 import zlib
 from dataclasses import dataclass
@@ -45,6 +48,8 @@ DEFAULT_DATASET_ROOT = Path("runs/dataset/rm65_single_table_preparation_and_buss
 DEFAULT_OUTPUT_ROOT = Path("runs/dataset/rm65_single_table_preparation_and_bussing_afv2")
 DEFAULT_SAM_ROOT = Path("runs/sam/rm65_single_table_preparation_and_bussing")
 DEFAULT_MODEL_PATH = Path("models/sam2.1-hiera-small")
+DEFAULT_GROUNDING_ROOT = DEFAULT_SAM_ROOT / "grounding_dino"
+DEFAULT_GROUNDING_REVIEW = DEFAULT_SAM_ROOT / "grounding_dino_review.md"
 CAMERAS = ("top", "wrist")
 OVERLAY_COLOR = np.array([0, 210, 170], dtype=np.float32)
 
@@ -160,6 +165,169 @@ class ObjectBounds:
     end: int | None = None
 
 
+@dataclass(frozen=True)
+class GroundingDecision:
+    """One optional review override for a DINO proposal."""
+
+    status: str
+    candidate_rank: int | None
+    manual_frame_index: int | None
+
+
+@dataclass(frozen=True)
+class GroundingBoxPrompt:
+    """One reviewed box prompt ready for a SAM2 video session."""
+
+    object_id: int
+    object_name: str
+    object_role: str
+    frame_index: int
+    box_xyxy: tuple[float, float, float, float]
+    source: str
+
+
+@dataclass(frozen=True)
+class GroundingResolution:
+    """Resolved prompts and items requiring manual intervention."""
+
+    prompts: tuple[GroundingBoxPrompt, ...]
+    unresolved: dict[int, str]
+    intentionally_not_visible: dict[int, str]
+
+
+class GroundingDINOReview:
+    """Resolve selected DINO boxes using candidate choices from the review table."""
+
+    VALID_STATUSES = {"accept", "use_candidate", "manual", "not_visible"}
+
+    def __init__(self, grounding_root: Path, review_path: Path):
+        self.root = grounding_root.resolve()
+        self.review_path = review_path.resolve()
+        if not self.root.is_dir():
+            raise FileNotFoundError(self.root)
+        if not self.review_path.is_file():
+            raise FileNotFoundError(self.review_path)
+        self.decisions = self._load_decisions()
+
+    @staticmethod
+    def _optional_int(value: str) -> int | None:
+        value = value.strip()
+        return int(value) if value else None
+
+    def _load_decisions(self) -> dict[tuple[int, str, int], GroundingDecision]:
+        text = self.review_path.read_text()
+        if "## Review Results" not in text:
+            raise ValueError(f"Review Results section is missing from {self.review_path}")
+        results = text.split("## Review Results", 1)[1]
+        results = results.split("## Dataset Reindexing Note", 1)[0]
+        decisions: dict[tuple[int, str, int], GroundingDecision] = {}
+        for line in results.splitlines():
+            if not re.match(r"^\|\s*\d+\s*\|", line):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 9:
+                raise ValueError(f"Invalid review row with {len(cells)} columns: {line}")
+            episode_index = int(cells[0])
+            camera = cells[1]
+            object_id = int(cells[2])
+            status = cells[4]
+            if camera not in CAMERAS:
+                raise ValueError(f"Invalid review camera {camera!r}: {line}")
+            if status not in self.VALID_STATUSES:
+                raise ValueError(f"Invalid review status {status!r}: {line}")
+            decision = GroundingDecision(
+                status=status,
+                candidate_rank=self._optional_int(cells[5]),
+                manual_frame_index=self._optional_int(cells[6]),
+            )
+            key = (episode_index, camera, object_id)
+            if key in decisions:
+                logger.warning("Duplicate review decision for %s; using the last row", key)
+            decisions[key] = decision
+        return decisions
+
+    def _paths(self, episode_index: int, camera: str) -> tuple[Path, Path]:
+        episode_dir = f"episode-{episode_index:06d}"
+        return (
+            self.root / "data" / episode_dir / f"camera-{camera}.parquet",
+            self.root / "candidates" / episode_dir / f"camera-{camera}.parquet",
+        )
+
+    @staticmethod
+    def _box_prompt(row: pd.Series, source: str) -> GroundingBoxPrompt | None:
+        coordinates = tuple(float(row[f"box_{axis}"]) for axis in ("x0", "y0", "x1", "y1"))
+        if not bool(row["visible"]) or int(row["frame_index"]) < 0 or not np.isfinite(coordinates).all():
+            return None
+        x0, y0, x1, y1 = coordinates
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return GroundingBoxPrompt(
+            object_id=int(row["object_id"]),
+            object_name=str(row["object_name"]),
+            object_role=str(row["object_role"]),
+            frame_index=int(row["frame_index"]),
+            box_xyxy=coordinates,
+            source=source,
+        )
+
+    def resolve(self, episode_index: int, camera: str) -> GroundingResolution:
+        """Resolve one episode-camera pair into reviewed SAM2 box prompts."""
+        selected_path, candidates_path = self._paths(episode_index, camera)
+        if not selected_path.is_file() or not candidates_path.is_file():
+            raise FileNotFoundError(f"Grounding artifacts are missing for episode {episode_index} {camera}")
+        selected = pd.read_parquet(selected_path).sort_values("object_id")
+        candidates = pd.read_parquet(candidates_path).sort_values(["object_id", "candidate_rank"])
+
+        prompts = []
+        unresolved = {}
+        intentionally_not_visible = {}
+        for row in selected.itertuples(index=False):
+            object_id = int(row.object_id)
+            object_name = str(row.object_name)
+            key = (episode_index, camera, object_id)
+            decision = self.decisions.get(key)
+            if decision is not None and decision.status == "not_visible":
+                intentionally_not_visible[object_id] = f"{object_name}: marked not_visible in review"
+                continue
+            if decision is not None and decision.status == "manual":
+                frame_hint = (
+                    f" at frame {decision.manual_frame_index}"
+                    if decision.manual_frame_index is not None
+                    else ""
+                )
+                unresolved[object_id] = f"{object_name}: manual initialization required{frame_hint}"
+                continue
+
+            selected_row = selected.loc[selected["object_id"] == object_id].iloc[0]
+            source = "selected"
+            proposal_row = selected_row
+            if decision is not None and decision.status == "use_candidate":
+                if decision.candidate_rank is None:
+                    unresolved[object_id] = f"{object_name}: use_candidate has no candidate rank"
+                    continue
+                matches = candidates.loc[
+                    (candidates["object_id"] == object_id)
+                    & (candidates["candidate_rank"] == decision.candidate_rank)
+                ]
+                if len(matches) != 1:
+                    unresolved[object_id] = (
+                        f"{object_name}: candidate {decision.candidate_rank} is unavailable"
+                    )
+                    continue
+                proposal_row = matches.iloc[0]
+                source = f"reviewed candidate {decision.candidate_rank}"
+
+            prompt = self._box_prompt(proposal_row, source)
+            if prompt is None:
+                unresolved[object_id] = (
+                    f"{object_name}: selected DINO proposal is unavailable; add a manual click"
+                )
+                continue
+            prompts.append(prompt)
+
+        return GroundingResolution(tuple(prompts), unresolved, intentionally_not_visible)
+
+
 class TaskRelevanceAnnotator:
     """Own the SAM2 session and persist per-object tracks plus merged masks."""
 
@@ -170,6 +338,9 @@ class TaskRelevanceAnnotator:
         sam_root: Path,
         model_path: Path,
         device: str,
+        grounding_root: Path | None = None,
+        grounding_review: Path | None = None,
+        auto_grounding: bool = True,
     ):
         self.source = EpisodeVideoSource(dataset_root)
         self.output_root = output_root.resolve()
@@ -177,6 +348,11 @@ class TaskRelevanceAnnotator:
         self.model_path = model_path.resolve()
         if not self.model_path.is_dir():
             raise FileNotFoundError(self.model_path)
+        self.grounding_review = None
+        if auto_grounding:
+            if grounding_root is None or grounding_review is None:
+                raise ValueError("grounding_root and grounding_review are required with auto grounding")
+            self.grounding_review = GroundingDINOReview(grounding_root, grounding_review)
 
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -195,8 +371,12 @@ class TaskRelevanceAnnotator:
         self.task_prompt = ""
         self.video_frames: list[np.ndarray] = []
         self.prompts: dict[int, dict[int, list[tuple[int, int, int]]]] = {}
+        self.boxes: dict[int, dict[int, tuple[float, float, float, float]]] = {}
+        self.box_sources: dict[int, dict[int, str]] = {}
         self.object_labels: dict[int, str] = {}
         self.bounds: dict[int, ObjectBounds] = {}
+        self.grounding_unresolved: dict[int, str] = {}
+        self.grounding_not_visible: dict[int, str] = {}
         self.excluded_frames: set[int] = set()
         self.propagated_object_masks: dict[int, list[np.ndarray]] | None = None
         self.propagated_masks: list[np.ndarray] | None = None
@@ -209,6 +389,10 @@ class TaskRelevanceAnnotator:
             "format_version": 1,
             "base_dataset_root": str(self.source.root),
             "sam_annotation_root": str(self.sam_root),
+            "grounding_root": str(self.grounding_review.root) if self.grounding_review else None,
+            "grounding_review": (
+                str(self.grounding_review.review_path) if self.grounding_review else None
+            ),
             "fps": self.source.fps,
             "cameras": list(CAMERAS),
             "mask_encoding": "zlib-compressed uint32 start-length pairs in row-major order",
@@ -220,6 +404,10 @@ class TaskRelevanceAnnotator:
             "base_dataset_root": str(self.source.root),
             "merged_dataset_root": str(self.output_root),
             "sam_model_path": str(self.model_path),
+            "grounding_root": str(self.grounding_review.root) if self.grounding_review else None,
+            "grounding_review": (
+                str(self.grounding_review.review_path) if self.grounding_review else None
+            ),
             "fps": self.source.fps,
             "cameras": list(CAMERAS),
             "mask_encoding": "zlib-compressed uint32 start-length pairs in row-major order",
@@ -289,26 +477,50 @@ class TaskRelevanceAnnotator:
                 }
                 for object_id, frame_prompts in sorted(self.prompts.items())
             },
+            "boxes": {
+                str(object_id): {
+                    str(frame_index): list(box)
+                    for frame_index, box in sorted(frame_boxes.items())
+                }
+                for object_id, frame_boxes in sorted(self.boxes.items())
+            },
+            "box_sources": {
+                str(object_id): {
+                    str(frame_index): source
+                    for frame_index, source in sorted(frame_sources.items())
+                }
+                for object_id, frame_sources in sorted(self.box_sources.items())
+            },
             "bounds": {
                 str(object_id): {"start": bounds.start, "end": bounds.end}
                 for object_id, bounds in sorted(self.bounds.items())
             },
             "object_labels": {str(object_id): label for object_id, label in sorted(self.object_labels.items())},
+            "grounding_unresolved": {
+                str(object_id): reason for object_id, reason in sorted(self.grounding_unresolved.items())
+            },
+            "grounding_not_visible": {
+                str(object_id): reason for object_id, reason in sorted(self.grounding_not_visible.items())
+            },
             "excluded_frames": sorted(self.excluded_frames),
         }
         self._write_json_atomic(path, payload)
 
-    def _load_workspace(self) -> None:
+    def _load_workspace(self) -> bool:
         self.prompts = {}
+        self.boxes = {}
+        self.box_sources = {}
         self.object_labels = {}
         self.bounds = {}
+        self.grounding_unresolved = {}
+        self.grounding_not_visible = {}
         self.excluded_frames = set()
         path = self._workspace_path()
         if not path.is_file() and self._legacy_workspace_path().is_file():
             path = self._legacy_workspace_path()
             logger.info("Loading legacy annotation workspace from %s", path)
         if not path.is_file():
-            return
+            return False
         payload = json.loads(path.read_text())
         self.prompts = {
             int(object_id): {
@@ -317,6 +529,20 @@ class TaskRelevanceAnnotator:
             }
             for object_id, frame_prompts in payload.get("prompts", {}).items()
         }
+        self.boxes = {
+            int(object_id): {
+                int(frame_index): tuple(float(value) for value in box)
+                for frame_index, box in frame_boxes.items()
+            }
+            for object_id, frame_boxes in payload.get("boxes", {}).items()
+        }
+        self.box_sources = {
+            int(object_id): {
+                int(frame_index): str(source)
+                for frame_index, source in frame_sources.items()
+            }
+            for object_id, frame_sources in payload.get("box_sources", {}).items()
+        }
         self.bounds = {
             int(object_id): ObjectBounds(start=value.get("start"), end=value.get("end"))
             for object_id, value in payload.get("bounds", {}).items()
@@ -324,9 +550,45 @@ class TaskRelevanceAnnotator:
         self.object_labels = {
             int(object_id): str(label) for object_id, label in payload.get("object_labels", {}).items()
         }
-        for object_id in self.prompts:
+        for object_id in set(self.prompts) | set(self.boxes):
             self.object_labels.setdefault(object_id, f"object_{object_id}")
+        self.grounding_unresolved = {
+            int(object_id): str(reason)
+            for object_id, reason in payload.get("grounding_unresolved", {}).items()
+        }
+        self.grounding_not_visible = {
+            int(object_id): str(reason)
+            for object_id, reason in payload.get("grounding_not_visible", {}).items()
+        }
         self.excluded_frames = {int(index) for index in payload.get("excluded_frames", [])}
+        return True
+
+    def _import_grounding_boxes(self) -> None:
+        if self.grounding_review is None:
+            return
+        assert self.episode_index is not None and self.camera is not None
+        resolution = self.grounding_review.resolve(self.episode_index, self.camera)
+        for prompt in resolution.prompts:
+            self.boxes.setdefault(prompt.object_id, {})[prompt.frame_index] = prompt.box_xyxy
+            self.box_sources.setdefault(prompt.object_id, {})[prompt.frame_index] = prompt.source
+            self.object_labels[prompt.object_id] = prompt.object_name
+            default_start = 0 if self.camera == "top" else prompt.frame_index
+            self.bounds[prompt.object_id] = ObjectBounds(start=default_start)
+        self.grounding_unresolved = dict(resolution.unresolved)
+        self.grounding_not_visible = dict(resolution.intentionally_not_visible)
+        for object_id, reason in {
+            **self.grounding_unresolved,
+            **self.grounding_not_visible,
+        }.items():
+            self.object_labels.setdefault(object_id, reason.partition(":")[0])
+        self._save_workspace()
+        logger.info(
+            "Imported %d DINO boxes for episode %d camera %s; %d unresolved",
+            len(resolution.prompts),
+            self.episode_index,
+            self.camera,
+            len(resolution.unresolved),
+        )
 
     def _load_saved_masks(self) -> None:
         self.propagated_object_masks = None
@@ -393,7 +655,9 @@ class TaskRelevanceAnnotator:
             self.camera = camera
             self.task_prompt = self.source.prompt(episode_index)
             self.preview_mask = None
-            self._load_workspace()
+            workspace_loaded = self._load_workspace()
+            if not workspace_loaded:
+                self._import_grounding_boxes()
             self._load_saved_masks()
             status = self.status(0)
             return self.render(0), self.task_prompt, len(self.video_frames) - 1, status
@@ -424,58 +688,56 @@ class TaskRelevanceAnnotator:
 
     def _set_session_prompt(self, object_id: int, frame_index: int) -> None:
         assert self.processor is not None and self.session is not None
-        points = self.prompts[object_id][frame_index]
-        coordinates = [[[[(x), (y)] for x, y, _ in points]]]
-        labels = [[[label for _, _, label in points]]]
+        points = self.prompts.get(object_id, {}).get(frame_index, [])
+        box = self.boxes.get(object_id, {}).get(frame_index)
+        if not points and box is None:
+            raise RuntimeError(f"Object {object_id} has no prompt on frame {frame_index}")
+        coordinates = [[[[x, y] for x, y, _ in points]]] if points else None
+        labels = [[[label for _, _, label in points]]] if points else None
+        boxes = [[list(box)]] if box is not None else None
         self.processor.add_inputs_to_inference_session(
             inference_session=self.session,
             frame_idx=frame_index,
             obj_ids=object_id,
             input_points=coordinates,
             input_labels=labels,
+            input_boxes=boxes,
             clear_old_inputs=True,
         )
 
-    def _set_session_prompts_for_frame(self, frame_index: int) -> None:
-        """Add all object prompts on one frame in a single SAM2 processor call."""
-        assert self.processor is not None and self.session is not None
-        object_ids = sorted(
+    def _conditioning_objects(self, frame_index: int) -> list[int]:
+        """Return object IDs having point or box prompts on one frame."""
+        object_ids = set()
+        object_ids.update(
             object_id for object_id, frame_prompts in self.prompts.items() if frame_index in frame_prompts
         )
-        coordinates = [
-            [
-                [[x, y] for x, y, _ in self.prompts[object_id][frame_index]]
-                for object_id in object_ids
-            ]
-        ]
-        labels = [
-            [[label for _, _, label in self.prompts[object_id][frame_index]] for object_id in object_ids]
-        ]
-        self.processor.add_inputs_to_inference_session(
-            inference_session=self.session,
-            frame_idx=frame_index,
-            obj_ids=object_ids,
-            input_points=coordinates,
-            input_labels=labels,
-            clear_old_inputs=True,
+        object_ids.update(
+            object_id for object_id, frame_boxes in self.boxes.items() if frame_index in frame_boxes
         )
+        return sorted(object_ids)
+
+    def _conditioning_frames(self) -> list[int]:
+        """Return sorted frames containing any point or box prompt."""
+        frames = {
+            frame_index for frame_prompts in self.prompts.values() for frame_index in frame_prompts
+        }
+        frames.update(frame_index for frame_boxes in self.boxes.values() for frame_index in frame_boxes)
+        return sorted(frames)
 
     def _ensure_session(self) -> None:
         if self.session is not None:
             return
-        if not self.prompts:
-            raise gr.Error("Add at least one positive point before running SAM2")
+        if not self.prompts and not self.boxes:
+            raise gr.Error("Add at least one positive point or box before running SAM2")
         self.session = self._new_session()
         assert self.model is not None
-        conditioning_frames = {
-            frame_index for frame_prompts in self.prompts.values() for frame_index in frame_prompts
-        }
-        for frame_index in sorted(conditioning_frames):
-            self._set_session_prompts_for_frame(frame_index)
-            self.model(inference_session=self.session, frame_idx=frame_index)
+        for frame_index in self._conditioning_frames():
+            for object_id in self._conditioning_objects(frame_index):
+                self._set_session_prompt(object_id, frame_index)
+                self.model(inference_session=self.session, frame_idx=frame_index)
 
     def _object_range(self, object_id: int) -> tuple[int, int]:
-        prompt_frames = sorted(self.prompts.get(object_id, {}))
+        prompt_frames = sorted(set(self.prompts.get(object_id, {})) | set(self.boxes.get(object_id, {})))
         if not prompt_frames:
             return 0, -1
         bounds = self.bounds.get(object_id, ObjectBounds())
@@ -535,6 +797,8 @@ class TaskRelevanceAnnotator:
                 object_id, f"object_{object_id}"
             )
             self.bounds.setdefault(object_id, ObjectBounds())
+            if label == 1:
+                self.grounding_unresolved.pop(object_id, None)
             self.propagated_object_masks = None
             self.propagated_masks = None
             self._save_workspace()
@@ -570,8 +834,21 @@ class TaskRelevanceAnnotator:
                 self.prompts[object_id].pop(frame_index)
             if not self.prompts.get(object_id):
                 self.prompts.pop(object_id, None)
-                self.object_labels.pop(object_id, None)
+            if object_id not in self.prompts and object_id not in self.boxes:
+                label = self.object_labels.get(object_id, f"object_{object_id}")
+                self.grounding_unresolved[object_id] = (
+                    f"{label}: add a positive manual click"
+                )
                 self.bounds.pop(object_id, None)
+            elif object_id not in self.boxes and not any(
+                label == 1
+                for frame_points in self.prompts.get(object_id, {}).values()
+                for _, _, label in frame_points
+            ):
+                label = self.object_labels.get(object_id, f"object_{object_id}")
+                self.grounding_unresolved[object_id] = (
+                    f"{label}: add a positive manual click"
+                )
             self.preview_mask = None
             self.propagated_object_masks = None
             self.propagated_masks = None
@@ -582,9 +859,38 @@ class TaskRelevanceAnnotator:
     def clear_prompts(self, frame_index: int) -> tuple[np.ndarray, str]:
         with self.lock:
             self._require_loaded_video()
+            labels = dict(self.object_labels)
             self.prompts = {}
-            self.object_labels = {}
+            self.boxes = {}
+            self.box_sources = {}
+            self.object_labels = labels
             self.bounds = {}
+            self.grounding_unresolved = {
+                object_id: f"{label}: prompts cleared; add a positive manual click"
+                for object_id, label in labels.items()
+            }
+            self.grounding_not_visible = {}
+            self.preview_mask = None
+            self.propagated_object_masks = None
+            self.propagated_masks = None
+            self._release_session()
+            self._save_workspace()
+            return self.render(int(frame_index)), self.status(int(frame_index))
+
+    def clear_object_prompts(self, frame_index: int, object_id: int) -> tuple[np.ndarray, str]:
+        """Remove every point and box prompt for one object."""
+        with self.lock:
+            object_id = int(object_id)
+            label = self.object_labels.get(object_id, f"object_{object_id}")
+            self.prompts.pop(object_id, None)
+            self.boxes.pop(object_id, None)
+            self.box_sources.pop(object_id, None)
+            self.bounds.pop(object_id, None)
+            self.object_labels[object_id] = label
+            self.grounding_unresolved[object_id] = (
+                f"{label}: prompts cleared; add a positive manual click"
+            )
+            self.grounding_not_visible.pop(object_id, None)
             self.preview_mask = None
             self.propagated_object_masks = None
             self.propagated_masks = None
@@ -596,7 +902,7 @@ class TaskRelevanceAnnotator:
         with self.lock:
             self._require_loaded_video()
             object_id = int(object_id)
-            if object_id not in self.prompts:
+            if object_id not in self.prompts and object_id not in self.boxes:
                 raise gr.Error(f"Object {object_id} has no prompt")
             self.bounds.setdefault(object_id, ObjectBounds()).end = int(frame_index)
             self.propagated_object_masks = None
@@ -628,35 +934,96 @@ class TaskRelevanceAnnotator:
                 self._save_masks()
             return self.render(frame_index), self.status(frame_index)
 
-    def propagate_and_save(self, frame_index: int, progress: gr.Progress = gr.Progress()) -> tuple[np.ndarray, str]:
+    def propagate_and_save(
+        self,
+        frame_index: int,
+        progress: gr.Progress | None = gr.Progress(),
+    ) -> tuple[np.ndarray, str]:
         with self.lock:
             self._require_loaded_video()
-            self._ensure_session()
-            assert self.model is not None and self.session is not None
-            first_prompt_frame = min(
-                prompt_frame for frame_prompts in self.prompts.values() for prompt_frame in frame_prompts
-            )
+            if self.grounding_unresolved:
+                reasons = "; ".join(self.grounding_unresolved.values())
+                raise gr.Error(f"Resolve all manual Grounding DINO items before saving: {reasons}")
+
+            conditioning_frames = self._conditioning_frames()
+            active_object_ids = sorted(set(self.prompts) | set(self.boxes))
+            tracked_object_ids = sorted(set(active_object_ids) | set(self.grounding_not_visible))
+            if not tracked_object_ids:
+                raise gr.Error("Add at least one positive point or reviewed box before running SAM2")
+
             height, width = self.video_frames[0].shape[:2]
             masks = [np.zeros((height, width), dtype=bool) for _ in self.video_frames]
             object_tracks = {
                 object_id: [np.zeros((height, width), dtype=bool) for _ in self.video_frames]
-                for object_id in sorted(self.prompts)
+                for object_id in tracked_object_ids
             }
-            iterator = self.model.propagate_in_video_iterator(
-                self.session,
-                start_frame_idx=first_prompt_frame,
-                max_frame_num_to_track=len(self.video_frames),
-                show_progress_bar=False,
-            )
-            total = len(self.video_frames) - first_prompt_frame
-            for step, output in enumerate(iterator):
-                output_frame_index = int(output.frame_idx)
-                output_masks = self._output_object_masks(output, output_frame_index)
-                for object_id, mask in output_masks.items():
-                    if object_id in object_tracks:
-                        object_tracks[object_id][output_frame_index] = mask
-                masks[output_frame_index] = self._merge_object_masks(output_masks, height, width)
-                progress((step + 1) / max(total, 1), desc=f"Tracking frame {output_frame_index + 1}")
+
+            if active_object_ids:
+                self._ensure_session()
+                assert self.model is not None and self.session is not None
+                first_prompt_by_object = {
+                    object_id: min(
+                        set(self.prompts.get(object_id, {})) | set(self.boxes.get(object_id, {}))
+                    )
+                    for object_id in active_object_ids
+                }
+                first_prompt_frame = conditioning_frames[0]
+                last_prompt_frame = conditioning_frames[-1]
+                forward_steps = len(self.video_frames) - first_prompt_frame
+                reverse_steps = last_prompt_frame + 1 if last_prompt_frame > 0 else 0
+                total_steps = forward_steps + reverse_steps
+                completed_steps = 0
+
+                forward_iterator = self.model.propagate_in_video_iterator(
+                    self.session,
+                    start_frame_idx=first_prompt_frame,
+                    max_frame_num_to_track=len(self.video_frames),
+                    reverse=False,
+                    show_progress_bar=False,
+                )
+                for output in forward_iterator:
+                    output_frame_index = int(output.frame_idx)
+                    output_masks = self._output_object_masks(output, output_frame_index)
+                    for object_id, mask in output_masks.items():
+                        if output_frame_index >= first_prompt_by_object[object_id]:
+                            object_tracks[object_id][output_frame_index] = mask
+                    completed_steps += 1
+                    if progress is not None:
+                        progress(
+                            completed_steps / max(total_steps, 1),
+                            desc=f"Forward tracking frame {output_frame_index + 1}",
+                        )
+
+                if last_prompt_frame > 0:
+                    reverse_iterator = self.model.propagate_in_video_iterator(
+                        self.session,
+                        start_frame_idx=last_prompt_frame,
+                        max_frame_num_to_track=last_prompt_frame,
+                        reverse=True,
+                        show_progress_bar=False,
+                    )
+                    for output in reverse_iterator:
+                        output_frame_index = int(output.frame_idx)
+                        output_masks = self._output_object_masks(output, output_frame_index)
+                        for object_id, mask in output_masks.items():
+                            if output_frame_index < first_prompt_by_object[object_id]:
+                                object_tracks[object_id][output_frame_index] = mask
+                        completed_steps += 1
+                        if progress is not None:
+                            progress(
+                                completed_steps / max(total_steps, 1),
+                                desc=f"Reverse tracking frame {output_frame_index + 1}",
+                            )
+
+            for output_frame_index in range(len(self.video_frames)):
+                masks[output_frame_index] = self._merge_object_masks(
+                    {
+                        object_id: object_tracks[object_id][output_frame_index]
+                        for object_id in tracked_object_ids
+                    },
+                    height,
+                    width,
+                )
             self.propagated_object_masks = object_tracks
             self.propagated_masks = masks
             self.preview_mask = None
@@ -753,6 +1120,20 @@ class TaskRelevanceAnnotator:
             mask = self.preview_mask
         image = Image.fromarray(overlay_mask(self.video_frames[frame_index], mask))
         draw = ImageDraw.Draw(image)
+        for object_id, frame_boxes in sorted(self.boxes.items()):
+            box = frame_boxes.get(frame_index)
+            if box is None:
+                continue
+            x0, y0, x1, y1 = box
+            color = (255, 190, 35)
+            draw.rectangle((x0, y0, x1, y1), outline=color, width=3)
+            draw.text(
+                (x0 + 4, max(0, y0 - 15)),
+                f"{object_id}:{self.object_labels.get(object_id, f'object_{object_id}')}",
+                fill=color,
+                stroke_width=1,
+                stroke_fill=(0, 0, 0),
+            )
         for object_id, frame_prompts in sorted(self.prompts.items()):
             for x, y, label in frame_prompts.get(frame_index, []):
                 color = (0, 230, 90) if label == 1 else (240, 60, 60)
@@ -765,17 +1146,28 @@ class TaskRelevanceAnnotator:
         if self.episode_index is None:
             return "No episode loaded."
         point_count = sum(len(points) for frames in self.prompts.values() for points in frames.values())
+        box_count = sum(len(boxes) for boxes in self.boxes.values())
         object_descriptions = []
-        for object_id in sorted(self.prompts):
+        for object_id in sorted(set(self.prompts) | set(self.boxes)):
             start, end = self._object_range(object_id)
             label = self.object_labels.get(object_id, f"object_{object_id}")
-            object_descriptions.append(f"{object_id}:{label} {start}-{end}")
+            initialization_frames = sorted(
+                set(self.prompts.get(object_id, {})) | set(self.boxes.get(object_id, {}))
+            )
+            object_descriptions.append(
+                f"{object_id}:{label} init={initialization_frames} track={start}-{end}"
+            )
         included = int(frame_index) not in self.excluded_frames
         saved_text = " Saved." if saved else ""
+        unresolved_text = ""
+        if self.grounding_unresolved:
+            unresolved_text = " | unresolved [" + "; ".join(self.grounding_unresolved.values()) + "]"
+        if self.grounding_not_visible:
+            unresolved_text += " | not visible [" + "; ".join(self.grounding_not_visible.values()) + "]"
         return (
             f"Episode {self.episode_index} | {self.camera} | frame {int(frame_index)}/{len(self.video_frames) - 1} | "
-            f"objects [{', '.join(object_descriptions)}] | points {point_count} | "
-            f"loss {'on' if included else 'off'}.{saved_text}"
+            f"objects [{', '.join(object_descriptions)}] | boxes {box_count} | points {point_count} | "
+            f"loss {'on' if included else 'off'}.{saved_text}{unresolved_text}"
         )
 
 
@@ -801,6 +1193,7 @@ def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_c
             object_label = gr.Textbox(value="", placeholder="tomato", label="Object label")
             point_mode = gr.Radio(choices=["Positive", "Negative"], value="Positive", label="Point")
             undo_button = gr.Button("Undo point")
+            clear_object_button = gr.Button("Clear object prompts")
             clear_button = gr.Button("Clear prompts")
 
         with gr.Row():
@@ -830,6 +1223,11 @@ def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_c
         )
         undo_button.click(
             annotator.undo_point,
+            inputs=[frame_slider, object_id],
+            outputs=[image, status],
+        )
+        clear_object_button.click(
+            annotator.clear_object_prompts,
             inputs=[frame_slider, object_id],
             outputs=[image, status],
         )
@@ -864,15 +1262,179 @@ def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_c
     return app
 
 
+def parse_episode_indices(specification: str, available: list[int]) -> list[int]:
+    """Parse ``all`` or comma-separated inclusive ranges such as ``0,3,8-12``."""
+    if specification.strip().lower() == "all":
+        return list(available)
+    selected: set[int] = set()
+    for item in specification.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "-" in item:
+            start_text, end_text = item.split("-", 1)
+            start, end = int(start_text), int(end_text)
+            if end < start:
+                raise ValueError(f"Invalid descending episode range {item!r}")
+            selected.update(range(start, end + 1))
+        else:
+            selected.add(int(item))
+    invalid = sorted(selected - set(available))
+    if invalid:
+        raise ValueError(f"Dataset does not contain episode indices: {invalid}")
+    if not selected:
+        raise ValueError("No episode indices were selected")
+    return sorted(selected)
+
+
+def _batch_outputs_complete(
+    annotator: TaskRelevanceAnnotator,
+    episode_index: int,
+    camera: str,
+) -> bool:
+    """Return whether both saved mask tables contain a complete episode."""
+    expected_frames = int(annotator.source.episodes.loc[episode_index, "length"])
+    merged_path = (
+        annotator.output_root
+        / "data"
+        / f"episode-{episode_index:06d}"
+        / f"camera-{camera}.parquet"
+    )
+    tracks_path = (
+        annotator.sam_root
+        / "data"
+        / f"episode-{episode_index:06d}"
+        / f"camera-{camera}.parquet"
+    )
+    if not merged_path.is_file() or not tracks_path.is_file():
+        return False
+    try:
+        merged = pd.read_parquet(merged_path, columns=["frame_index"])
+        tracks = pd.read_parquet(tracks_path, columns=["object_id", "frame_index"])
+    except Exception:
+        logger.exception("Could not validate existing outputs for episode %d camera %s", episode_index, camera)
+        return False
+    track_lengths = tracks.groupby("object_id").size()
+    return (
+        len(merged) == expected_frames
+        and not tracks.empty
+        and bool((track_lengths == expected_frames).all())
+    )
+
+
+def run_batch(
+    annotator: TaskRelevanceAnnotator,
+    episode_indices: list[int],
+    cameras: list[str],
+    overwrite: bool,
+) -> None:
+    """Run reviewed DINO-to-SAM2 conversion while preserving resumable progress."""
+    report_path = annotator.sam_root / "meta" / "sam2_batch_report.json"
+    report: dict[str, Any] = {
+        "dataset_root": str(annotator.source.root),
+        "episode_indices": episode_indices,
+        "cameras": cameras,
+        "processed": [],
+        "skipped_existing": [],
+        "skipped_unresolved": [],
+        "failed": [],
+    }
+
+    def save_report() -> None:
+        annotator._write_json_atomic(report_path, report)
+
+    pair_count = len(episode_indices) * len(cameras)
+    pair_number = 0
+    try:
+        for episode_index in episode_indices:
+            for camera in cameras:
+                pair_number += 1
+                pair = {"episode_index": episode_index, "camera": camera}
+                if not overwrite and _batch_outputs_complete(annotator, episode_index, camera):
+                    logger.info(
+                        "[%d/%d] Skipping complete episode %d camera %s",
+                        pair_number,
+                        pair_count,
+                        episode_index,
+                        camera,
+                    )
+                    report["skipped_existing"].append(pair)
+                    save_report()
+                    continue
+                logger.info(
+                    "[%d/%d] Processing episode %d camera %s",
+                    pair_number,
+                    pair_count,
+                    episode_index,
+                    camera,
+                )
+                try:
+                    annotator.load_episode(episode_index, camera)
+                    if annotator.grounding_unresolved:
+                        report["skipped_unresolved"].append(
+                            {
+                                **pair,
+                                "objects": {
+                                    str(object_id): reason
+                                    for object_id, reason in annotator.grounding_unresolved.items()
+                                },
+                            }
+                        )
+                        logger.warning(
+                            "Skipping episode %d camera %s: %s",
+                            episode_index,
+                            camera,
+                            "; ".join(annotator.grounding_unresolved.values()),
+                        )
+                    else:
+                        annotator.propagate_and_save(0, progress=None)
+                        report["processed"].append(pair)
+                except Exception as error:
+                    logger.exception("SAM2 failed for episode %d camera %s", episode_index, camera)
+                    report["failed"].append({**pair, "error": f"{type(error).__name__}: {error}"})
+                    annotator._release_session()
+                save_report()
+    except KeyboardInterrupt:
+        report["interrupted"] = True
+        save_report()
+        raise
+    finally:
+        annotator._release_session()
+    logger.info(
+        "Batch complete: %d processed, %d existing, %d unresolved, %d failed. Report: %s",
+        len(report["processed"]),
+        len(report["skipped_existing"]),
+        len(report["skipped_unresolved"]),
+        len(report["failed"]),
+        report_path,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("ui", "batch"), default="ui")
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--sam-root", type=Path, default=DEFAULT_SAM_ROOT)
     parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL_PATH)
+    parser.add_argument("--grounding-root", type=Path, default=DEFAULT_GROUNDING_ROOT)
+    parser.add_argument("--grounding-review", type=Path, default=DEFAULT_GROUNDING_REVIEW)
+    parser.add_argument(
+        "--auto-grounding",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Import reviewed Grounding DINO boxes when no SAM2 workspace exists.",
+    )
     parser.add_argument("--device", default="auto", help="auto, cuda, cuda:N, or cpu")
-    parser.add_argument("--episode", type=int, default=156)
+    parser.add_argument("--episode", type=int, default=0, help="Initial episode in UI mode.")
     parser.add_argument("--camera", choices=CAMERAS, default="top")
+    parser.add_argument(
+        "--episodes",
+        default="all",
+        help="Batch episodes: all or comma-separated indices/inclusive ranges, e.g. 0,3,8-12.",
+    )
+    parser.add_argument("--cameras", nargs="+", choices=CAMERAS, default=list(CAMERAS))
+    parser.add_argument("--overwrite", action="store_true", help="Reprocess complete batch outputs.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7866)
     return parser.parse_args()
@@ -887,7 +1449,14 @@ def main() -> None:
         sam_root=args.sam_root,
         model_path=args.model_path,
         device=args.device,
+        grounding_root=args.grounding_root,
+        grounding_review=args.grounding_review,
+        auto_grounding=args.auto_grounding,
     )
+    if args.mode == "batch":
+        episode_indices = parse_episode_indices(args.episodes, annotator.source.episode_indices)
+        run_batch(annotator, episode_indices, args.cameras, args.overwrite)
+        return
     app = build_app(annotator, args.episode, args.camera)
     app.queue(default_concurrency_limit=1).launch(
         server_name=args.host,
