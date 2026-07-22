@@ -820,6 +820,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         # suffix_pad_masks: (batch_size, chunk_size)
         # suffix_att_masks: (batch_size, chunk_size)
         #   where contains `[1, 0, ..., 0]`
+        # adarms_cond: (batch_size, action_expert_hidden_size); timestep condition
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(x_t, time)
 
         if (
@@ -829,12 +830,18 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
             prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
 
+        # pad_masks: (batch_size, seq_len)
+        #   where seq_len = prefix_seq_len + chunk_size
+        # att_masks: (batch_size, seq_len)
         pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
         att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
 
+        # att_2d_masks: (batch_size, seq_len, seq_len)
+        # position_ids: (batch_size, seq_len)
+        # att_2d_masks_4d: (batch_size, 1, seq_len, seq_len)
+        #   where OPENPI_ATTENTION_MASK_VALUE replace False
         att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
         position_ids = torch.cumsum(pad_masks, dim=1) - 1
-
         att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
 
         def forward_func(prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
@@ -848,6 +855,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             )
             return suffix_out
 
+        # suffix_out: (batch_size, chunk_size, action_expert_hidden_size)
         suffix_out = self._apply_checkpoint(
             forward_func, prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond
         )
@@ -858,6 +866,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         def action_out_proj_func(suffix_out):
             return self.action_out_proj(suffix_out)
 
+        # v_t: (batch_size, chunk_size, max_action_dim)
         v_t = self._apply_checkpoint(action_out_proj_func, suffix_out)
 
         return F.mse_loss(u_t, v_t, reduction="none")
@@ -887,15 +896,27 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 self.config.chunk_size,
                 self.config.max_action_dim,
             )  # Use config max_action_dim for internal processing
+
+            # noise: (batch_size, chunk_size, max_action_dim)
             noise = self.sample_noise(actions_shape, device)
 
+        # prefix_embs: (batch_size, prefix_seq_len, paligemma_hidden_size)
+        #   where prefix_seq_len = num_img_embs + num_lang_embs(language/state)
+        # prefix_pad_masks: (batch_size, prefix_seq_len)
+        # prefix_att_masks: (batch_size, prefix_seq_len)
+        #   where Every image and language/state token is assigned `0`
+        # prefix_att_2d_masks: (batch_size, prefix_seq_len, prefix_seq_len)
+        # prefix_position_ids: (batch_size, prefix_seq_len)
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
 
+        # prefix_att_2d_masks_4d: (batch_size, 1, prefix_seq_len, prefix_seq_len)
+        #   where OPENPI_ATTENTION_MASK_VALUE replace False
         prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
         self.paligemma_with_expert.paligemma.model.language_model.config._attn_implementation = "eager"  # noqa: SLF001
 
+        # past_key_values: (batch_size, prefix_seq_len, paligemma_hidden_size)
         _, past_key_values = self.paligemma_with_expert.forward(
             attention_mask=prefix_att_2d_masks_4d,
             position_ids=prefix_position_ids,
@@ -950,6 +971,12 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         timestep,
     ):
         """Apply one denoising step of the noise `x_t` at a given timestep."""
+
+        # suffix_embs: (batch_size, chunk_size, action_expert_hidden_size)
+        # suffix_pad_masks: (batch_size, chunk_size)
+        # suffix_att_masks: (batch_size, chunk_size)
+        #   where contains `[1, 0, ..., 0]`
+        # adarms_cond: (batch_size, action_expert_hidden_size); timestep condition
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(x_t, timestep)
 
         suffix_len = suffix_pad_masks.shape[1]
