@@ -2,8 +2,8 @@
 set -e
 set -o pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/env.sh"
+# SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# source "$SCRIPT_DIR/env.sh"
 
 # ========================== ACT ==========================
 if [ "$POLICY_TYPE" = "act" ]; then
@@ -125,8 +125,10 @@ done
 
 elif [ "$POLICY_TYPE" = "smolvla" ]; then
 for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
+    OPTIMIZER_LR="${OPTIMIZER_LR:-1e-4}"
+    TRAIN_MIXED_PRECISION="${TRAIN_MIXED_PRECISION:-no}"
     TRAINING_ID=rm65_smolvla_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}
-    ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=no)
+    ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=$TRAIN_MIXED_PRECISION)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
     fi
@@ -134,6 +136,8 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     echo "=========================================="
     echo "Start training: $TRAINING_ID"
     echo "chunk_size: $CHUNK_SIZE"
+    echo "optimizer_lr: $OPTIMIZER_LR"
+    echo "mixed_precision: $TRAIN_MIXED_PRECISION"
     echo "=========================================="
 
     CUDA_VISIBLE_DEVICES=$GPU_IDS accelerate launch \
@@ -150,10 +154,11 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
       --policy.chunk_size=$CHUNK_SIZE \
       --policy.n_action_steps=1 \
       --policy.num_steps=10 \
-      --policy.freeze_vision_encoder=true \
-      --policy.train_expert_only=true \
+      --policy.freeze_vision_encoder=false \
+      --policy.train_expert_only=false \
       --policy.train_state_proj=true \
       --policy.load_vlm_weights=true \
+      --policy.optimizer_lr=$OPTIMIZER_LR \
       --policy.scheduler_decay_steps=$STEPS \
       --policy.push_to_hub=false \
       --batch_size=$PER_DEVICE_BATCH_SIZE \
@@ -170,8 +175,69 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
 
     echo "Finished training: $TRAINING_ID"
 done
+
+# ========================== Action Flow V2 ==========================
+
+elif [ "$POLICY_TYPE" = "action_flow_v2" ]; then
+for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
+    RELEVANCE_LOSS_WEIGHT="${RELEVANCE_LOSS_WEIGHT:-0.1}"
+    OPTIMIZER_LR="${OPTIMIZER_LR:-3e-5}"
+    TRAIN_MIXED_PRECISION="${TRAIN_MIXED_PRECISION:-bf16}"
+    AFV2_DATASET_ID="${TASK_ID}_afv2_segmentation"
+    AFV2_DATASET_ROOT="${STORAGE_ROOT}/runs/dataset/${AFV2_DATASET_ID}"
+    TRAINING_ID=rm65_action_flow_v2_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_relevance_${RELEVANCE_LOSS_WEIGHT}
+    ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=$TRAIN_MIXED_PRECISION)
+    if [ "$NUM_GPUS" -gt 1 ]; then
+        ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
+    fi
+
+    echo "=========================================="
+    echo "Start training: $TRAINING_ID"
+    echo "chunk_size: $CHUNK_SIZE"
+    echo "relevance_loss_weight: $RELEVANCE_LOSS_WEIGHT"
+    echo "optimizer_lr: $OPTIMIZER_LR"
+    echo "mixed_precision: $TRAIN_MIXED_PRECISION"
+    echo "dataset_root: $AFV2_DATASET_ROOT"
+    echo "=========================================="
+
+    CUDA_VISIBLE_DEVICES=$GPU_IDS accelerate launch \
+      "${ACCELERATE_ARGS[@]}" \
+      -m lerobot.scripts.lerobot_train \
+      --dataset.repo_id="$AFV2_DATASET_ID" \
+      --dataset.root="$AFV2_DATASET_ROOT" \
+      --dataset.return_uint8=true \
+      --policy.type=action_flow_v2 \
+      --policy.pretrained_path="${STORAGE_ROOT}/models/smolvla_base" \
+      --policy.vlm_model_name="${STORAGE_ROOT}/models/SmolVLM2-500M-Video-Instruct" \
+      --policy.relevance_loss_weight="$RELEVANCE_LOSS_WEIGHT" \
+      --policy.input_features=null \
+      --policy.output_features=null \
+      --policy.device=cuda \
+      --policy.chunk_size="$CHUNK_SIZE" \
+      --policy.n_action_steps=1 \
+      --policy.freeze_vision_encoder=false \
+      --policy.train_expert_only=false \
+      --policy.train_state_proj=true \
+      --policy.load_vlm_weights=true \
+      --policy.optimizer_lr=$OPTIMIZER_LR \
+      --policy.scheduler_decay_steps="$STEPS" \
+      --policy.push_to_hub=false \
+      --batch_size="$PER_DEVICE_BATCH_SIZE" \
+      --steps="$STEPS" \
+      --eval_freq=0 \
+      --save_freq="$SAVE_FREQ" \
+      --log_freq="$LOG_FREQ" \
+      --output_dir="${STORAGE_ROOT}/runs/train/$TRAINING_ID" \
+      --wandb.enable="$WANDB_ENABLE" \
+      --wandb.project=lerobot_action_flow_v2_rm65 \
+      --wandb.disable_artifact=true \
+      --job_name="$TRAINING_ID" \
+      2>&1 | tee "${STORAGE_ROOT}/logs/train_$TRAINING_ID.log"
+
+    echo "Finished training: $TRAINING_ID"
+done
 else
     echo "Unsupported POLICY_TYPE: $POLICY_TYPE" >&2
-    echo "Supported values: act, action_flow_v1, pi0, smolvla" >&2
+    echo "Supported values: act, action_flow_v1, action_flow_v2, pi0, smolvla" >&2
     exit 2
 fi

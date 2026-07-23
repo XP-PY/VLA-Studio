@@ -30,13 +30,13 @@ export TASK_ID="rm65_single_table_preparation_and_bussing"
 export TASK_PROMPT="Place the tomato on the pink plate."
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
 export TASK_SUBSET_ID="bus_the_table"
-export TASK_EPISODES=204
+export TASK_EPISODES=203
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_pi0_single_table_preparation_and_bussing_episodes_204_steps_30000_batch_16_chunk_50"
-export POLICY_TYPE="pi0"
-export STEPS=100000
+export POLICY_ID="rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1"
+export POLICY_TYPE="action_flow_v2"
+export STEPS=40000
 export PER_DEVICE_BATCH_SIZE=8
 export SAVE_FREQ=10000
 export LOG_FREQ=100

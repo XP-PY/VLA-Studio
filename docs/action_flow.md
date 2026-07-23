@@ -1,6 +1,6 @@
 # Action Flow Training Log
 
-*Last updated: July 17, 2026*
+*Last updated: July 23, 2026*
 
 ---
 
@@ -330,23 +330,19 @@ Some individual rollouts changed the flow integration step count:
 
 ### Motivation
 
-Action Flow V1 uses a ResNet observation encoder and does not encode the task prompt. It can learn smooth
-continuous trajectories, but the evaluation shows that it often follows fixed positions and demonstrated action
-sequences instead of selecting the target from the current image.
+Action Flow V1 uses a ResNet observation encoder and does not encode the task prompt. It can learn smooth continuous trajectories, but the evaluation shows that it often follows fixed positions and demonstrated action sequences instead of selecting the target from the current image.
 
-Action Flow V2 should preserve the V1 flow-matching action decoder while replacing the observation path with a
-shared pretrained vision-language model (VLM). The normal VLM output remains the condition consumed by the action
-expert. A lightweight auxiliary grounding head predicts a prompt-conditioned target heatmap from the same shared
-features.
+Action Flow V2 replaces the V1 ResNet and action decoder with a PI0.5-style coupled VLM and action expert. The initial implementation uses the pretrained SmolVLM2/SmolVLA representation because it is smaller and practical to fine-tune locally. The task prompt and camera images are processed together, and a lightweight auxiliary head predicts a prompt-conditioned task-relevance heatmap from the same shared features.
 
-The first experiment is intentionally narrower than PI0.5. It does not generate semantic subtasks, require
-destination labels, or feed a hard detector output into the controller. It tests one question:
+The first experiment asks one controlled question:
 
-> Does auxiliary target-heatmap supervision improve the shared VLM representation and the resulting actions?
+> Does explicit task-relevance supervision improve visual grounding and the resulting continuous actions?
 
-### First Experiment
+The heatmap is auxiliary supervision. It is not a detector result passed directly into the controller, and it is not a replacement for the normal VLM representation.
 
-The first architecture is:
+### Policy Structure
+
+The implemented policy structure is:
 
 ~~~text
 camera images + task prompt
@@ -357,10 +353,10 @@ camera images + task prompt
             +------------------------------+
             |                              |
             v                              v
-  shared condition tokens        auxiliary heatmap head
+  shared condition tokens     task-relevance heatmap head
             |                              |
 robot state + noisy actions               v
-            |                    target heatmap (optional
+            |                  relevance heatmap (optional
             v                       during inference)
     flow action expert
             |
@@ -368,39 +364,29 @@ robot state + noisy actions               v
  continuous action chunk
 ~~~
 
-The action expert always receives the normal shared VLM tokens. In the first experiment, the predicted heatmap
-is not pooled, thresholded, or passed back to the action expert. This keeps the action interface unchanged and
-isolates the effect of auxiliary spatial supervision.
+The action expert always receives the normal prompt-conditioned VLM tokens. In the first implementation, the predicted heatmap is not pooled, thresholded, or passed back to the action expert. This keeps the action interface unchanged and isolates the effect of representation learning from explicit heatmap conditioning.
 
-A pretrained PaliGemma-style VLM is a practical first backbone because the project already uses this architecture
-for PI0 and has local model assets. Multiple cameras can share the same image encoder. Camera-identity embeddings
-must be added before the tokens are concatenated so the action expert can distinguish overview and wrist views.
+Multiple cameras share the VLM image encoder. Camera identity must be retained when image tokens are concatenated, so the action expert and relevance head can distinguish observations from different viewpoints.
 
 ### Shared VLM Output
 
-The shared VLM must produce image tokens that retain their camera and patch-grid correspondence. The action expert
-receives:
+The shared VLM must expose image tokens while preserving camera and patch-grid correspondence. The condition used by the action expert is:
 
 ~~~text
 [VLM image tokens, VLM language tokens, robot-state token]
 ~~~
 
-The noisy action chunk attends to these condition tokens while predicting the flow vector field. This is similar
-to the broad VLM-plus-action-expert structure used by PI0 and PI0.5, but Action Flow V2 retains the existing V1
-flow decoder so that the perception change can be evaluated independently.
+The noisy action chunk attends to these condition tokens while predicting the flow vector field. As in PI0.5, the multimodal prefix and noisy-action suffix are processed by coupled transformer streams, and the prefix key/value states are cached during iterative inference. Camera embeddings are added before the shared transformer so both the action expert and relevance head retain viewpoint identity.
 
-The heatmap head should read the prompt-conditioned image-token outputs. If the selected VLM exposes image tokens
-before language fusion, the grounding head must first apply a small cross-attention layer from the image tokens to
-the language tokens. Otherwise, the head could learn a generic objectness map that does not change with the
-prompt.
+The relevance head reads the final prompt-conditioned image tokens after multimodal transformer processing. It therefore receives language context directly instead of learning a generic objectness map from isolated vision features.
 
-### Auxiliary Target-Heatmap Head
+### Task-Relevance Head
 
-The grounding head should remain lightweight:
+The relevance head remains lightweight:
 
 1. Select the VLM tokens belonging to each camera.
 2. Project them to a smaller grounding dimension.
-3. Apply a small MLP or one cross-attention block.
+3. Apply a small MLP or cross-attention block.
 4. Produce one scalar logit per image patch.
 5. Reshape the logits to the original patch grid.
 6. Optionally upsample the grid for visualization.
@@ -408,308 +394,263 @@ The grounding head should remain lightweight:
 For B samples, C supervised cameras, and a VLM patch grid of H_p by W_p, the output shape is:
 
 ~~~text
-target_heatmap_logits: (B, C, H_p, W_p)
-target_heatmap_valid:  (B, C)
+relevance_heatmap_logits: (B, C, H_p, W_p)
+relevance_loss_weight:    (B, C)
 ~~~
 
-The validity mask indicates whether a reliable target label exists in that camera. Invalid or fully occluded
-targets must not contribute to the heatmap loss.
+An all-zero relevance mask is a valid negative label and teaches the policy that no relevant entity is visible in that camera. `relevance_loss_weight=0` is reserved for frames whose annotations are uncertain or intentionally excluded. Visibility and annotation validity must not be represented by the same value.
 
-The first version should predict only the requested target heatmap. It should not require:
+### Relevance Definition
 
-- A destination heatmap.
-- A source-versus-destination class.
-- A grasp point or gripper orientation.
-- A manipulation-phase class.
-- An arm-activity class.
+The training target is a binary spatial mask containing every entity needed to interpret the prompt. Depending on the instruction, this can include manipulated objects, destination regions, containers, or multiple relevant objects. It is an attention target, not a grasp point or manipulation trajectory.
 
-These can be introduced later only when a measured failure requires them.
+The first version deliberately does not predict:
 
-### Target Definition
+- Grasp points or gripper orientations.
+- Source-versus-destination classes.
+- Manipulation phases.
+- Arm-activity classes.
+- Ordered semantic subtasks.
 
-The heatmap represents the spatial region that the prompt asks the policy to attend to. It is an object-location
-label, not necessarily a grasp point.
+Object IDs, names, roles, and task steps are retained in the annotation sidecar for inspection and future experiments, but the first heatmap target is the union of the relevant per-object masks.
 
-| Prompt example | Initial heatmap target |
-|---|---|
-| Place the tomato on the pink plate. | Tomato |
-| Transfer the bottle to the right arm. | Bottle |
-| Clear the pink plate. | Pink plate and its relevant region |
-| Put all vegetables into the box. | Ambiguous; exclude from the first experiment |
+For multi-step prompts, the first experiment highlights all entities named by the instruction for the complete episode. It does not change the target mask after each subtask. Phase-dependent relevance can be added later after the static prompt-conditioned experiment is validated.
 
-A handover does not require a destination label in the first version: the bottle remains the target, while the
-prompt and full VLM context tell the action expert that a handover is required.
+### Dataset Configuration
 
-Sequential prompts, such as arranging two vegetables, require the target label to change over time. They should
-not be included until the single-target experiment works reliably.
+Grounding semantics are dataset-dependent, while video decoding, detector inference, ranking, review artifacts, and mask serialization are shared. Each dataset is represented by a `GroundingDatasetConfig` containing:
 
-### Grounding Labels
+- A configuration name and default dataset root.
+- Camera names.
+- Detector query aliases.
+- A task-prompt parser that produces deterministic entity specifications.
+- Grounding thresholds.
+- Optional camera-specific entity restrictions.
 
-The initial grounding dataset should use the Place one vegetable subset of
-rm65_single_table_preparation_and_bussing. These episodes have one unambiguous manipulated target throughout
-most of the trajectory.
+Each entity specification records its object ID, semantic name, role, detector query, task step, cardinality, and candidate-order rule. Multi-instance entities can reserve multiple deterministic IDs. The same object ID retains the same meaning across the camera views in an episode.
 
-The annotation sidecar should contain compact labels rather than precomputed dense heatmaps:
+Adding another dataset requires a task parser and one registered dataclass configuration. Model execution and artifact generation do not need to be copied.
+
+### Dataset Annotation Pipeline
+
+#### Grounding Initialization
+
+`examples/action_flow_v2/annotate_grounding.py` performs the initialization stage:
+
+1. Read the episode prompt and build its entity specifications from the selected dataset configuration.
+2. Sample frames from each configured camera.
+3. Run Grounding DINO with dataset-specific query aliases.
+4. Remove duplicate proposals and order multiple instances deterministically.
+5. Rank candidates using confidence, visible area, border clearance, sharpness, and episode progress.
+6. Save selected detections, alternative candidates, contact sheets, and an HTML inspection index.
+
+Grounding DINO only provides initialization proposals. It is not treated as ground truth. Similar objects, occlusion, unusual viewpoints, and visually identical workspace regions can still produce incorrect boxes.
+
+#### Grounding Review
+
+Every episode-camera result must be inspected before segmentation. The review can:
+
+- Accept the selected candidate.
+- Select another ranked candidate.
+- Mark an entity as not visible in that camera.
+- Require manual initialization at a specified frame.
+
+The review decisions are stored separately from generated detector artifacts, so annotation can resume without rerunning accepted results.
+
+#### SAM2 Tracking And Correction
+
+`examples/action_flow_v2/annotate_sam2.py` imports the reviewed boxes as SAM2 prompts. It preserves each entity as a separate object track, propagates masks through the episode, and provides a local UI for adding positive or negative clicks, clearing prompts, setting object bounds, and excluding uncertain frames.
+
+To control memory use, SAM2 can track a configurable subset of video frames. Intermediate frames reuse the mask from the nearest tracked frame, while explicit prompt frames and object bounds are always retained.
+
+Batch mode processes all resolved episode-camera pairs and skips unresolved pairs instead of silently producing incorrect labels. Processing is resumable, and its report records completed, skipped, unresolved, and failed pairs.
+
+#### Saved Annotation Data
+
+Per-object tracks are saved under:
 
 ~~~text
-episode_index
-frame_index
-camera
-target_query
-target_visible
-target_point_u
-target_point_v
-target_box_x1
-target_box_y1
-target_box_x2
-target_box_y2
-annotation_confidence
+runs/sam/<dataset>/data/episode-<index>/camera-<camera>.parquet
 ~~~
 
-Coordinates should be normalized to [0, 1]. The data loader can generate a Gaussian heatmap on the VLM patch
-grid from a point, box center, or mask center. The current Grounding DINO probe can provide initial boxes.
-SAM/SAM2 is optional when a mask or more stable tracking is needed.
+Each row includes `episode_index`, `frame_index`, `camera`, `object_id`, `object_label`, image dimensions, and a compressed binary mask. Keeping separate tracks allows later experiments to recover entity-specific targets.
 
-Automatic labels must be reviewed as video overlays. Frames with an incorrect target, severe occlusion, or
-uncertain tracking should be corrected or marked invalid rather than used as positive supervision.
+The first training target is a merged union mask saved under:
+
+~~~text
+runs/dataset/<annotation-dataset>/data/episode-<index>/camera-<camera>.parquet
+~~~
+
+Each merged row contains the episode, frame, camera, image dimensions, compressed relevance mask, and `loss_weight`. Masks use compressed run-length encoding. The training loader decodes them and resizes them to the VLM patch grid.
+
+Preview videos with mask overlays must be reviewed before training. Incorrect tracks should be corrected; uncertain frames should use `loss_weight=0`, not an invented positive mask.
 
 ### Training Objective
 
 The first training objective is:
 
 ~~~text
-L_total = L_flow + lambda_heatmap * L_target_heatmap
+L_total = L_flow + lambda_relevance * L_relevance
 ~~~
 
 Where:
 
-- L_flow is the existing Action Flow V1 flow-matching loss.
-- L_target_heatmap is focal BCE or KL divergence between the predicted and Gaussian target heatmaps.
-- lambda_heatmap controls the auxiliary supervision strength.
+- `L_flow` is the SmolVLA-style action-expert flow-matching loss.
+- `L_relevance` compares predicted patch logits with the resized binary relevance masks.
+- `lambda_relevance` controls the auxiliary supervision strength.
 
-Both losses should be averaged before weighting, and they must be logged independently. Start with a conservative
-heatmap weight, such as 0.1, then compare gradient norms and heatmap accuracy before increasing it. The heatmap
-loss should not dominate the flow loss.
+The initial relevance objective should combine `BCEWithLogitsLoss` with a Dice term so that small relevant regions are not overwhelmed by background patches. The loss is computed independently per camera, multiplied by the saved `loss_weight`, and normalized by the number of valid camera frames. All-zero masks remain valid training targets.
+
+Both losses must be logged independently. Start with a conservative `lambda_relevance`, such as `0.1`, then compare loss scales, gradient norms, mask accuracy, and action quality before increasing it. The auxiliary loss must not dominate flow matching.
 
 ### Gradient Requirement
 
-The auxiliary head improves action generation only if its loss changes a representation shared with the action
-expert.
+The auxiliary head improves action generation only if its loss changes a representation shared with the action expert.
 
-If the complete VLM is frozen and the heatmap head is attached directly to fixed VLM tokens, the heatmap loss
-trains only the new head. This is still a useful diagnostic baseline, but it cannot make the VLM representation
-more spatially grounded.
+If the complete VLM is frozen and the relevance head is attached directly to fixed VLM tokens, the relevance loss trains only the new head. This is a useful diagnostic baseline, but it cannot make the shared VLM representation more spatially grounded.
 
 At least one shared component must therefore be trainable:
 
 - LoRA adapters inside the VLM.
-- A trainable projector shared by the action expert and heatmap head.
+- A trainable projector shared by the action expert and relevance head.
 - Selected final VLM or vision layers.
 
-### VLM Adaptation Experiments
+### Implementation
 
-All three adaptation strategies should be tested under the same dataset split, initialization, action decoder,
-batch size, number of steps, heatmap loss weight, and random seeds.
+The policy is registered as `action_flow_v2` under `repos/lerobot/src/lerobot/policies/action_flow_v2`. Before training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins the frame-aligned SAM2 union masks to the robot data using `episode_index` and `frame_index`. The resulting dataset is a self-contained LeRobot dataset with model-ready segmentation labels.
 
-#### Frozen Control
+The relevant policy settings are:
 
-Freeze the complete VLM and train only the action expert and heatmap head. This control measures how much target
-location is already linearly recoverable from the pretrained features. It does not test representation
-adaptation.
+| Parameter | Role |
+| --- | --- |
+| `relevance_loss_weight` | Weight of the complete auxiliary relevance loss. |
+| `relevance_bce_weight` | Weight of the per-patch binary cross-entropy term. |
+| `relevance_dice_weight` | Weight of the Dice term. |
+| `relevance_target_size` | Patch-grid target size; `(8, 8)` matches the default 512-pixel SmolVLM input. |
 
-#### Shared Projector
+The merged dataset stores `observation.relevance_mask` with shape `(num_cameras, 8, 8)` and `observation.relevance_loss_weight` with shape `(num_cameras,)`. They pass through the standard SmolVLA processor but are excluded from policy input features and state normalization. Initialize the policy weights from `smolvla_base` by setting `policy.type=action_flow_v2` and `policy.pretrained_path=<smolvla_base_path>`.
 
-Keep the VLM frozen and add a trainable projector after its output. Both the action expert and heatmap head must
-consume the projected tokens:
+### Training Log 1 of Action Flow V2 (Planned)
 
-~~~text
-frozen VLM tokens -> shared trainable projector -> action expert
-                                             \-> heatmap head
-~~~
+#### Objective
 
-This is the smallest and least expensive adaptation strategy. Although it does not modify the VLM backbone, it
-allows the heatmap loss to reshape the exact representation consumed by the action expert.
+The first Action Flow V2 experiment uses the single-arm table-preparation and table-bussing task. The policy must use the language prompt to select the relevant vegetables, plates, or collection box instead of reproducing a fixed object-position trajectory.
 
-#### LoRA
+The experiment has two connected objectives:
 
-Keep the base VLM weights frozen and add LoRA adapters to selected attention projections. The first LoRA
-experiment should target the visual and multimodal/language attention q_proj and v_proj layers, not only the
-action expert.
+1. Predict continuous RM65 joint and gripper action chunks with the SmolVLA-style flow action expert.
+2. Predict a task-relevance heatmap for the top and wrist cameras from the shared prompt-conditioned VLM tokens.
 
-The action expert, auxiliary head, and LoRA weights are trainable. Initial LoRA ranks of 8 or 16 are reasonable
-comparison points. The LoRA learning rate can be lower than the new head's learning rate.
+The relevance target contains the union of every entity needed to interpret the complete prompt. For example, `Place the tomato on the pink plate.` highlights both the tomato and pink plate. A multi-step arrangement prompt highlights all requested vegetables and plates throughout the episode. This first experiment does not use phase-dependent masks, source/destination classes, or predicted heatmaps as direct action-expert inputs.
 
-#### Partial Unfreezing
+The main question is whether the auxiliary relevance loss improves target recognition and action accuracy. A proper comparison should train two policies with otherwise identical settings:
 
-Unfreeze only the last one or two vision blocks and, if necessary, the last one or two multimodal language
-blocks. Keep the earlier pretrained layers frozen.
+- Primary policy: `policy.relevance_loss_weight=0.1`.
+- Ablation policy: `policy.relevance_loss_weight=0.0`.
 
-Use a backbone learning rate substantially smaller than the action expert and heatmap head learning rates.
-Gradient checkpointing should be enabled. This strategy has the highest memory cost and the greatest risk of
-overfitting or damaging pretrained semantics.
+Evaluation should include familiar task combinations, unseen object layouts, arrange-two prompts with garlic or cucumber first, and four-vegetable table bussing. The latter two conditions were intentionally excluded from the demonstrations and test prompt-conditioned generalization.
 
-### Controlled Experiment Matrix
+#### Dataset
 
-| Experiment | Shared representation training | Heatmap loss | Heatmap used by action expert |
+Base dataset:
+
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing
+```
+
+The cleaned dataset contains 203 successful episodes, 92,545 frames, and 52 prompt variants recorded at 30 FPS.
+Each frame contains:
+
+- `observation.images.top`: 640 x 480 overhead workspace image.
+- `observation.images.wrist`: 640 x 480 end-effector image.
+- `observation.state`: six RM65 joint angles and one continuous gripper position.
+- `action`: six recorded future joint-angle labels and one continuous gripper label.
+
+| Task | Prompt template | Episodes | Total frames |
 |---|---|---:|---:|
-| V1 baseline | ResNet trained by action loss | No | No |
-| V2 VLM baseline | Frozen VLM | No | No |
-| V2 frozen diagnostic | Frozen VLM | Yes | No |
-| V2 shared projector | Shared projector | Yes | No |
-| V2 LoRA | VLM LoRA adapters | Yes | No |
-| V2 partial unfreezing | Final VLM/vision blocks | Yes | No |
+| Place one vegetable | `Place the {vegetable} on the {plate_color} plate.` | 48 | 16,212 |
+| Arrange two vegetables | `Place the {vegetable_1} on the {plate_color_1} plate, then place the {vegetable_2} on the {plate_color_2} plate.` | 36 | 20,196 |
+| Clear a specified plate | `Put the vegetable from the {plate_color} plate into the collection box.` | 72 | 22,149 |
+| Bus the table | `Put all vegetables into the collection box.` | 47 | 33,988 |
+| **Total** | **52 prompt variants** | **203** | **92,545** |
 
-The frozen diagnostic separates heatmap readout quality from representation learning. The comparison between the
-V2 VLM baseline and the three adaptation variants measures whether heatmap supervision improves action quality.
+The reviewed, full-resolution SAM2 annotations remain available separately:
 
-A later experiment may construct a heatmap-weighted target token and feed it to the action expert. That is not
-part of the first experiment because it would mix two effects:
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2
+```
 
-1. Improving shared features with an auxiliary loss.
-2. Explicitly conditioning actions on the predicted heatmap.
+This source contains one Parquet file per episode and camera, for 406 files in total. Each row stores `episode_index`, `frame_index`, `camera`, the compressed union mask, and `loss_weight`. The SAM2 tracks were generated every three frames and propagated to intermediate frames using the nearest tracked mask.
 
-### Dataset Splits And Counterfactual Tests
+For training, these labels are merged with the robot dataset and converted to the default 8 x 8 SmolVLM patch grid:
 
-Dataset splits must be made by episode and object layout, not by individual frames. Otherwise, nearly identical
-neighboring frames can appear in both training and validation.
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation
+```
 
-The initial split should preserve unseen combinations of:
+The explicit `_segmentation` suffix distinguishes this dataset from future variants containing detection boxes or other spatial supervision.
 
-- Target vegetable.
-- Target position.
-- Plate position and color.
-- Distractor layout.
+All-zero masks remain valid negative labels when no relevant entity is visible. Only uncertain or intentionally excluded labels use `loss_weight=0`.
 
-Grounding-only counterfactual examples can reuse the same image with different target queries and corresponding
-heatmaps. They do not require additional robot actions. These pairs are important because they force the
-heatmap to change with the prompt instead of learning a fixed workspace prior.
+#### Training Configuration
 
-### Staged Implementation Plan
+Base policy:
 
-#### Stage 1: Label Audit
+```text
+models/smolvla_base
+```
 
-1. Annotate a small set of Place one vegetable episodes.
-2. Generate Gaussian target heatmaps on the VLM patch grid.
-3. Overlay the labels on the top-camera video.
-4. Correct false detections and mark occluded frames invalid.
+Local VLM:
 
-#### Stage 2: VLM Action Baseline
+```text
+models/SmolVLM2-500M-Video-Instruct
+```
 
-1. Add the pretrained VLM observation path.
-2. Feed its normal output tokens to the V1 action expert.
-3. Train without a heatmap loss.
-4. Confirm that the policy and rollout pipeline work before adding auxiliary supervision.
+Suggested output policy:
 
-#### Stage 3: Heatmap Diagnostic
+```text
+rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1
+```
 
-1. Add the auxiliary heatmap head.
-2. Keep the VLM frozen.
-3. Train the action expert and heatmap head.
-4. Evaluate whether pretrained VLM tokens can localize the prompted target.
+| Parameter | Suggested value | Action Flow V2 default |
+|---|---:|---:|
+| `dataset.repo_id` | `rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
+| `dataset.root` | `runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
+| `dataset.return_uint8` | `true` | `false` |
+| `policy.type` | `action_flow_v2` | Not set |
+| `policy.device` | `cuda` | Automatically selected |
+| `policy.pretrained_path` | `models/smolvla_base` | `None` |
+| `policy.vlm_model_name` | `models/SmolVLM2-500M-Video-Instruct` | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` |
+| `policy.input_features` | `null` (infer from dataset) | `{}` |
+| `policy.output_features` | `null` (infer from dataset) | `{}` |
+| `policy.n_action_steps` | `1` | `10` |
+| `policy.optimizer_lr` | `3e-5` | `1e-4` |
+| `policy.scheduler_decay_steps` | `40,000` | `30,000` |
+| `policy.push_to_hub` | `false` | `true` |
+| `steps` | `40,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_action_flow_v2_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
 
-#### Stage 4: Representation Adaptation
+> **Note:** Parameters not listed in the table use their defaults. Important retained defaults are
+> `policy.chunk_size=50`, `batch_size=8` per process, `policy.freeze_vision_encoder=false`,
+> `policy.train_expert_only=false`, `policy.load_vlm_weights=true`, `policy.relevance_loss_weight=0.1`,
+> `policy.relevance_bce_weight=1.0`, `policy.relevance_dice_weight=1.0`, and
+> `policy.relevance_target_size=[8, 8]`. Use BF16 mixed precision when the GPU supports it. Two GPU processes
+> produce a global batch size of 16. Start with 40,000 steps to validate both action and relevance learning;
+> continue toward 80,000 steps only if validation rollouts and held-out heatmaps are still improving.
 
-Train and compare the shared-projector, LoRA, and partial-unfreezing variants. Do not change the action decoder or
-rollout parameters between variants.
+The complete VLM and action expert are trainable because the relevance objective must modify the representation shared with action prediction. The lower learning rate of `3e-5` reduces the risk of damaging the pretrained VLM while the newly initialized camera embeddings and relevance head learn the RM65 workspace.
 
-#### Stage 5: Optional Explicit Grounding
+During training, log at least:
 
-Only if the best auxiliary-supervision policy predicts accurate heatmaps but action target selection remains poor,
-feed a heatmap-pooled target token to the action expert and compare it with the auxiliary-only policy.
+- `flow_loss`
+- `relevance_loss`
+- `relevance_bce_loss`
+- `relevance_dice_loss`
+- `relevance_valid_camera_fraction`
 
-### Inference And Rollout
-
-The heatmap head must be optional during inference:
-
-- Disabled: skip the final heatmap projection and run the normal VLM-to-action path.
-- Enabled: compute the heatmap and record it for visualization without changing the action-expert input.
-
-For a fixed observation, random seed, and action state, enabling heatmap output should not change the generated
-action. This should be covered by a unit test.
-
-When enabled, rollout should record:
-
-- Target heatmap overlaid on the supervised camera.
-- Target query and visibility mask.
-- Heatmap peak and confidence.
-- Raw action chunk.
-- RTC-guided action chunk.
-
-RTC remains independent of grounding. It addresses consistency between action chunks; it cannot correct a
-heatmap that selects the wrong object.
-
-### Evaluation
-
-#### Offline Grounding Metrics
-
-- Heatmap loss on held-out episodes.
-- Peak-point error in pixels.
-- Percentage of heatmap peaks inside the target box or mask.
-- Target-selection accuracy when distractors are present.
-- Counterfactual prompt consistency.
-- Performance on unseen object layouts.
-
-#### Real-Robot Metrics
-
-- Correct-target approach rate.
-- Gripper-alignment accuracy.
-- Grasp success rate.
-- Placement success rate.
-- Complete task success rate.
-- Action discontinuity and RTC correction magnitude.
-
-Failures should be separated into:
-
-1. Wrong heatmap and wrong action target.
-2. Correct heatmap but wrong action target.
-3. Correct target approach but inaccurate grasp.
-4. Successful grasp but failed later trajectory.
-
-This separation determines whether the next change belongs in grounding, action conditioning, grasp supervision,
-or rollout execution.
-
-### Proposed Configuration
-
-The first implementation should expose configuration fields equivalent to:
-
-~~~text
-vlm_model_name
-vlm_adaptation_mode            # frozen, shared_projector, lora, partial
-freeze_vlm
-shared_projector_dim
-lora_rank
-lora_alpha
-num_unfrozen_vision_layers
-num_unfrozen_language_layers
-use_target_heatmap_head
-target_heatmap_loss_weight
-compute_target_heatmap_at_inference
-chunk_size
-num_inference_steps
-rtc_config
-~~~
-
-The final field names should follow LeRobot's policy configuration conventions. Invalid combinations should fail
-early; for example, vlm_adaptation_mode=lora must require LoRA support and a pretrained VLM path.
-
-### Relationship To PI0.5
-
-Action Flow V2 and PI0.5 share a broad VLM-plus-action-expert structure. PI0.5 additionally uses heterogeneous
-web and robot co-training, FAST action-token pretraining, autoregressive semantic-subtask prediction, and
-hierarchical inference before continuous flow actions.
-
-The first Action Flow V2 experiment does not reproduce those components. Its contribution is narrower and
-inspectable: use an auxiliary prompt-conditioned heatmap to improve or diagnose the shared representation while
-leaving the normal VLM-to-action path unchanged.
-
-### Initial Success Criteria
-
-The first experiment is successful when:
-
-1. The heatmap selects the prompted target instead of a fixed workspace location.
-2. Changing the prompt for the same image changes the heatmap.
-3. Moving the target while keeping the prompt fixed moves the heatmap.
-4. At least one adaptation strategy improves held-out heatmap accuracy over the frozen diagnostic.
-5. The same strategy improves correct-target approach or grasp success over the V2 VLM baseline.
-6. Disabling heatmap output at inference does not change actions.
-7. Any action improvement is reported separately from RTC or rollout-hyperparameter changes.
+Training should be stopped and inspected if the relevance loss dominates the flow loss after multiplication by `policy.relevance_loss_weight`, or if heatmap quality improves while rollout action quality degrades.

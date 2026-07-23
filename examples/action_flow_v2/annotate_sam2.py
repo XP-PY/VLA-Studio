@@ -26,6 +26,8 @@ loss weight.
 from __future__ import annotations
 
 import argparse
+import gc
+import hashlib
 import json
 import logging
 import re
@@ -207,6 +209,7 @@ class GroundingDINOReview:
             raise FileNotFoundError(self.root)
         if not self.review_path.is_file():
             raise FileNotFoundError(self.review_path)
+        self.review_sha256 = hashlib.sha256(self.review_path.read_bytes()).hexdigest()
         self.decisions = self._load_decisions()
 
     @staticmethod
@@ -341,6 +344,7 @@ class TaskRelevanceAnnotator:
         grounding_root: Path | None = None,
         grounding_review: Path | None = None,
         auto_grounding: bool = True,
+        sam_frame_stride: int = 3,
     ):
         self.source = EpisodeVideoSource(dataset_root)
         self.output_root = output_root.resolve()
@@ -348,6 +352,9 @@ class TaskRelevanceAnnotator:
         self.model_path = model_path.resolve()
         if not self.model_path.is_dir():
             raise FileNotFoundError(self.model_path)
+        if sam_frame_stride < 1:
+            raise ValueError("sam_frame_stride must be at least 1")
+        self.sam_frame_stride = sam_frame_stride
         self.grounding_review = None
         if auto_grounding:
             if grounding_root is None or grounding_review is None:
@@ -364,6 +371,8 @@ class TaskRelevanceAnnotator:
         self.model: Sam2VideoModel | None = None
         self.processor: Sam2VideoProcessor | None = None
         self.session: Any | None = None
+        self.session_frame_indices: list[int] = []
+        self.session_frame_lookup: dict[int, int] = {}
         self.lock = threading.RLock()
 
         self.episode_index: int | None = None
@@ -393,7 +402,12 @@ class TaskRelevanceAnnotator:
             "grounding_review": (
                 str(self.grounding_review.review_path) if self.grounding_review else None
             ),
+            "grounding_review_sha256": (
+                self.grounding_review.review_sha256 if self.grounding_review else None
+            ),
             "fps": self.source.fps,
+            "sam_frame_stride": self.sam_frame_stride,
+            "mask_interpolation": "nearest tracked frame; every prompt and explicit bound is retained",
             "cameras": list(CAMERAS),
             "mask_encoding": "zlib-compressed uint32 start-length pairs in row-major order",
             "data_path": "data/episode-{episode_index:06d}/camera-{camera}.parquet",
@@ -408,7 +422,12 @@ class TaskRelevanceAnnotator:
             "grounding_review": (
                 str(self.grounding_review.review_path) if self.grounding_review else None
             ),
+            "grounding_review_sha256": (
+                self.grounding_review.review_sha256 if self.grounding_review else None
+            ),
             "fps": self.source.fps,
+            "sam_frame_stride": self.sam_frame_stride,
+            "mask_interpolation": "nearest tracked frame; every prompt and explicit bound is retained",
             "cameras": list(CAMERAS),
             "mask_encoding": "zlib-compressed uint32 start-length pairs in row-major order",
             "data_path": "data/episode-{episode_index:06d}/camera-{camera}.parquet",
@@ -502,6 +521,9 @@ class TaskRelevanceAnnotator:
             "grounding_not_visible": {
                 str(object_id): reason for object_id, reason in sorted(self.grounding_not_visible.items())
             },
+            "grounding_review_sha256": (
+                self.grounding_review.review_sha256 if self.grounding_review else None
+            ),
             "excluded_frames": sorted(self.excluded_frames),
         }
         self._write_json_atomic(path, payload)
@@ -522,6 +544,22 @@ class TaskRelevanceAnnotator:
         if not path.is_file():
             return False
         payload = json.loads(path.read_text())
+        if self.grounding_review is not None:
+            saved_review_sha256 = payload.get("grounding_review_sha256")
+            current_review_sha256 = self.grounding_review.review_sha256
+            has_manual_points = any(
+                points
+                for frame_prompts in payload.get("prompts", {}).values()
+                for points in frame_prompts.values()
+            )
+            if saved_review_sha256 != current_review_sha256 and not has_manual_points:
+                logger.info("Refreshing %s because the Grounding DINO review changed", path)
+                return False
+            if saved_review_sha256 != current_review_sha256:
+                logger.warning(
+                    "Keeping %s because it contains manual points despite a changed grounding review",
+                    path,
+                )
         self.prompts = {
             int(object_id): {
                 int(frame_index): [tuple(int(value) for value in point) for point in points]
@@ -648,7 +686,7 @@ class TaskRelevanceAnnotator:
             if episode_index not in self.source.episodes.index:
                 raise gr.Error(f"Episode {episode_index} does not exist")
             camera = str(camera)
-            self._release_session()
+            self.release_episode_memory()
             logger.info("Decoding episode %d camera %s", episode_index, camera)
             self.video_frames = self.source.frames(episode_index, camera)
             self.episode_index = episode_index
@@ -663,7 +701,23 @@ class TaskRelevanceAnnotator:
             return self.render(0), self.task_prompt, len(self.video_frames) - 1, status
 
     def _release_session(self) -> None:
+        session = self.session
         self.session = None
+        self.session_frame_indices = []
+        self.session_frame_lookup = {}
+        del session
+        gc.collect()
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    def release_episode_memory(self) -> None:
+        """Release all large buffers retained by the current video and SAM2 session."""
+        self._release_session()
+        self.video_frames = []
+        self.propagated_object_masks = None
+        self.propagated_masks = None
+        self.preview_mask = None
+        gc.collect()
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
 
@@ -671,13 +725,49 @@ class TaskRelevanceAnnotator:
         if self.episode_index is None or self.camera is None or not self.video_frames:
             raise gr.Error("Load an episode and camera first")
 
+    def _tracking_frame_indices(self) -> list[int]:
+        """Return memory-bounded SAM2 frames while retaining every conditioning boundary."""
+        self._require_loaded_video()
+        indices = set(range(0, len(self.video_frames), self.sam_frame_stride))
+        indices.add(len(self.video_frames) - 1)
+        indices.update(self._conditioning_frames())
+        for bounds in self.bounds.values():
+            if bounds.start is not None:
+                indices.add(int(bounds.start))
+            if bounds.end is not None:
+                indices.add(int(bounds.end))
+        return sorted(index for index in indices if 0 <= index < len(self.video_frames))
+
+    @staticmethod
+    def _nearest_frame(frame_index: int, sorted_indices: list[int]) -> int:
+        """Return the temporally nearest index, preferring the earlier frame on ties."""
+        position = int(np.searchsorted(sorted_indices, frame_index))
+        if position == 0:
+            return sorted_indices[0]
+        if position == len(sorted_indices):
+            return sorted_indices[-1]
+        before = sorted_indices[position - 1]
+        after = sorted_indices[position]
+        return before if frame_index - before <= after - frame_index else after
+
     def _new_session(self) -> Any:
         self._require_loaded_video()
         self._load_model()
         assert self.processor is not None
-        logger.info("Preparing SAM2 session for %d frames", len(self.video_frames))
+        self.session_frame_indices = self._tracking_frame_indices()
+        self.session_frame_lookup = {
+            frame_index: session_index
+            for session_index, frame_index in enumerate(self.session_frame_indices)
+        }
+        session_frames = [self.video_frames[index] for index in self.session_frame_indices]
+        logger.info(
+            "Preparing SAM2 session for %d/%d frames (stride=%d)",
+            len(session_frames),
+            len(self.video_frames),
+            self.sam_frame_stride,
+        )
         return self.processor.init_video_session(
-            video=self.video_frames,
+            video=session_frames,
             inference_device=self.device,
             inference_state_device="cpu",
             processing_device="cpu",
@@ -688,6 +778,7 @@ class TaskRelevanceAnnotator:
 
     def _set_session_prompt(self, object_id: int, frame_index: int) -> None:
         assert self.processor is not None and self.session is not None
+        session_frame_index = self.session_frame_lookup[frame_index]
         points = self.prompts.get(object_id, {}).get(frame_index, [])
         box = self.boxes.get(object_id, {}).get(frame_index)
         if not points and box is None:
@@ -697,7 +788,7 @@ class TaskRelevanceAnnotator:
         boxes = [[list(box)]] if box is not None else None
         self.processor.add_inputs_to_inference_session(
             inference_session=self.session,
-            frame_idx=frame_index,
+            frame_idx=session_frame_index,
             obj_ids=object_id,
             input_points=coordinates,
             input_labels=labels,
@@ -734,7 +825,10 @@ class TaskRelevanceAnnotator:
         for frame_index in self._conditioning_frames():
             for object_id in self._conditioning_objects(frame_index):
                 self._set_session_prompt(object_id, frame_index)
-                self.model(inference_session=self.session, frame_idx=frame_index)
+                self.model(
+                    inference_session=self.session,
+                    frame_idx=self.session_frame_lookup[frame_index],
+                )
 
     def _object_range(self, object_id: int) -> tuple[int, int]:
         prompt_frames = sorted(set(self.prompts.get(object_id, {})) | set(self.boxes.get(object_id, {})))
@@ -804,18 +898,25 @@ class TaskRelevanceAnnotator:
             self._save_workspace()
 
             try:
-                if self.session is None:
+                if self.session is None or frame_index not in self.session_frame_lookup:
+                    self._release_session()
                     self._ensure_session()
                 else:
                     self._set_session_prompt(object_id, frame_index)
                 assert self.model is not None
-                output = self.model(inference_session=self.session, frame_idx=frame_index)
+                output = self.model(
+                    inference_session=self.session,
+                    frame_idx=self.session_frame_lookup[frame_index],
+                )
             except Exception:
                 logger.exception("SAM2 session update failed; rebuilding the session")
                 self._release_session()
                 self._ensure_session()
                 assert self.model is not None
-                output = self.model(inference_session=self.session, frame_idx=frame_index)
+                output = self.model(
+                    inference_session=self.session,
+                    frame_idx=self.session_frame_lookup[frame_index],
+                )
             object_masks = self._output_object_masks(output, frame_index)
             height, width = self.video_frames[frame_index].shape[:2]
             self.preview_mask = self._merge_object_masks(object_masks, height, width)
@@ -952,9 +1053,10 @@ class TaskRelevanceAnnotator:
                 raise gr.Error("Add at least one positive point or reviewed box before running SAM2")
 
             height, width = self.video_frames[0].shape[:2]
-            masks = [np.zeros((height, width), dtype=bool) for _ in self.video_frames]
+            zero_mask = np.zeros((height, width), dtype=bool)
+            masks = [zero_mask] * len(self.video_frames)
             object_tracks = {
-                object_id: [np.zeros((height, width), dtype=bool) for _ in self.video_frames]
+                object_id: [zero_mask] * len(self.video_frames)
                 for object_id in tracked_object_ids
             }
 
@@ -967,9 +1069,9 @@ class TaskRelevanceAnnotator:
                     )
                     for object_id in active_object_ids
                 }
-                first_prompt_frame = conditioning_frames[0]
-                last_prompt_frame = conditioning_frames[-1]
-                forward_steps = len(self.video_frames) - first_prompt_frame
+                first_prompt_frame = self.session_frame_lookup[conditioning_frames[0]]
+                last_prompt_frame = self.session_frame_lookup[conditioning_frames[-1]]
+                forward_steps = len(self.session_frame_indices) - first_prompt_frame
                 reverse_steps = last_prompt_frame + 1 if last_prompt_frame > 0 else 0
                 total_steps = forward_steps + reverse_steps
                 completed_steps = 0
@@ -977,12 +1079,12 @@ class TaskRelevanceAnnotator:
                 forward_iterator = self.model.propagate_in_video_iterator(
                     self.session,
                     start_frame_idx=first_prompt_frame,
-                    max_frame_num_to_track=len(self.video_frames),
+                    max_frame_num_to_track=len(self.session_frame_indices),
                     reverse=False,
                     show_progress_bar=False,
                 )
                 for output in forward_iterator:
-                    output_frame_index = int(output.frame_idx)
+                    output_frame_index = self.session_frame_indices[int(output.frame_idx)]
                     output_masks = self._output_object_masks(output, output_frame_index)
                     for object_id, mask in output_masks.items():
                         if output_frame_index >= first_prompt_by_object[object_id]:
@@ -1003,7 +1105,7 @@ class TaskRelevanceAnnotator:
                         show_progress_bar=False,
                     )
                     for output in reverse_iterator:
-                        output_frame_index = int(output.frame_idx)
+                        output_frame_index = self.session_frame_indices[int(output.frame_idx)]
                         output_masks = self._output_object_masks(output, output_frame_index)
                         for object_id, mask in output_masks.items():
                             if output_frame_index < first_prompt_by_object[object_id]:
@@ -1015,15 +1117,33 @@ class TaskRelevanceAnnotator:
                                 desc=f"Reverse tracking frame {output_frame_index + 1}",
                             )
 
+                for object_id in active_object_ids:
+                    start, end = self._object_range(object_id)
+                    sampled_in_range = [
+                        index for index in self.session_frame_indices if start <= index <= end
+                    ]
+                    if not sampled_in_range:
+                        continue
+                    for output_frame_index in range(max(start, 0), min(end + 1, len(self.video_frames))):
+                        if output_frame_index in self.session_frame_lookup:
+                            continue
+                        nearest = self._nearest_frame(output_frame_index, sampled_in_range)
+                        object_tracks[object_id][output_frame_index] = object_tracks[object_id][nearest]
+
+            merged_cache: dict[tuple[int, ...], np.ndarray] = {}
             for output_frame_index in range(len(self.video_frames)):
-                masks[output_frame_index] = self._merge_object_masks(
-                    {
-                        object_id: object_tracks[object_id][output_frame_index]
-                        for object_id in tracked_object_ids
-                    },
-                    height,
-                    width,
-                )
+                frame_object_masks = {
+                    object_id: object_tracks[object_id][output_frame_index]
+                    for object_id in tracked_object_ids
+                }
+                cache_key = tuple(id(mask) for mask in frame_object_masks.values())
+                if cache_key not in merged_cache:
+                    merged_cache[cache_key] = self._merge_object_masks(
+                        frame_object_masks,
+                        height,
+                        width,
+                    )
+                masks[output_frame_index] = merged_cache[cache_key]
             self.propagated_object_masks = object_tracks
             self.propagated_masks = masks
             self.preview_mask = None
@@ -1332,6 +1452,7 @@ def run_batch(
     report_path = annotator.sam_root / "meta" / "sam2_batch_report.json"
     report: dict[str, Any] = {
         "dataset_root": str(annotator.source.root),
+        "sam_frame_stride": annotator.sam_frame_stride,
         "episode_indices": episode_indices,
         "cameras": cameras,
         "processed": [],
@@ -1392,14 +1513,15 @@ def run_batch(
                 except Exception as error:
                     logger.exception("SAM2 failed for episode %d camera %s", episode_index, camera)
                     report["failed"].append({**pair, "error": f"{type(error).__name__}: {error}"})
-                    annotator._release_session()
+                finally:
+                    annotator.release_episode_memory()
                 save_report()
     except KeyboardInterrupt:
         report["interrupted"] = True
         save_report()
         raise
     finally:
-        annotator._release_session()
+        annotator.release_episode_memory()
     logger.info(
         "Batch complete: %d processed, %d existing, %d unresolved, %d failed. Report: %s",
         len(report["processed"]),
@@ -1426,6 +1548,12 @@ def parse_args() -> argparse.Namespace:
         help="Import reviewed Grounding DINO boxes when no SAM2 workspace exists.",
     )
     parser.add_argument("--device", default="auto", help="auto, cuda, cuda:N, or cpu")
+    parser.add_argument(
+        "--sam-frame-stride",
+        type=int,
+        default=3,
+        help="Track every Nth frame to bound memory; prompt frames are always retained (default: 3).",
+    )
     parser.add_argument("--episode", type=int, default=0, help="Initial episode in UI mode.")
     parser.add_argument("--camera", choices=CAMERAS, default="top")
     parser.add_argument(
@@ -1452,6 +1580,7 @@ def main() -> None:
         grounding_root=args.grounding_root,
         grounding_review=args.grounding_review,
         auto_grounding=args.auto_grounding,
+        sam_frame_stride=args.sam_frame_stride,
     )
     if args.mode == "batch":
         episode_indices = parse_episode_indices(args.episodes, annotator.source.episode_indices)

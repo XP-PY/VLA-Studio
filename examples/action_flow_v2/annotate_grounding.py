@@ -12,9 +12,13 @@ boxes as SAM2 prompts.
 
 Quick test:
     python examples/action_flow_v2/annotate_grounding.py \
+        --dataset-config table_preparation \
         --episodes 1 --device cuda --overwrite
 
-python examples/action_flow_v2/annotate_grounding.py --episodes 53 --cameras wrist --device cuda --overwrite
+Process the bimanual assembly-parts dataset:
+    python examples/action_flow_v2/annotate_grounding.py \
+        --dataset-config assembly_parts \
+        --episodes all --device cuda
 
 Process the complete dataset:
     python examples/action_flow_v2/annotate_grounding.py \
@@ -32,7 +36,6 @@ import html
 import json
 import logging
 import math
-import re
 import textwrap
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -45,24 +48,26 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
+try:
+    from .grounding_configs import (
+        DATASET_CONFIGS,
+        TABLE_PREPARATION_CONFIG,
+        EntitySpec,
+        GroundingDatasetConfig,
+        get_dataset_config,
+    )
+except ImportError:
+    from grounding_configs import (  # type: ignore[no-redef]
+        DATASET_CONFIGS,
+        TABLE_PREPARATION_CONFIG,
+        EntitySpec,
+        GroundingDatasetConfig,
+        get_dataset_config,
+    )
+
 
 WORKSPACE = Path(__file__).resolve().parents[2]
-DEFAULT_DATASET_ROOT = WORKSPACE / "runs" / "dataset" / "rm65_single_table_preparation_and_bussing"
 DEFAULT_MODEL_PATH = WORKSPACE / "models" / "grounding-dino-tiny"
-SUPPORTED_CAMERAS = ("top", "wrist")
-VEGETABLE_NAMES = ("tomato", "garlic", "corn", "cucumber")
-GROUNDING_QUERIES = {       # tray / dish / bowl / plate
-    "cucumber": "green cucumber",
-    "garlic": "white garlic",
-    "pink plate": "pink square bowl",
-    "yellow plate": "cream square bowl",
-    "blue plate": "blue square bowl",
-    "collection box": "brown cardboard box",
-}
-PLATE_COLORS = ("pink", "yellow", "blue")
-BOX_THRESHOLD = 0.4
-TEXT_THRESHOLD = 0.4
-MIN_QUALITY = 0.5
 PREVIEW_PANEL_SIZE = (384, 288)
 PREVIEW_COLORS = (
     (230, 70, 70),
@@ -74,17 +79,6 @@ PREVIEW_COLORS = (
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class EntitySpec:
-    """A task-relevant entity with an episode-local deterministic ID."""
-
-    object_id: int
-    object_name: str
-    object_role: str
-    query: str
-    task_step: int
 
 
 @dataclass(frozen=True)
@@ -123,6 +117,15 @@ class EpisodeVideoSource:
     @property
     def episode_indices(self) -> list[int]:
         return sorted(int(index) for index in self.episodes.index)
+
+    @property
+    def camera_names(self) -> tuple[str, ...]:
+        prefix = "observation.images."
+        return tuple(
+            feature_name.removeprefix(prefix)
+            for feature_name, feature in self.info["features"].items()
+            if feature_name.startswith(prefix) and feature.get("dtype") == "video"
+        )
 
     def row(self, episode_index: int) -> pd.Series:
         if episode_index not in self.episodes.index:
@@ -192,82 +195,14 @@ class EpisodeVideoSource:
                 decoded_index += 1
 
 
-PLACE_PATTERN = re.compile(
-    r"place the (tomato|garlic|corn|cucumber) on the (pink|yellow|blue) plate",
-    flags=re.IGNORECASE,
-)
-CLEAR_PATTERN = re.compile(
-    r"put the vegetable from the (pink|yellow|blue) plate into the collection box",
-    flags=re.IGNORECASE,
-)
-
-
 def grounding_query(object_name: str) -> str:
-    """Return the detector-specific phrase while preserving the semantic object name."""
-    return GROUNDING_QUERIES.get(object_name, object_name)
+    """Return the legacy table-dataset query used by helper scripts."""
+    return TABLE_PREPARATION_CONFIG.grounding_query(object_name)
 
 
 def entities_from_task(task: str) -> list[EntitySpec]:
-    """Convert a known dataset task prompt into ordered grounding queries."""
-    placements = PLACE_PATTERN.findall(task)
-    if placements:
-        entities: list[EntitySpec] = []
-        for step, (vegetable, plate_color) in enumerate(placements, start=1):
-            vegetable = vegetable.lower()
-            plate_name = f"{plate_color.lower()} plate"
-            entities.append(
-                EntitySpec(
-                    object_id=len(entities) + 1,
-                    object_name=vegetable,
-                    object_role="source",
-                    query=grounding_query(vegetable),
-                    task_step=step,
-                )
-            )
-            entities.append(
-                EntitySpec(
-                    object_id=len(entities) + 1,
-                    object_name=plate_name,
-                    object_role="destination",
-                    query=grounding_query(plate_name),
-                    task_step=step,
-                )
-            )
-        return entities
-
-    clear_match = CLEAR_PATTERN.fullmatch(task.rstrip("."))
-    if clear_match:
-        plate_name = f"{clear_match.group(1).lower()} plate"
-        source_name = f"vegetable on {plate_name}"
-        return [
-            EntitySpec(
-                1,
-                source_name,
-                "source",
-                grounding_query(f"vegetable on the {plate_name}"),
-                1,
-            ),
-            EntitySpec(2, plate_name, "source container", grounding_query(plate_name), 1),
-            EntitySpec(3, "collection box", "destination", grounding_query("collection box"), 1),
-        ]
-
-    if task.rstrip(".").lower() == "put all vegetables into the collection box":
-        entities = [
-            EntitySpec(index + 1, name, "source", grounding_query(name), 1)
-            for index, name in enumerate(VEGETABLE_NAMES)
-        ]
-        entities.append(
-            EntitySpec(
-                len(entities) + 1,
-                "collection box",
-                "destination",
-                grounding_query("collection box"),
-                1,
-            )
-        )
-        return entities
-
-    raise ValueError(f"Unsupported task prompt: {task!r}")
+    """Parse a legacy table-dataset prompt for helper-script compatibility."""
+    return TABLE_PREPARATION_CONFIG.entities_from_task(task)
 
 
 def parse_episode_selection(value: str, available: list[int]) -> list[int]:
@@ -297,6 +232,7 @@ def parse_episode_selection(value: str, available: list[int]) -> list[int]:
 def detect_entities(
     image: Image.Image,
     entities: list[EntitySpec],
+    dataset_config: GroundingDatasetConfig,
     processor,
     model,
     device: torch.device,
@@ -306,14 +242,15 @@ def detect_entities(
     """Ground entities with one contrastive vocabulary prompt."""
     if not entities:
         return {}
-    vocabulary = [
-        *(grounding_query(name) for name in VEGETABLE_NAMES),
-        *(grounding_query(f"{color} plate") for color in PLATE_COLORS),
-        grounding_query("collection box"),
-    ]
+    vocabulary = list(dataset_config.detector_queries)
     for entity in entities:
-        if not entity.query.startswith("vegetable on the ") and entity.query not in vocabulary:
+        if entity.relation_container_query is None and entity.query not in vocabulary:
             vocabulary.append(entity.query)
+        relation_queries = (entity.relation_container_query, *entity.relation_member_queries)
+        for query in relation_queries:
+            if query is not None and query not in vocabulary:
+                vocabulary.append(query)
+    vocabulary = list(dict.fromkeys(vocabulary))
     prompt = ". ".join(vocabulary) + "."
     inputs = processor(
         images=image,
@@ -357,11 +294,52 @@ def detect_entities(
         )
     ]
 
-    def best_candidate(query: str):
+    def matching_candidates(query: str):
         normalized_query = " ".join(query.lower().split())
         exact = [candidate for candidate in candidates if candidate[0] == normalized_query]
-        matches = exact or [candidate for candidate in candidates if normalized_query in candidate[0]]
-        return max(matches, key=lambda candidate: candidate[1]) if matches else None
+        return exact or [candidate for candidate in candidates if normalized_query in candidate[0]]
+
+    def box_iou(first_box, second_box) -> float:
+        ix0 = max(first_box[0], second_box[0])
+        iy0 = max(first_box[1], second_box[1])
+        ix1 = min(first_box[2], second_box[2])
+        iy1 = min(first_box[3], second_box[3])
+        intersection = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        first_area = max(1.0, first_box[2] - first_box[0]) * max(1.0, first_box[3] - first_box[1])
+        second_area = max(1.0, second_box[2] - second_box[0]) * max(
+            1.0, second_box[3] - second_box[1]
+        )
+        return intersection / max(first_area + second_area - intersection, 1.0)
+
+    def deduplicate_candidates(matches):
+        retained = []
+        for candidate in sorted(matches, key=lambda item: item[1], reverse=True):
+            if all(box_iou(candidate[2], existing[2]) < 0.8 for existing in retained):
+                retained.append(candidate)
+        return retained
+
+    def order_candidates(matches, order: str):
+        matches = deduplicate_candidates(matches)
+        if order == "confidence":
+            return sorted(matches, key=lambda item: item[1], reverse=True)
+
+        def center(candidate):
+            box = candidate[2]
+            return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+
+        if order == "top_to_bottom":
+            return sorted(matches, key=lambda item: (center(item)[1], -item[1]))
+        if order == "bottom_to_top":
+            return sorted(matches, key=lambda item: (-center(item)[1], -item[1]))
+        if order == "left_to_right":
+            return sorted(matches, key=lambda item: (center(item)[0], -item[1]))
+        if order == "right_to_left":
+            return sorted(matches, key=lambda item: (-center(item)[0], -item[1]))
+        raise ValueError(f"Unsupported candidate order: {order}")
+
+    def best_candidate(query: str):
+        matches = order_candidates(matching_candidates(query), "confidence")
+        return matches[0] if matches else None
 
     def containment(inner_box, outer_box) -> float:
         ix0 = max(inner_box[0], outer_box[0])
@@ -373,29 +351,62 @@ def detect_entities(
         return intersection / inner_area
 
     detections = {}
+    processed_groups = set()
     for entity in entities:
-        relation_match = re.fullmatch(r"vegetable on (pink|yellow|blue) plate", entity.object_name)
-        if relation_match:
-            plate = best_candidate(grounding_query(f"{relation_match.group(1)} plate"))
-            vegetables = [
-                candidate
-                for name in VEGETABLE_NAMES
-                if (candidate := best_candidate(grounding_query(name)))
-            ]
-            if plate is None or not vegetables:
-                continue
-            ranked = [(containment(candidate[2], plate[2]), candidate) for candidate in vegetables]
-            overlap, selected = max(ranked, key=lambda item: (item[0], item[1][1]))
-            if overlap < 0.2:
-                continue
-        else:
-            selected = best_candidate(entity.query)
-            if selected is None:
-                continue
-        _, score, box = selected
-        if score < box_threshold:
+        group_key = (
+            entity.object_name,
+            entity.query,
+            entity.cardinality,
+            entity.candidate_order,
+            entity.relation_container_query,
+            entity.relation_member_queries,
+        )
+        if group_key in processed_groups:
             continue
-        detections[entity.object_id] = (score, box)
+        processed_groups.add(group_key)
+        group_entities = sorted(
+            (
+                candidate_entity
+                for candidate_entity in entities
+                if (
+                    candidate_entity.object_name,
+                    candidate_entity.query,
+                    candidate_entity.cardinality,
+                    candidate_entity.candidate_order,
+                    candidate_entity.relation_container_query,
+                    candidate_entity.relation_member_queries,
+                )
+                == group_key
+            ),
+            key=lambda candidate_entity: candidate_entity.instance_index,
+        )
+
+        if entity.relation_container_query is not None:
+            container = best_candidate(entity.relation_container_query)
+            members = [
+                candidate
+                for query in entity.relation_member_queries
+                if (candidate := best_candidate(query)) is not None
+            ]
+            if container is None or not members:
+                continue
+            ranked = [(containment(candidate[2], container[2]), candidate) for candidate in members]
+            overlap, selected = max(ranked, key=lambda item: (item[0], item[1][1]))
+            selected_candidates = [selected] if overlap >= 0.2 else []
+        else:
+            selected_candidates = order_candidates(
+                matching_candidates(entity.query),
+                entity.candidate_order,
+            )
+
+        if entity.cardinality == "single":
+            selected_candidates = selected_candidates[:1]
+        for candidate_entity in group_entities:
+            if candidate_entity.instance_index >= len(selected_candidates):
+                continue
+            _, score, box = selected_candidates[candidate_entity.instance_index]
+            if score >= box_threshold:
+                detections[candidate_entity.object_id] = (score, box)
     return detections
 
 
@@ -505,6 +516,7 @@ def ground_episode_camera(
     episode_index: int,
     camera: str,
     entities: list[EntitySpec],
+    dataset_config: GroundingDatasetConfig,
     processor,
     model,
     device: torch.device,
@@ -543,6 +555,7 @@ def ground_episode_camera(
         frame_detections = detect_entities(
             image,
             entities,
+            dataset_config,
             processor,
             model,
             device,
@@ -798,15 +811,28 @@ def result_paths(
     )
 
 
-def result_is_current(paths: tuple[Path, Path, Path, Path, Path]) -> bool:
-    """Return whether all artifacts use the role-aware ranking schema."""
+def result_is_current(
+    paths: tuple[Path, Path, Path, Path, Path],
+    entities: list[EntitySpec] | None = None,
+) -> bool:
+    """Return whether artifacts use the current schema and expected entities."""
     if not all(path.is_file() for path in paths):
         return False
     try:
         candidate_columns = set(pd.read_parquet(paths[1]).columns)
+        selected = (
+            pd.read_parquet(paths[0], columns=["object_id"])
+            if entities is not None
+            else None
+        )
     except Exception:
         return False
-    return {"selection_score", "episode_progress"}.issubset(candidate_columns)
+    schema_is_current = {"selection_score", "episode_progress"}.issubset(candidate_columns)
+    if not schema_is_current or entities is None:
+        return schema_is_current
+    expected_object_ids = {entity.object_id for entity in entities}
+    actual_object_ids = set(int(object_id) for object_id in selected["object_id"])
+    return actual_object_ids == expected_object_ids
 
 
 def rebuild_summary(output_root: Path, detector_name: str = "Grounding DINO") -> None:
@@ -877,7 +903,17 @@ def setup_logging(output_root: Path, log_filename: str = "grounding_dino.log") -
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
+    parser.add_argument(
+        "--dataset-config",
+        choices=sorted(DATASET_CONFIGS),
+        default=TABLE_PREPARATION_CONFIG.name,
+        help="Dataset semantics and default paths to use.",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        help="Override the dataset root declared by --dataset-config.",
+    )
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL_PATH)
     parser.add_argument(
@@ -885,7 +921,11 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help="all, comma-separated indices, or end-exclusive ranges such as 0:20,156",
     )
-    parser.add_argument("--cameras", nargs="+", choices=SUPPORTED_CAMERAS, default=list(SUPPORTED_CAMERAS))
+    parser.add_argument(
+        "--cameras",
+        nargs="+",
+        help="Override the default cameras declared by --dataset-config.",
+    )
     parser.add_argument("--frame-stride", type=int, default=10)
     parser.add_argument("--top-k", type=int, default=3, help="Complete-view candidates retained per object.")
     parser.add_argument(
@@ -894,13 +934,20 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Maximum sampled frames per episode-camera; 0 scans the complete episode.",
     )
-    parser.add_argument("--box-threshold", type=float, default=BOX_THRESHOLD)
-    parser.add_argument("--text-threshold", type=float, default=TEXT_THRESHOLD)
+    parser.add_argument(
+        "--box-threshold",
+        type=float,
+        help="Override the box threshold declared by --dataset-config.",
+    )
+    parser.add_argument(
+        "--text-threshold",
+        type=float,
+        help="Override the text threshold declared by --dataset-config.",
+    )
     parser.add_argument(
         "--min-quality",
         type=float,
-        default=MIN_QUALITY,
-        help="Minimum complete-view quality required for a selected detection.",
+        help="Override the minimum complete-view quality declared by --dataset-config.",
     )
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or cuda:N")
     parser.add_argument("--overwrite", action="store_true")
@@ -913,15 +960,32 @@ def main() -> None:
         raise ValueError("--frame-stride must be at least 1")
     if args.top_k < 1:
         raise ValueError("--top-k must be at least 1")
-    source = EpisodeVideoSource(args.dataset_root)
+    dataset_config = get_dataset_config(args.dataset_config)
+    dataset_root = args.dataset_root or dataset_config.default_dataset_root
+    cameras = tuple(args.cameras) if args.cameras is not None else dataset_config.cameras
+    box_threshold = (
+        args.box_threshold if args.box_threshold is not None else dataset_config.box_threshold
+    )
+    text_threshold = (
+        args.text_threshold if args.text_threshold is not None else dataset_config.text_threshold
+    )
+    min_quality = args.min_quality if args.min_quality is not None else dataset_config.min_quality
+    source = EpisodeVideoSource(dataset_root)
+    missing_cameras = sorted(set(cameras).difference(source.camera_names))
+    if missing_cameras:
+        available = ", ".join(source.camera_names)
+        raise ValueError(
+            f"Dataset does not contain cameras {missing_cameras}; available cameras: {available}"
+        )
     episode_indices = parse_episode_selection(args.episodes, source.episode_indices)
     task_entities = {
-        episode_index: entities_from_task(source.task(episode_index)) for episode_index in episode_indices
+        episode_index: dataset_config.entities_from_task(source.task(episode_index))
+        for episode_index in episode_indices
     }
     output_root = (
         args.output_root
         if args.output_root is not None
-        else WORKSPACE / "runs" / "sam" / args.dataset_root.resolve().name / "grounding_dino"
+        else WORKSPACE / "runs" / "sam" / source.root.name / "grounding_dino"
     ).resolve()
     setup_logging(output_root)
 
@@ -936,16 +1000,22 @@ def main() -> None:
     metadata = {
         "format_version": 3,
         "role": "Grounding DINO initialization proposals for SAM2",
+        "dataset_config": dataset_config.name,
         "dataset_root": str(source.root),
         "model_path": str(model_path),
         "episodes": episode_indices,
-        "cameras": args.cameras,
+        "cameras": cameras,
+        "camera_entity_names": {
+            camera: sorted(names)
+            for camera, names in dataset_config.camera_entity_names.items()
+            if camera in cameras
+        },
         "frame_stride": args.frame_stride,
         "top_k": args.top_k,
         "max_sampled_frames": args.max_sampled_frames,
-        "box_threshold": args.box_threshold,
-        "text_threshold": args.text_threshold,
-        "min_quality": args.min_quality,
+        "box_threshold": box_threshold,
+        "text_threshold": text_threshold,
+        "min_quality": min_quality,
         "object_id_scope": "episode; IDs are identical across cameras for the same episode",
         "selection": "highest complete-view quality score across sampled frames",
         "quality_score": (
@@ -962,12 +1032,12 @@ def main() -> None:
         str(model_path), local_files_only=True
     ).to(device).eval()
 
-    total_jobs = len(episode_indices) * len(args.cameras)
+    total_jobs = len(episode_indices) * len(cameras)
     completed_jobs = 0
     for episode_index in episode_indices:
         task = source.task(episode_index)
-        entities = task_entities[episode_index]
-        for camera in args.cameras:
+        for camera in cameras:
+            entities = dataset_config.entities_for_camera(task_entities[episode_index], camera)
             parquet_path, candidates_path, json_path, preview_path, candidate_preview_path = result_paths(
                 output_root,
                 episode_index,
@@ -980,7 +1050,7 @@ def main() -> None:
                 preview_path,
                 candidate_preview_path,
             )
-            if result_is_current(completed_outputs) and not args.overwrite:
+            if result_is_current(completed_outputs, entities) and not args.overwrite:
                 completed_jobs += 1
                 logger.info(
                     "[%d/%d] Skipping episode %d camera %s; output exists",
@@ -999,20 +1069,27 @@ def main() -> None:
                 camera,
                 task,
             )
-            detections, detection_frames, ranked_candidates, fallback_frame, sampled_count = ground_episode_camera(
+            (
+                detections,
+                detection_frames,
+                ranked_candidates,
+                fallback_frame,
+                sampled_count,
+            ) = ground_episode_camera(
                 source,
                 episode_index,
                 camera,
                 entities,
+                dataset_config,
                 processor,
                 model,
                 device,
                 args.frame_stride,
                 args.max_sampled_frames,
-                args.box_threshold,
-                args.text_threshold,
+                box_threshold,
+                text_threshold,
                 args.top_k,
-                args.min_quality,
+                min_quality,
             )
             records = []
             for entity, detection in zip(entities, detections, strict=True):

@@ -235,6 +235,45 @@ def resize_with_pad_torch(  # see openpi `resize_with_pad_torch` (exact copy)
 
 # Define the complete layer computation function for gradient checkpointing
 def compute_layer_complete(inputs_embeds, attention_mask, position_ids, adarms_cond, layers, rotary_emb):
+    """Run one paired PaliGemma/action-expert transformer layer.
+
+    Each stream uses its own normalization, Q/K/V projections, output
+    projection, MLP, and residual path. Their projected queries, keys, and
+    values are concatenated along the token dimension so attention is computed
+    jointly over the prefix and action suffix. The attention mask determines
+    the information flow: prefix tokens normally attend only to the prefix,
+    while suffix tokens can attend to the prefix and permitted suffix tokens.
+    The combined attention output is then split back into the two streams.
+
+    The PaliGemma and expert layers may use different hidden and MLP sizes, but
+    they must use compatible attention-head counts and head dimensions so their
+    projected Q/K/V tensors can be concatenated.
+
+    Args:
+        inputs_embeds: Two-element list
+            ``[prefix_hidden_states, suffix_hidden_states]``. The tensors have
+            shapes ``(batch_size, prefix_seq_len, paligemma_hidden_size)`` and
+            ``(batch_size, suffix_seq_len, action_expert_hidden_size)``.
+        attention_mask: Additive joint-attention mask with shape
+            ``(batch_size, 1, prefix_seq_len + suffix_seq_len,
+            prefix_seq_len + suffix_seq_len)``. Allowed entries are zero and
+            blocked entries contain a large negative value.
+        position_ids: Rotary position indices with shape ``(batch_size,
+            prefix_seq_len + suffix_seq_len)``.
+        adarms_cond: Two-element list containing the optional normalization
+            condition for each stream. The prefix condition is normally
+            ``None``. The suffix condition has shape ``(batch_size,
+            action_expert_hidden_size)`` and represents the flow timestep.
+        layers: Pair ``(paligemma_layer, action_expert_layer)`` at the same
+            transformer depth.
+        rotary_emb: PaliGemma rotary-position embedding module shared by the
+            concatenated query and key tensors.
+
+    Returns:
+        A two-element list containing the updated prefix and suffix hidden
+        states. Their shapes match the corresponding tensors in
+        ``inputs_embeds``.
+    """
     query_states = []
     key_states = []
     value_states = []
@@ -251,7 +290,11 @@ def compute_layer_complete(inputs_embeds, attention_mask, position_ids, adarms_c
         query_states.append(query_state)
         key_states.append(key_state)
         value_states.append(value_state)
+
     # Concatenate and process attention
+    # query_states: (batch_size, num_attention_heads, prefix_seq_len + suffix_seq_len, head_dim)
+    # key_states: (batch_size, num_key_value_heads, prefix_seq_len + suffix_seq_len, head_dim)
+    # value_states: (batch_size, num_key_value_heads, prefix_seq_len + suffix_seq_len, head_dim)
     query_states = torch.cat(query_states, dim=2)
     key_states = torch.cat(key_states, dim=2)
     value_states = torch.cat(value_states, dim=2)
@@ -269,6 +312,7 @@ def compute_layer_complete(inputs_embeds, attention_mask, position_ids, adarms_c
     batch_size = query_states.shape[0]
     paligemma_layer = layers[0]
     scaling = paligemma_layer.self_attn.scaling
+
     # Attention computation
     att_output, _ = modeling_gemma.eager_attention_forward(
         paligemma_layer.self_attn,
@@ -278,9 +322,11 @@ def compute_layer_complete(inputs_embeds, attention_mask, position_ids, adarms_c
         attention_mask,
         scaling,
     )
+
     # Get head_dim from the current layer, not from the model
     head_dim = paligemma_layer.self_attn.head_dim
     att_output = att_output.reshape(batch_size, -1, 1 * 8 * head_dim)
+
     # Process layer outputs
     outputs_embeds = []
     start_pos = 0
@@ -302,6 +348,7 @@ def compute_layer_complete(inputs_embeds, attention_mask, position_ids, adarms_c
         out_emb = _gated_residual(after_first_residual, out_emb, gate)
         outputs_embeds.append(out_emb)
         start_pos = end_pos
+        
     return outputs_embeds
 
 
@@ -350,7 +397,7 @@ class PaliGemmaWithExpertModel(
         self,
         vlm_config,
         action_expert_config,
-        use_adarms=None,
+        use_adarms=None,        # [False, True]
         precision: Literal["bfloat16", "float32"] = "bfloat16",
         image_size: int = DEFAULT_IMAGE_SIZE,
         freeze_vision_encoder: bool = False,
@@ -365,37 +412,41 @@ class PaliGemmaWithExpertModel(
         vlm_config_hf = CONFIG_MAPPING["paligemma"]()
         vlm_config_hf._vocab_size = 257152  # noqa: SLF001
         vlm_config_hf.image_token_index = 257152
-        vlm_config_hf.text_config.hidden_size = vlm_config.width
-        vlm_config_hf.text_config.intermediate_size = vlm_config.mlp_dim
-        vlm_config_hf.text_config.num_attention_heads = vlm_config.num_heads
-        vlm_config_hf.text_config.head_dim = vlm_config.head_dim
-        vlm_config_hf.text_config.num_hidden_layers = vlm_config.depth
-        vlm_config_hf.text_config.num_key_value_heads = vlm_config.num_kv_heads
+        vlm_config_hf.text_config.hidden_size = vlm_config.width                # 1024
+        vlm_config_hf.text_config.intermediate_size = vlm_config.mlp_dim        # 16_384
+        vlm_config_hf.text_config.num_attention_heads = vlm_config.num_heads    # 8
+        vlm_config_hf.text_config.head_dim = vlm_config.head_dim                # 256
+        vlm_config_hf.text_config.num_hidden_layers = vlm_config.depth          # 18
+        vlm_config_hf.text_config.num_key_value_heads = vlm_config.num_kv_heads # 1
         vlm_config_hf.text_config.hidden_activation = "gelu_pytorch_tanh"
         vlm_config_hf.text_config.dtype = "float32"
         vlm_config_hf.text_config.vocab_size = 257152
-        vlm_config_hf.text_config.use_adarms = use_adarms[0]
+        vlm_config_hf.text_config.use_adarms = use_adarms[0]                    # False
         vlm_config_hf.text_config.adarms_cond_dim = vlm_config.width if use_adarms[0] else None
-        vlm_config_hf.vision_config.image_size = image_size
+        vlm_config_hf.vision_config.image_size = image_size                     # 224
         vlm_config_hf.vision_config.intermediate_size = 4304
         vlm_config_hf.vision_config.projection_dim = 2048
         vlm_config_hf.vision_config.projector_hidden_act = "gelu_fast"
         vlm_config_hf.vision_config.dtype = "float32"
 
         action_expert_config_hf = CONFIG_MAPPING["gemma"](
-            head_dim=action_expert_config.head_dim,
-            hidden_size=action_expert_config.width,
-            intermediate_size=action_expert_config.mlp_dim,
-            num_attention_heads=action_expert_config.num_heads,
-            num_hidden_layers=action_expert_config.depth,
-            num_key_value_heads=action_expert_config.num_kv_heads,
+            head_dim=action_expert_config.head_dim,                 # 256
+            hidden_size=action_expert_config.width,                 # 1024
+            intermediate_size=action_expert_config.mlp_dim,         # 4096
+            num_attention_heads=action_expert_config.num_heads,     # 8
+            num_hidden_layers=action_expert_config.depth,           # 18
+            num_key_value_heads=action_expert_config.num_kv_heads,  # 1
             vocab_size=257152,
             hidden_activation="gelu_pytorch_tanh",
             dtype="float32",
-            use_adarms=use_adarms[1],
+            use_adarms=use_adarms[1],                               # True
             adarms_cond_dim=action_expert_config.width if use_adarms[1] else None,
         )
 
+        # PaliGemma: images + prompt → prefix context
+        # PiGemma expert: noisy actions + timestep → actions
+        #                           ↑
+        #               attends to prefix context
         self.paligemma = PaliGemmaForConditionalGenerationWithPiGemma(config=vlm_config_hf)
         self.gemma_expert = PiGemmaForCausalLM(config=action_expert_config_hf)
         self.gemma_expert.model.embed_tokens = None
@@ -466,9 +517,61 @@ class PaliGemmaWithExpertModel(
         use_cache: bool | None = None,
         adarms_cond: list[torch.Tensor] | None = None,
     ):
+        """Run the PaliGemma prefix stream and the PiGemma action-expert stream.
+
+        The two entries of ``inputs_embeds`` select one of three execution
+        modes:
+
+        - ``[prefix_embs, suffix_embs]`` runs joint training. Each paired
+          PaliGemma/expert layer computes its own query, key, and value
+          projections. The projected prefix and suffix sequences are
+          concatenated for attention, then split so each stream applies its
+          own output projection, MLP, normalization, and residual path.
+        - ``[prefix_embs, None]`` prefills the visual-language prefix and can
+          return its key/value cache for iterative action denoising.
+        - ``[None, suffix_embs]`` runs only the action expert while attending
+          to a previously cached prefix.
+
+        Args:
+            attention_mask: Additive attention mask with shape
+                ``(batch_size, 1, query_seq_len, key_value_seq_len)``. For
+                joint execution both sequence dimensions are
+                ``prefix_seq_len + suffix_seq_len``. For cached suffix
+                execution they are ``suffix_seq_len`` and
+                ``prefix_seq_len + suffix_seq_len``.
+            position_ids: Token positions with shape ``(batch_size,
+                prefix_seq_len + suffix_seq_len)`` during joint execution,
+                ``(batch_size, prefix_seq_len)`` during prefix prefill, or
+                ``(batch_size, suffix_seq_len)`` during cached suffix
+                execution.
+            past_key_values: Optional prefix cache. Each layer stores key and
+                value tensors with shape ``(batch_size, num_key_value_heads,
+                cached_prefix_len, head_dim)``. It is consumed by suffix-only
+                execution.
+            inputs_embeds: Two-element list ``[prefix_embs, suffix_embs]``.
+                ``prefix_embs`` has shape ``(batch_size, prefix_seq_len,
+                paligemma_hidden_size)`` and contains image/language/state
+                context. ``suffix_embs`` has shape ``(batch_size,
+                suffix_seq_len, action_expert_hidden_size)`` and contains
+                projected noisy actions. Either entry may be ``None`` to
+                select a single-stream mode.
+            use_cache: Whether prefix-only execution should store and return
+                key/value tensors.
+            adarms_cond: Two-element list containing optional conditions for
+                the prefix and suffix streams. The action-expert condition
+                normally has shape ``(batch_size,
+                action_expert_hidden_size)`` and encodes flow timestep.
+
+        Returns:
+            A tuple ``([prefix_output, suffix_output],
+            prefix_past_key_values)``. Non-``None`` outputs preserve their
+            corresponding input embedding shapes. The prefix cache is
+            returned only by prefix-only execution when caching is enabled.
+        """
         if adarms_cond is None:
             adarms_cond = [None, None]
         if inputs_embeds[1] is None:
+            '''inference prifill pipeline: only prefix_embs'''
             prefix_output = self.paligemma.model.language_model.forward(
                 inputs_embeds=inputs_embeds[0],
                 attention_mask=attention_mask,
@@ -477,10 +580,14 @@ class PaliGemmaWithExpertModel(
                 use_cache=use_cache,
                 adarms_cond=adarms_cond[0] if adarms_cond is not None else None,
             )
+
+            # prefix_past_key_values: (batch_size, num_key_value_heads, prefix_seq_len, head_dim)
+            # prefix_output: (batch_size, prefix_seq_len, paligemma_hidden_size)
             prefix_past_key_values = prefix_output.past_key_values
             prefix_output = prefix_output.last_hidden_state
             suffix_output = None
         elif inputs_embeds[0] is None:
+            '''inference denoise pipeline: suffix_embs contioned on prefix_embs'''
             suffix_output = self.gemma_expert.model.forward(
                 inputs_embeds=inputs_embeds[1],
                 attention_mask=attention_mask,
@@ -489,10 +596,12 @@ class PaliGemmaWithExpertModel(
                 use_cache=use_cache,
                 adarms_cond=adarms_cond[1] if adarms_cond is not None else None,
             )
+            # suffix_output: (batch_size, suffix_seq_len, action_expert_hidden_size)
             suffix_output = suffix_output.last_hidden_state
             prefix_output = None
             prefix_past_key_values = None
         else:
+            '''forward pipeline: both prefix_embs and suffix_embs'''
             paligemma_layers = self.paligemma.model.language_model.layers
             gemma_expert_layers = self.gemma_expert.model.layers
             rotary_emb = self.paligemma.model.language_model.rotary_emb
@@ -956,6 +1065,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
             else:
                 v_t = denoise_step_partial_call(x_t)
 
+            # x_t: (batch_size, chunk_size, max_action_dim)
             x_t = x_t + dt * v_t
 
             if self.rtc_processor is not None and self.rtc_processor.is_debug_enabled():
@@ -970,11 +1080,21 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         x_t,
         timestep,
     ):
-        """Apply one denoising step of the noise `x_t` at a given timestep."""
+        """Apply one denoising step of the noise `x_t` at a given timestep.
+        
+        Args:
+            prefix_pad_masks: (batch_size, prefix_len)
+            past_key_values: (batch_size, prefix_len, hidden_size)
+            x_t: (batch_size, suffix_len, max_action_dim) where suffix_len = chunk_size
+            timestep: int
 
-        # suffix_embs: (batch_size, chunk_size, action_expert_hidden_size)
-        # suffix_pad_masks: (batch_size, chunk_size)
-        # suffix_att_masks: (batch_size, chunk_size)
+        Return:
+            denoised actions at timestep: (batch_size, suffix_len, max_action_dim)
+        """
+
+        # suffix_embs: (batch_size, suffix_len, action_expert_hidden_size)
+        # suffix_pad_masks: (batch_size, suffix_len)
+        # suffix_att_masks: (batch_size, suffix_len)
         #   where contains `[1, 0, ..., 0]`
         # adarms_cond: (batch_size, action_expert_hidden_size); timestep condition
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(x_t, timestep)
@@ -983,13 +1103,20 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         batch_size = prefix_pad_masks.shape[0]
         prefix_len = prefix_pad_masks.shape[1]
 
+        # prefix_pad_2d_masks: (batch_size, suffix_len, prefix_len)
+        # suffix_att_2d_masks: (batch_size, suffix_len, suffix_len)
+        # full_att_2d_masks: (batch_size, suffix_len, prefix_len + prefix_len)
         prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(batch_size, suffix_len, prefix_len)
         suffix_att_2d_masks = make_att_2d_masks(suffix_pad_masks, suffix_att_masks)
         full_att_2d_masks = torch.cat([prefix_pad_2d_masks, suffix_att_2d_masks], dim=2)
 
+        # prefix_offsets: (batch_size, 1)
+        # position_ids: (batch_size, suffix_len)
         prefix_offsets = torch.sum(prefix_pad_masks, dim=-1)[:, None]
         position_ids = prefix_offsets + torch.cumsum(suffix_pad_masks, dim=1) - 1
 
+        # full_att_2d_masks_4d: (batch_size, 1, suffix_len, prefix_len + prefix_len)
+        #   where OPENPI_ATTENTION_MASK_VALUE replace False
         full_att_2d_masks_4d = self._prepare_attention_masks_4d(full_att_2d_masks)
         self.paligemma_with_expert.gemma_expert.model.config._attn_implementation = "eager"  # noqa: SLF001
 
@@ -1006,7 +1133,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         suffix_out = outputs_embeds[1]
         suffix_out = suffix_out[:, -self.config.chunk_size :]
         suffix_out = suffix_out.to(dtype=torch.float32)
-        return self.action_out_proj(suffix_out)
+        return self.action_out_proj(suffix_out) # (batch_size, chunk_size, max_action_dim)
 
 
 class PI05Policy(PreTrainedPolicy):
