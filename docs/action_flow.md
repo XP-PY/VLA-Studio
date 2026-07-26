@@ -328,21 +328,13 @@ Some individual rollouts changed the flow integration step count:
 
 ## Action Flow V2
 
-### Motivation
+### Design Motivation
 
-Action Flow V1 uses a ResNet observation encoder and does not encode the task prompt. It can learn smooth continuous trajectories, but the evaluation shows that it often follows fixed positions and demonstrated action sequences instead of selecting the target from the current image.
+Action Flow V1 uses a visual encoder without language conditioning. Its evaluation showed that a policy can reproduce smooth demonstrated trajectories while still relying on fixed object locations and action-order priors. Action Flow V2 is designed to make target selection depend more directly on the task prompt and current camera observations.
 
-Action Flow V2 replaces the V1 ResNet and action decoder with a PI0.5-style coupled VLM and action expert. The initial implementation uses the pretrained SmolVLM2/SmolVLA representation because it is smaller and practical to fine-tune locally. The task prompt and camera images are processed together, and a lightweight auxiliary head predicts a prompt-conditioned task-relevance heatmap from the same shared features.
-
-The first experiment asks one controlled question:
-
-> Does explicit task-relevance supervision improve visual grounding and the resulting continuous actions?
-
-The heatmap is auxiliary supervision. It is not a detector result passed directly into the controller, and it is not a replacement for the normal VLM representation.
+The policy therefore combines a vision-language model (VLM), a continuous flow-matching action expert, and an auxiliary spatial-grounding head. The grounding objective is intended to improve the shared visual-language representation. It does not replace the VLM representation with a detector output.
 
 ### Policy Structure
-
-The implemented policy structure is:
 
 ~~~text
 camera images + task prompt
@@ -350,205 +342,71 @@ camera images + task prompt
             v
        shared VLM
             |
-            +------------------------------+
-            |                              |
-            v                              v
-  shared condition tokens     task-relevance heatmap head
-            |                              |
-robot state + noisy actions               v
-            |                  relevance heatmap (optional
-            v                       during inference)
-    flow action expert
+            +----------------------------+
+            |                            |
+            v                            v
+prompt-conditioned tokens        spatial-grounding head
+            |                            |
+robot state + noisy actions              v
+            |                    relevance prediction
+            v
+ flow-matching action expert
             |
             v
  continuous action chunk
 ~~~
 
-The action expert always receives the normal prompt-conditioned VLM tokens. In the first implementation, the predicted heatmap is not pooled, thresholded, or passed back to the action expert. This keeps the action interface unchanged and isolates the effect of representation learning from explicit heatmap conditioning.
+The VLM processes all camera images and the task prompt while retaining camera identity and image token locations. The action expert combines these prompt-conditioned tokens with the robot state and noisy actions to predict a continuous action flow. The grounding head reads the same prompt-conditioned image tokens and predicts which image regions are relevant to the instruction.
 
-Multiple cameras share the VLM image encoder. Camera identity must be retained when image tokens are concatenated, so the action expert and relevance head can distinguish observations from different viewpoints.
+The relevance prediction is auxiliary: it can be visualized during inference, but it is not directly fed back into the action expert. This makes it possible to test whether spatial supervision improves the shared representation without changing the policy's action interface. Future experiments may use other grounding targets or explicitly condition actions on the predicted spatial output.
 
-### Shared VLM Output
+### Auxiliary Data Record Pipeline
 
-The shared VLM must expose image tokens while preserving camera and patch-grid correspondence. The condition used by the action expert is:
-
-~~~text
-[VLM image tokens, VLM language tokens, robot-state token]
-~~~
-
-The noisy action chunk attends to these condition tokens while predicting the flow vector field. As in PI0.5, the multimodal prefix and noisy-action suffix are processed by coupled transformer streams, and the prefix key/value states are cached during iterative inference. Camera embeddings are added before the shared transformer so both the action expert and relevance head retain viewpoint identity.
-
-The relevance head reads the final prompt-conditioned image tokens after multimodal transformer processing. It therefore receives language context directly instead of learning a generic objectness map from isolated vision features.
-
-### Task-Relevance Head
-
-The relevance head remains lightweight:
-
-1. Select the VLM tokens belonging to each camera.
-2. Project them to a smaller grounding dimension.
-3. Apply a small MLP or cross-attention block.
-4. Produce one scalar logit per image patch.
-5. Reshape the logits to the original patch grid.
-6. Optionally upsample the grid for visualization.
-
-For B samples, C supervised cameras, and a VLM patch grid of H_p by W_p, the output shape is:
+Action Flow V2 starts from a normal LeRobot demonstration dataset containing camera observations, robot state, actions, and task prompts. Spatial labels are generated as a separate, frame-aligned annotation source and then merged with the demonstrations before training.
 
 ~~~text
-relevance_heatmap_logits: (B, C, H_p, W_p)
-relevance_loss_weight:    (B, C)
+task prompts + camera videos
+            |
+            v
+ identify prompt-relevant entities
+            |
+            v
+ propose and review target locations
+            |
+            v
+ track entities through each video
+            |
+            v
+ build per-camera spatial targets
+            |
+            v
+merge with robot observations and actions
+            |
+            v
+ train action loss + grounding loss
 ~~~
 
-An all-zero relevance mask is a valid negative label and teaches the policy that no relevant entity is visible in that camera. `relevance_loss_weight=0` is reserved for frames whose annotations are uncertain or intentionally excluded. Visibility and annotation validity must not be represented by the same value.
+Automatic detectors or grounding models are used only to initialize annotations. Their proposals must be reviewed, after which a video segmentation or tracking model propagates each accepted entity through the episode. Separate entity tracks are retained so later experiments can derive different targets, such as binary relevance, source and destination regions, or phase-dependent labels.
 
-### Relevance Definition
+Annotation validity is stored separately from target visibility. A camera can have a valid empty target when no relevant entity is visible, while uncertain or incorrect annotations must be excluded from the grounding loss. Exact detectors, tracking settings, target formats, loss functions, resolutions, and model-freezing choices are experiment-specific and are documented in the corresponding training log.
 
-The training target is a binary spatial mask containing every entity needed to interpret the prompt. Depending on the instruction, this can include manipulated objects, destination regions, containers, or multiple relevant objects. It is an attention target, not a grasp point or manipulation trajectory.
+### Training Objective 1: Single-Arm Table Preparation and Bussing
 
-The first version deliberately does not predict:
-
-- Grasp points or gripper orientations.
-- Source-versus-destination classes.
-- Manipulation phases.
-- Arm-activity classes.
-- Ordered semantic subtasks.
-
-Object IDs, names, roles, and task steps are retained in the annotation sidecar for inspection and future experiments, but the first heatmap target is the union of the relevant per-object masks.
-
-For multi-step prompts, the first experiment highlights all entities named by the instruction for the complete episode. It does not change the target mask after each subtask. Phase-dependent relevance can be added later after the static prompt-conditioned experiment is validated.
-
-### Dataset Configuration
-
-Grounding semantics are dataset-dependent, while video decoding, detector inference, ranking, review artifacts, and mask serialization are shared. Each dataset is represented by a `GroundingDatasetConfig` containing:
-
-- A configuration name and default dataset root.
-- Camera names.
-- Detector query aliases.
-- A task-prompt parser that produces deterministic entity specifications.
-- Grounding thresholds.
-- Optional camera-specific entity restrictions.
-
-Each entity specification records its object ID, semantic name, role, detector query, task step, cardinality, and candidate-order rule. Multi-instance entities can reserve multiple deterministic IDs. The same object ID retains the same meaning across the camera views in an episode.
-
-Adding another dataset requires a task parser and one registered dataclass configuration. Model execution and artifact generation do not need to be copied.
-
-### Dataset Annotation Pipeline
-
-#### Grounding Initialization
-
-`examples/action_flow_v2/annotate_grounding.py` performs the initialization stage:
-
-1. Read the episode prompt and build its entity specifications from the selected dataset configuration.
-2. Sample frames from each configured camera.
-3. Run Grounding DINO with dataset-specific query aliases.
-4. Remove duplicate proposals and order multiple instances deterministically.
-5. Rank candidates using confidence, visible area, border clearance, sharpness, and episode progress.
-6. Save selected detections, alternative candidates, contact sheets, and an HTML inspection index.
-
-Grounding DINO only provides initialization proposals. It is not treated as ground truth. Similar objects, occlusion, unusual viewpoints, and visually identical workspace regions can still produce incorrect boxes.
-
-#### Grounding Review
-
-Every episode-camera result must be inspected before segmentation. The review can:
-
-- Accept the selected candidate.
-- Select another ranked candidate.
-- Mark an entity as not visible in that camera.
-- Require manual initialization at a specified frame.
-
-The review decisions are stored separately from generated detector artifacts, so annotation can resume without rerunning accepted results.
-
-#### SAM2 Tracking And Correction
-
-`examples/action_flow_v2/annotate_sam2.py` imports the reviewed boxes as SAM2 prompts. It preserves each entity as a separate object track, propagates masks through the episode, and provides a local UI for adding positive or negative clicks, clearing prompts, setting object bounds, and excluding uncertain frames.
-
-To control memory use, SAM2 can track a configurable subset of video frames. Intermediate frames reuse the mask from the nearest tracked frame, while explicit prompt frames and object bounds are always retained.
-
-Batch mode processes all resolved episode-camera pairs and skips unresolved pairs instead of silently producing incorrect labels. Processing is resumable, and its report records completed, skipped, unresolved, and failed pairs.
-
-#### Saved Annotation Data
-
-Per-object tracks are saved under:
-
-~~~text
-runs/sam/<dataset>/data/episode-<index>/camera-<camera>.parquet
-~~~
-
-Each row includes `episode_index`, `frame_index`, `camera`, `object_id`, `object_label`, image dimensions, and a compressed binary mask. Keeping separate tracks allows later experiments to recover entity-specific targets.
-
-The first training target is a merged union mask saved under:
-
-~~~text
-runs/dataset/<annotation-dataset>/data/episode-<index>/camera-<camera>.parquet
-~~~
-
-Each merged row contains the episode, frame, camera, image dimensions, compressed relevance mask, and `loss_weight`. Masks use compressed run-length encoding. The training loader decodes them and resizes them to the VLM patch grid.
-
-Preview videos with mask overlays must be reviewed before training. Incorrect tracks should be corrected; uncertain frames should use `loss_weight=0`, not an invented positive mask.
-
-### Training Objective
-
-The first training objective is:
-
-~~~text
-L_total = L_flow + lambda_relevance * L_relevance
-~~~
-
-Where:
-
-- `L_flow` is the SmolVLA-style action-expert flow-matching loss.
-- `L_relevance` compares predicted patch logits with the resized binary relevance masks.
-- `lambda_relevance` controls the auxiliary supervision strength.
-
-The initial relevance objective should combine `BCEWithLogitsLoss` with a Dice term so that small relevant regions are not overwhelmed by background patches. The loss is computed independently per camera, multiplied by the saved `loss_weight`, and normalized by the number of valid camera frames. All-zero masks remain valid training targets.
-
-Both losses must be logged independently. Start with a conservative `lambda_relevance`, such as `0.1`, then compare loss scales, gradient norms, mask accuracy, and action quality before increasing it. The auxiliary loss must not dominate flow matching.
-
-### Gradient Requirement
-
-The auxiliary head improves action generation only if its loss changes a representation shared with the action expert.
-
-If the complete VLM is frozen and the relevance head is attached directly to fixed VLM tokens, the relevance loss trains only the new head. This is a useful diagnostic baseline, but it cannot make the shared VLM representation more spatially grounded.
-
-At least one shared component must therefore be trainable:
-
-- LoRA adapters inside the VLM.
-- A trainable projector shared by the action expert and relevance head.
-- Selected final VLM or vision layers.
-
-### Implementation
-
-The policy is registered as `action_flow_v2` under `repos/lerobot/src/lerobot/policies/action_flow_v2`. Before training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins the frame-aligned SAM2 union masks to the robot data using `episode_index` and `frame_index`. The resulting dataset is a self-contained LeRobot dataset with model-ready segmentation labels.
-
-The relevant policy settings are:
-
-| Parameter | Role |
-| --- | --- |
-| `relevance_loss_weight` | Weight of the complete auxiliary relevance loss. |
-| `relevance_bce_weight` | Weight of the per-patch binary cross-entropy term. |
-| `relevance_dice_weight` | Weight of the Dice term. |
-| `relevance_target_size` | Patch-grid target size; `(8, 8)` matches the default 512-pixel SmolVLM input. |
-
-The merged dataset stores `observation.relevance_mask` with shape `(num_cameras, 8, 8)` and `observation.relevance_loss_weight` with shape `(num_cameras,)`. They pass through the standard SmolVLA processor but are excluded from policy input features and state normalization. Initialize the policy weights from `smolvla_base` by setting `policy.type=action_flow_v2` and `policy.pretrained_path=<smolvla_base_path>`.
-
-### Training Log 1 of Action Flow V2 (Planned)
+The task design and demonstration-recording plan follow [PI0 Training Objective 1](./pi_0.md#training-objective-1-single-arm-table-preparation-and-bussing).
 
 #### Objective
 
-The first Action Flow V2 experiment uses the single-arm table-preparation and table-bussing task. The policy must use the language prompt to select the relevant vegetables, plates, or collection box instead of reproducing a fixed object-position trajectory.
+The first Action Flow V2 experiment uses the single-arm table-preparation and table-bussing task.
+The policy must use the language prompt to select the relevant vegetables, plates, or collection box instead of reproducing a fixed object-position trajectory.
 
 The experiment has two connected objectives:
 
 1. Predict continuous RM65 joint and gripper action chunks with the SmolVLA-style flow action expert.
 2. Predict a task-relevance heatmap for the top and wrist cameras from the shared prompt-conditioned VLM tokens.
 
-The relevance target contains the union of every entity needed to interpret the complete prompt. For example, `Place the tomato on the pink plate.` highlights both the tomato and pink plate. A multi-step arrangement prompt highlights all requested vegetables and plates throughout the episode. This first experiment does not use phase-dependent masks, source/destination classes, or predicted heatmaps as direct action-expert inputs.
+The main question is whether auxiliary spatial supervision improves target recognition and action accuracy without directly passing the predicted heatmap into the action expert.
 
-The main question is whether the auxiliary relevance loss improves target recognition and action accuracy. A proper comparison should train two policies with otherwise identical settings:
-
-- Primary policy: `policy.relevance_loss_weight=0.1`.
-- Ablation policy: `policy.relevance_loss_weight=0.0`.
-
-Evaluation should include familiar task combinations, unseen object layouts, arrange-two prompts with garlic or cucumber first, and four-vegetable table bussing. The latter two conditions were intentionally excluded from the demonstrations and test prompt-conditioned generalization.
+### Training Log 1 of Objective 1
 
 #### Dataset
 
@@ -558,8 +416,7 @@ Base dataset:
 runs/dataset/rm65_single_table_preparation_and_bussing
 ```
 
-The cleaned dataset contains 203 successful episodes, 92,545 frames, and 52 prompt variants recorded at 30 FPS.
-Each frame contains:
+The cleaned dataset contains 203 successful episodes, 92,545 frames, and 52 prompt variants recorded at 30 FPS. Each frame contains:
 
 - `observation.images.top`: 640 x 480 overhead workspace image.
 - `observation.images.wrist`: 640 x 480 end-effector image.
@@ -574,45 +431,91 @@ Each frame contains:
 | Bus the table | `Put all vegetables into the collection box.` | 47 | 33,988 |
 | **Total** | **52 prompt variants** | **203** | **92,545** |
 
-The reviewed, full-resolution SAM2 annotations remain available separately:
+#### Relevance Annotation
+
+This experiment uses one binary relevance channel per camera. The target is the union of every entity needed to interpret the complete prompt:
+
+- A place-one prompt includes the manipulated vegetable and destination plate.
+- A clear-plate prompt includes the source vegetable, source plate, and collection box.
+- A table-bussing prompt includes all vegetables and the collection box.
+- A multi-step prompt includes every named vegetable and destination plate for the full episode.
+
+The target does not distinguish source from destination and does not change between task phases.
+It is not used as a grasp-point or trajectory label.
+
+The annotations were generated as follows:
+
+1. Parse each task prompt into deterministic entity IDs, names, roles, and detector queries.
+2. Run [IDEA-Research/grounding-dino-tiny](https://huggingface.co/IDEA-Research/grounding-dino-tiny) on sampled top- and wrist-camera frames to propose one initialization box for each entity.
+3. Review the selected boxes and replace incorrect or missing proposals manually.
+4. Use each accepted box to initialize a separate [facebook/sam2.1-hiera-small](https://huggingface.co/facebook/sam2.1-hiera-small) object track.
+5. Run SAM2 on every third frame and assign the nearest tracked mask to intermediate frames.
+6. Merge the requested per-object tracks into one union relevance mask for each camera frame.
+7. Join the frame-aligned masks to the LeRobot data by `episode_index`, `frame_index`, and camera.
+
+The reviewed Grounding DINO proposals and separate SAM2 object tracks are stored under:
+
+```text
+runs/sam/rm65_single_table_preparation_and_bussing
+```
+
+Keeping each object as a separate track preserves entity identity for inspection and future source/destination or phase-dependent experiments.
+
+The full-resolution union masks are stored separately under:
 
 ```text
 runs/dataset/rm65_single_table_preparation_and_bussing_afv2
 ```
 
-This source contains one Parquet file per episode and camera, for 406 files in total. Each row stores `episode_index`, `frame_index`, `camera`, the compressed union mask, and `loss_weight`. The SAM2 tracks were generated every three frames and propagated to intermediate frames using the nearest tracked mask.
+This annotation dataset contains one Parquet file per episode and camera. Each row stores the episode and frame indices, camera name, image dimensions, compressed union mask, and annotation validity weight.
 
-For training, these labels are merged with the robot dataset and converted to the default 8 x 8 SmolVLM patch grid:
+For training, the union masks are merged with the robot dataset and resized to the VLM image-token
+grid:
 
 ```text
 runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation
 ```
 
-The explicit `_segmentation` suffix distinguishes this dataset from future variants containing detection boxes or other spatial supervision.
+The merged dataset adds:
 
-All-zero masks remain valid negative labels when no relevant entity is visible. Only uncertain or intentionally excluded labels use `loss_weight=0`.
+- `observation.relevance_mask` with shape `(2, 8, 8)`, ordered as wrist then top.
+- `observation.relevance_loss_weight` with shape `(2,)`.
+
+An all-zero mask is a valid label when no relevant entity is visible. A zero validity weight is used only when the annotation is uncertain or intentionally excluded.
+
+#### Policy and Loss Design
+
+The policy is initialized from `smolvla_base` and uses the local `SmolVLM2-500M-Video-Instruct` backbone. A learned camera embedding is added to each camera's image tokens before the shared multimodal transformer.
+
+For each camera, the relevance head applies:
+
+```text
+LayerNorm -> Linear(hidden_size, 256) -> GELU -> Linear(256, 1)
+```
+
+The output token logits are reshaped to an 8 x 8 grid. The experiment trains:
+
+```text
+L_total = L_flow + 0.1 * (L_BCE + L_Dice)
+```
+
+The relevance loss is computed independently for each camera, multiplied by `observation.relevance_loss_weight`, and normalized over valid camera frames. BCE provides per-patch classification supervision, while Dice reduces the dominance of background patches when relevant regions are small.
+
+The complete VLM and action expert remain trainable so the relevance loss can modify features shared with action prediction. Two otherwise identical policies are required for the intended ablation:
+
+- Grounding policy: `policy.relevance_loss_weight=0.1`.
+- Action-only ablation: `policy.relevance_loss_weight=0.0`.
 
 #### Training Configuration
 
-Base policy:
-
-```text
-models/smolvla_base
-```
-
-Local VLM:
-
-```text
-models/SmolVLM2-500M-Video-Instruct
-```
-
-Suggested output policy:
+Output policies:
 
 ```text
 rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1
+rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.0
 ```
 
-| Parameter | Suggested value | Action Flow V2 default |
+| Parameter | Configured value | Action Flow V2 default |
 |---|---:|---:|
 | `dataset.repo_id` | `rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
 | `dataset.root` | `runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
@@ -624,6 +527,7 @@ rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_4000
 | `policy.input_features` | `null` (infer from dataset) | `{}` |
 | `policy.output_features` | `null` (infer from dataset) | `{}` |
 | `policy.n_action_steps` | `1` | `10` |
+| `policy.relevance_loss_weight` | `0.1` (grounding) / `0.0` (ablation) | `0.1` |
 | `policy.optimizer_lr` | `3e-5` | `1e-4` |
 | `policy.scheduler_decay_steps` | `40,000` | `30,000` |
 | `policy.push_to_hub` | `false` | `true` |
@@ -637,13 +541,12 @@ rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_4000
 
 > **Note:** Parameters not listed in the table use their defaults. Important retained defaults are
 > `policy.chunk_size=50`, `batch_size=8` per process, `policy.freeze_vision_encoder=false`,
-> `policy.train_expert_only=false`, `policy.load_vlm_weights=true`, `policy.relevance_loss_weight=0.1`,
+> `policy.train_expert_only=false`, `policy.load_vlm_weights=true`,
 > `policy.relevance_bce_weight=1.0`, `policy.relevance_dice_weight=1.0`, and
-> `policy.relevance_target_size=[8, 8]`. Use BF16 mixed precision when the GPU supports it. Two GPU processes
-> produce a global batch size of 16. Start with 40,000 steps to validate both action and relevance learning;
-> continue toward 80,000 steps only if validation rollouts and held-out heatmaps are still improving.
+> `policy.relevance_target_size=[8, 8]`. Both policies used BF16 mixed precision on one GPU process,
+> giving an effective batch size of 8.
 
-The complete VLM and action expert are trainable because the relevance objective must modify the representation shared with action prediction. The lower learning rate of `3e-5` reduces the risk of damaging the pretrained VLM while the newly initialized camera embeddings and relevance head learn the RM65 workspace.
+The lower learning rate of `3e-5` reduces the risk of damaging the pretrained VLM while the newly initialized camera embeddings and relevance head learn the RM65 workspace.
 
 During training, log at least:
 
@@ -653,4 +556,291 @@ During training, log at least:
 - `relevance_dice_loss`
 - `relevance_valid_camera_fraction`
 
-Training should be stopped and inspected if the relevance loss dominates the flow loss after multiplication by `policy.relevance_loss_weight`, or if heatmap quality improves while rollout action quality degrades.
+Training should be stopped and inspected if the weighted relevance loss dominates the flow loss, or if heatmap quality improves while rollout action quality degrades.
+
+#### Evaluation
+
+The grounding policy (`relevance_loss_weight=0.1`) and action-only ablation
+(`relevance_loss_weight=0.0`) were evaluated with the same five prompts and object layouts. Each
+prompt was tested twice per policy, producing 20 paired rollouts. The policies used identical
+training and rollout settings apart from the relevance-loss weight.
+
+##### Rollout Configuration
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `strategy.type` | `episodic` | `base` |
+| `inference.type` | `rtc` | `sync` |
+| `inference.rtc.execution_horizon` | `15` | `10` |
+| `inference.rtc.max_guidance_weight` | `15` | `10` |
+| `inference.queue_threshold` | `25` | `30` |
+| `policy.n_action_steps` | `1` | `10` |
+| `policy.num_steps` | `5` | `10` |
+| `robot.single_arm.max_relative_target` | `1000.0` | `100.0` in the robot YAML |
+| `fps` | `20` | `30` |
+
+> **Note:** `inference.rtc.prefix_attention_schedule=LINEAR`,
+> `robot.single_arm.canfd_follow=false`, and `return_to_initial_position=true` use their
+> defaults. All other unlisted parameters use their defaults. Although
+> `policy.n_action_steps=1` is configured, RTC
+> calls `predict_action_chunk` and manages its own action queue; continuity is controlled by
+> `inference.rtc.execution_horizon`, not by `policy.n_action_steps`.
+
+##### Results
+
+The grounding policy's heatmaps are visualizations of an upsampled 8 x 8 relevance grid. They
+should be interpreted as coarse relevant regions rather than precise segmentation boundaries.
+
+| Prompt | Trials per policy | `0.1` successes | `0.0` successes | Paired observation |
+|---|---:|---:|---:|---|
+| `Place the tomato on the pink plate.` | 2 | 0 | 0 | Both policies approached the target but failed to complete the grasp and transfer. The ablation did not approach unrelated objects in these two trials. |
+| `Place the cucumber on the blue plate.` | 2 | 1 | 0 | The grounding policy reacted more quickly after the cucumber slipped and attempted a more accurate re-grasp. The ablation continued the original trajectory longer and recovered less precisely. |
+| `Put the vegetable from the blue plate into the collection box.` | 2 | 0 | 0 | Both policies failed, but the grounding policy showed slightly better target localization and corrective behavior. Gripper closure and grasp alignment remained unreliable. |
+| `Put the vegetable from the yellow plate into the collection box.` | 2 | 0 | 0 | Both policies selected the same incorrect target, showing that the dominant grounding error was shared by both models. |
+| `Place the tomato on the pink plate, then place the garlic on the blue plate.` | 2 | 0 | 0 | Both policies attempted incorrect targets. The behavior was slightly less severe with the grounding policy, but neither completed the first step reliably. |
+| **Total** | **10 each** | **1 (10%)** | **0 (0%)** | **The grounding policy was slightly quicker and more precise, but the main failure modes were similar.** |
+
+This remains a small qualitative comparison. The auxiliary relevance objective provides a modest
+behavioral improvement in these paired trials, but it does not produce a reliable task policy.
+
+##### Rollout Videos
+
+**Place the tomato on the pink plate**
+
+<table>
+<tr><th colspan="2"><code>relevance_loss_weight=0.1</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_0.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: broad relevance and failed grasp.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_1.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: unstable relevance and failed transfer.</em></p>
+    </td>
+</tr>
+<tr><th colspan="2"><code>relevance_loss_weight=0.0</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_10.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: target approach followed by grasp failure.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_11.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: target approach followed by transfer failure.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the cucumber on the blue plate**
+
+<table>
+<tr><th colspan="2"><code>relevance_loss_weight=0.1</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_2.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: successful with the pink plate removed.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_3.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: failed with the pink plate present.</em></p>
+    </td>
+</tr>
+<tr><th colspan="2"><code>relevance_loss_weight=0.0</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_12.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: slow response after the cucumber slipped.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_13.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: inaccurate recovery and failed re-grasp.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the blue plate into the collection box**
+
+<table>
+<tr><th colspan="2"><code>relevance_loss_weight=0.1</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_4.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: insufficient gripper closure.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_5.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: misaligned grasp.</em></p>
+    </td>
+</tr>
+<tr><th colspan="2"><code>relevance_loss_weight=0.0</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_14.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: failed target approach and grasp.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_15.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: weak correction and failed grasp.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the yellow plate into the collection box**
+
+<table>
+<tr><th colspan="2"><code>relevance_loss_weight=0.1</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_6.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: selected an incorrect target.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_7.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: selected the same incorrect target.</em></p>
+    </td>
+</tr>
+<tr><th colspan="2"><code>relevance_loss_weight=0.0</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_16.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: repeated the grounding policy's target error.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_17.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: repeated the same incorrect grasp behavior.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the tomato on the pink plate, then place the garlic on the blue plate**
+
+<table>
+<tr><th colspan="2"><code>relevance_loss_weight=0.1</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_8.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: the initial grasp failed.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_9.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: attempted an incorrect target.</em></p>
+    </td>
+</tr>
+<tr><th colspan="2"><code>relevance_loss_weight=0.0</code></th></tr>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_18.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: attempted an incorrect target.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_1_rollout_19.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: stronger incorrect-target behavior than the grounding policy.</em></p>
+    </td>
+</tr>
+</table>
+
+##### Relevance Annotation Quality
+
+The top-camera relevance annotations are generally usable, but many wrist-camera annotations are
+not reliable. In placement tasks, the initialization box was sometimes selected from a late frame
+after the object had already been placed on the destination plate. At that point, the object and
+plate overlap in the wrist view, so the initialization proposal can cover them as one combined
+region.
+
+This is problematic even though the final training target is a union mask. The object and plate
+move independently during most of the episode, but SAM2 receives a single fused initialization
+region from the contact phase. When that region is propagated through the episode, the track may
+follow only one entity, include surrounding plate pixels, or fail when the object separates from
+the plate. The resulting wrist labels can therefore be broad, inconsistent, or attached to the
+wrong entity. Repeated errors of this type teach the relevance head incorrect spatial
+correspondence.
+
+##### Analysis
+
+1. **The relevance objective provides only a modest benefit.** The grounding policy completed one
+   trial, reacted more quickly to a dropped object, and produced slightly more accurate approaches
+   and re-grasps. The ablation completed no trials. This direction is favorable, but the difference
+   between one success and zero successes is too small to establish a reliable improvement.
+
+2. **Both policies retain the same dominant failure modes.** They often approach the correct
+   region but fail to align or close the gripper, continue a demonstrated trajectory after losing
+   the object, or select the same incorrect target. The identical error in the yellow-plate task
+   is especially important: the auxiliary loss did not overcome the shared scene-layout or
+   object-co-occurrence prior.
+
+3. **The action expert does not directly follow the predicted heatmap.** The heatmap is an
+   auxiliary output rather than an action input. Consequently, an incorrect heatmap and incorrect
+   motion indicate weak shared visual-language features; the heatmap is not directly commanding
+   the robot to grasp an unrelated object.
+
+4. **Wrist-camera label noise limits the grounding policy.** Many initialization boxes contain an
+   already combined object-and-plate region, producing inconsistent wrist targets. The similar
+   failures of the action-only ablation show that this noise is not the only problem, but it can
+   weaken or misdirect the additional supervision and hide its potential benefit.
+
+5. **Distractors expose weak language-to-entity binding.** The only successful rollout occurred
+   when the pink plate was removed from the cucumber-to-blue-plate scene. With distractors present,
+   both policies relied more strongly on learned scene priors than on the requested object and
+   destination.
+
+6. **The current relevance target cannot represent execution order.** A single union mask
+   highlights every source and destination throughout a multi-step episode. It teaches general
+   task relevance but does not distinguish entity roles, the active subtask, or whether the policy
+   should execute the first or second placement.
+
+7. **Spatial grounding and manipulation remain separate bottlenecks.** The 8 x 8 grid is coarse
+   for small vegetables and precise grasp points, while correct target selection can still fail
+   through grasp misalignment, insufficient gripper closure, or poor recovery. Improving the
+   relevance target alone will not guarantee successful manipulation.
+
+Before retraining, wrist initialization frames should be chosen while the source object and
+destination plate are visibly separated. They should be initialized as separate object tracks,
+with negative clicks used to exclude overlapping plate or background pixels. Uncertain fused
+tracks should be corrected manually or assigned `loss_weight=0`; the wrist image can remain a
+policy input even when its relevance loss is disabled for those frames.
+
+The next evaluation should report task success, grasp success, and held-out heatmap Dice/IoU
+separately. It should use more repeated paired scenes with and without distractors and log
+predicted gripper commands to determine whether closure failures originate in the policy output or
+the physical gripper execution.

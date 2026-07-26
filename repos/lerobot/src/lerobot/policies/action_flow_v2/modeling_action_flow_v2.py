@@ -59,14 +59,24 @@ def compute_relevance_loss(
         logits: Predicted patch logits with shape
             `(batch_size, num_cameras, patch_height, patch_width)`.
         targets: Binary masks with shape
-            `(batch_size, num_cameras, target_height, target_width)`.
+            `(batch_size, num_cameras, target_height, target_width)`, or with
+            LeRobot's singleton observation axis,
+            `(batch_size, 1, num_cameras, target_height, target_width)`.
         weights: Annotation-validity weights with shape
-            `(batch_size, num_cameras)`. Zero excludes a camera frame.
+            `(batch_size, num_cameras)` or `(batch_size, 1, num_cameras)`.
+            Zero excludes a camera frame.
 
     Returns:
         Per-sample relevance loss with shape `(batch_size,)` and scalar metrics
         for the BCE, Dice, and valid-camera fraction.
     """
+    # LeRobot applies observation_delta_indices=[0] to every observation
+    # feature, so dataset labels arrive with a singleton observation-time axis.
+    if targets.ndim == 5 and targets.shape[1] == 1:
+        targets = targets[:, 0]
+    if weights.ndim == 3 and weights.shape[1] == 1:
+        weights = weights[:, 0]
+
     if logits.ndim != 4 or targets.ndim != 4:
         raise ValueError(
             f"`logits` and `targets` must be 4D, got {tuple(logits.shape)} and {tuple(targets.shape)}."
@@ -130,6 +140,8 @@ class ActionFlowV2Model(VLAFlowMatching):
             nn.GELU(),
             nn.Linear(config.relevance_head_dim, 1),
         )
+        self._inference_image_layout: list[tuple[slice, tuple[int, int]]] | None = None
+        self.latest_relevance_heatmaps: Tensor | None = None
 
     def _embed_prefix_with_layout(
         self,
@@ -281,14 +293,26 @@ class ActionFlowV2Model(VLAFlowMatching):
         """Embed image, language, and state tokens for inherited action sampling."""
         if state is None:
             raise ValueError("Action Flow V2 requires the robot state prefix token.")
-        prefix_embeddings, pad_masks, attention_groups, _ = self._embed_prefix_with_layout(
+        prefix_embeddings, pad_masks, attention_groups, image_layout = self._embed_prefix_with_layout(
             images,
             img_masks,
             lang_tokens,
             lang_masks,
             state,
         )
+        self._inference_image_layout = image_layout
         return prefix_embeddings, pad_masks, attention_groups
+
+    def _on_inference_prefix_output(self, prefix_output: Tensor) -> None:
+        """Cache CPU heatmaps from the action sampler's existing prefix pass."""
+        if self._inference_image_layout is None:
+            return
+        self.latest_relevance_heatmaps = (
+            self._predict_relevance(prefix_output, self._inference_image_layout)
+            .sigmoid()
+            .detach()
+            .to(device="cpu", dtype=torch.float32)
+        )
 
     def _predict_relevance(
         self,
@@ -399,6 +423,7 @@ class ActionFlowV2Policy(SmolVLAPolicy):
 
     def reset(self):
         """Reset temporal-ensemble or action-queue inference state."""
+        self.model.latest_relevance_heatmaps = None
         if self.config.temporal_ensemble_coeff is not None:
             self.temporal_ensembler.reset()
         else:
@@ -486,6 +511,11 @@ class ActionFlowV2Policy(SmolVLAPolicy):
             self.prepare_state(batch),
         )
         return logits.sigmoid()
+
+    def get_latest_relevance_heatmaps(self) -> Tensor | None:
+        """Return the latest action-inference heatmaps on CPU without another VLM pass."""
+        heatmaps = self.model.latest_relevance_heatmaps
+        return None if heatmaps is None else heatmaps.clone()
 
     def _get_default_peft_targets(self) -> dict[str, Any]:
         """Include the grounding modules when Action Flow V2 is trained with PEFT."""

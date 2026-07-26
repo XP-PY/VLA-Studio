@@ -34,7 +34,7 @@ export TASK_EPISODES=203
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1"
+export POLICY_ID="rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.0"
 export POLICY_TYPE="action_flow_v2"
 export STEPS=40000
 export PER_DEVICE_BATCH_SIZE=8
@@ -47,17 +47,17 @@ export NUM_GPUS=1
 # ===== Rollout common settings =====
 export N_ACTION_STEPS=1
 export NUM_INFERENCE_STEP=5
-export ROLLOUT_FPS=30
+export ROLLOUT_FPS=20
 export ROLLOUT_DURATION=360
 export ROLLOUT_CANFD_FOLLOW=false
 export ROLLOUT_STRATEGY_TYPE=highlight
 export ROLLOUT_DIR="$STORAGE_ROOT/runs/rollout_dataset/rollout_${POLICY_ID}"
 export ROLLOUT_INFERENCE_TYPE=rtc
-export RTC_EXECUTION_HORIZON=8
-export RTC_MAX_GUIDANCE_WEIGHT=8
-export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
-# export RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"
-export RTC_QUEUE_THRESHOLD=20
+export RTC_EXECUTION_HORIZON=15
+export RTC_MAX_GUIDANCE_WEIGHT=15
+# export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
+export RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"
+export RTC_QUEUE_THRESHOLD=25
 
 # ===== W&B =====
 export WANDB_ENABLE=true

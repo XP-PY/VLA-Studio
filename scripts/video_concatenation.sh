@@ -5,17 +5,19 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
+ROLLOUT_DIR="runs/rollout_dataset/rollout_${POLICY_ID}_multi_prompt"
 VIDEO_DIR="${ROLLOUT_DIR}/videos"
 
-POLICY="pi_0"
+POLICY="action_flow"
 CHUNK_ID="chunk-000"
-FILE_ID="file-000"
-OUTPUT="docs/assets/${POLICY}/ob_1_log_1_rollout_1.mp4"
+FILE_ID="file-010"
+# OUTPUT="runs/temp/${FILE_ID}.mp4"
+OUTPUT="docs/assets/${POLICY}/v2_ob_1_log_1_rollout_19.mp4"
 
 
 # Find all observation images folders
 CAM_DIRS=($(find "$VIDEO_DIR" -maxdepth 1 -type d -name "observation.images.*" | sort))
-
+# CAM_DIRS=($(find "$VIDEO_DIR" -maxdepth 1 -type d \( -name "observation.images.*" -o -name "heatmap.images.*" \) | sort))
 
 if [ ${#CAM_DIRS[@]} -eq 0 ]; then
     echo "No observation.images.* folders found!"

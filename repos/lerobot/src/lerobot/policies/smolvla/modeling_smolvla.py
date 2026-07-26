@@ -1103,7 +1103,7 @@ class VLAFlowMatching(nn.Module):
         #       (batch_size, prefix_seq_len, num_key_value_heads, head_dim)
         # The denoising loop reuses this cache so image/language/state prefix
         # tokens are not recomputed at every flow-matching step.
-        _, past_key_values = self.vlm_with_expert.forward(
+        (prefix_output, _), past_key_values = self.vlm_with_expert.forward(
             attention_mask=prefix_att_2d_masks,
             position_ids=prefix_position_ids,
             past_key_values=None,
@@ -1111,6 +1111,7 @@ class VLAFlowMatching(nn.Module):
             use_cache=self.config.use_cache,
             fill_kv_cache=True,
         )
+        self._on_inference_prefix_output(prefix_output)
         num_steps = self.config.num_steps
         dt = -1.0 / num_steps
 
@@ -1151,6 +1152,9 @@ class VLAFlowMatching(nn.Module):
                 self.rtc_processor.track(time=time, x_t=x_t, v_t=v_t)
 
         return x_t
+
+    def _on_inference_prefix_output(self, prefix_output: Tensor) -> None:
+        """Allow derived policies to consume prefix features without another VLM pass."""
 
     def denoise_step(
         self,

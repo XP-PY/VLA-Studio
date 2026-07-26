@@ -101,6 +101,7 @@ class DatasetWriter:
         batch_encoding_size: int,
         streaming_encoder: StreamingVideoEncoder | None = None,
         initial_frames: int = 0,
+        one_video_per_episode: bool = False,
     ):
         """Initialize the writer with metadata, codec, and encoder config.
 
@@ -117,13 +118,19 @@ class DatasetWriter:
             streaming_encoder: Optional pre-built :class:`StreamingVideoEncoder`
                 for real-time encoding. ``None`` disables streaming mode.
             initial_frames: Starting frame count (non-zero when resuming).
+            one_video_per_episode: If ``True``, start a new MP4 at every
+                episode boundary instead of concatenating episodes by file size.
         """
+        if one_video_per_episode and batch_encoding_size != 1:
+            raise ValueError("one_video_per_episode requires batch_encoding_size=1")
+
         self._meta = meta
         self._root = root
         self._camera_encoder = camera_encoder or camera_encoder_defaults()
         self._encoder_threads = encoder_threads
         self._batch_encoding_size = batch_encoding_size
         self._streaming_encoder = streaming_encoder
+        self._one_video_per_episode = one_video_per_episode
 
         # Writer state
         self.image_writer: AsyncImageWriter | None = None
@@ -492,7 +499,10 @@ class DatasetWriter:
             latest_size_in_mb = get_file_size_in_mb(latest_path)
             latest_duration_in_s = latest_ep[f"videos/{video_key}/to_timestamp"][0]
 
-            if latest_size_in_mb + ep_size_in_mb >= self._meta.video_files_size_in_mb:
+            if (
+                self._one_video_per_episode
+                or latest_size_in_mb + ep_size_in_mb >= self._meta.video_files_size_in_mb
+            ):
                 chunk_idx, file_idx = update_chunk_file_indices(chunk_idx, file_idx, self._meta.chunks_size)
                 new_path = self._root / self._meta.video_path.format(
                     video_key=video_key, chunk_index=chunk_idx, file_index=file_idx

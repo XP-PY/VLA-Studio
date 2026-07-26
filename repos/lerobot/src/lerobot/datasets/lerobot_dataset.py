@@ -63,6 +63,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         encoder_threads: int | None = None,
         streaming_encoding: bool = False,
         encoder_queue_maxsize: int = 30,
+        one_video_per_episode: bool = False,
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -257,7 +258,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             self.reader.load_and_activate()
 
         # Detect write-mode params for backward compatibility
-        _has_write_params = streaming_encoding or batch_encoding_size != 1
+        _has_write_params = streaming_encoding or batch_encoding_size != 1 or one_video_per_episode
         if _has_write_params:
             import warnings
 
@@ -283,6 +284,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 batch_encoding_size=batch_encoding_size,
                 streaming_encoder=streaming_enc,
                 initial_frames=self.meta.total_frames,
+                one_video_per_episode=one_video_per_episode,
             )
         else:
             self.writer = None
@@ -650,6 +652,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         encoder_threads: int | None = None,
         video_files_size_in_mb: int | None = None,
         data_files_size_in_mb: int | None = None,
+        one_video_per_episode: bool = False,
     ) -> "LeRobotDataset":
         """Create a new LeRobotDataset from scratch for recording data.
 
@@ -684,6 +687,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 during capture instead of writing images first.
             encoder_queue_maxsize: Max buffered frames per camera when using
                 streaming encoding.
+            one_video_per_episode: If ``True``, store every episode in a
+                separate MP4 instead of concatenating episodes by file size.
 
         Returns:
             A new :class:`LeRobotDataset` in write mode.
@@ -728,6 +733,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             encoder_threads=encoder_threads,
             batch_encoding_size=batch_encoding_size,
             streaming_encoder=streaming_enc,
+            one_video_per_episode=one_video_per_episode,
         )
 
         if image_writer_processes or image_writer_threads:
@@ -753,6 +759,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         image_writer_threads: int = 0,
         streaming_encoding: bool = False,
         encoder_queue_maxsize: int = 30,
+        one_video_per_episode: bool = False,
     ) -> "LeRobotDataset":
         """Resume recording on an existing dataset.
 
@@ -784,6 +791,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             streaming_encoding: If ``True``, encode video in real-time during
                 capture.
             encoder_queue_maxsize: Max buffered frames per camera for streaming.
+            one_video_per_episode: If ``True``, store every appended episode in
+                a separate MP4 instead of concatenating episodes by file size.
 
         Returns:
             A :class:`LeRobotDataset` in write mode, ready to append episodes.
@@ -833,6 +842,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             batch_encoding_size=batch_encoding_size,
             streaming_encoder=streaming_enc,
             initial_frames=obj.meta.total_frames,
+            one_video_per_episode=one_video_per_episode,
         )
 
         if image_writer_processes or image_writer_threads:

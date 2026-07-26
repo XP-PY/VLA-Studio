@@ -57,6 +57,9 @@ class DatasetRecordConfig:
     # Number of episodes to record before batch encoding videos
     # Set to 1 for immediate encoding (default behavior), or higher for batched encoding
     video_encoding_batch_size: int = 1
+    # Store every episode in a separate MP4 instead of concatenating episodes until the
+    # configured video file size limit is reached.
+    one_video_per_episode: bool = False
     # Video encoder settings for camera MP4s (codec, quality, GOP, etc.). Tuned via CLI nested keys,
     # e.g. ``--dataset.camera_encoder.vcodec=h264`` (see ``VideoEncoderConfig``).
     camera_encoder: VideoEncoderConfig = field(default_factory=camera_encoder_defaults)

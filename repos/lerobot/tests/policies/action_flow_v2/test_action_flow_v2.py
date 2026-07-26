@@ -112,3 +112,13 @@ def test_relevance_loss_ignores_zero_weight_camera():
     torch.testing.assert_close(metrics["relevance_dice_loss"], expected_dice)
     loss.mean().backward()
     assert logits.grad is not None
+
+
+def test_relevance_loss_accepts_single_observation_step():
+    logits = torch.zeros(2, 2, 8, 8)
+    targets = torch.zeros(2, 1, 2, 8, 8)
+    weights = torch.ones(2, 1, 2)
+
+    loss, _ = compute_relevance_loss(logits, targets, weights)
+
+    assert loss.shape == (2,)
