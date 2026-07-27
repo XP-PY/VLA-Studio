@@ -1,0 +1,51 @@
+schema_version: 1
+
+reference:
+  image: ref_image_realsense_viewer.png
+  camera: top
+  width: 640
+  height: 480
+  bbox_format: xyxy
+  coordinate_space: pixels
+
+# YOLOE visual-prompt class IDs must be sequential and start at zero.
+objects:
+  - class_id: 0
+    name: blue_plate
+    display_name: blue plate
+    bbox_xyxy: [207, 155, 317, 261]
+
+  - class_id: 1
+    name: yellow_plate
+    display_name: yellow plate
+    bbox_xyxy: [354, 156, 462, 261]
+
+  - class_id: 2
+    name: pink_plate
+    display_name: pink plate
+    bbox_xyxy: [483, 157, 598, 264]
+
+  - class_id: 3
+    name: garlic
+    display_name: garlic
+    bbox_xyxy: [210, 352, 267, 410]
+
+  - class_id: 4
+    name: tomato
+    display_name: tomato
+    bbox_xyxy: [307, 330, 378, 412]
+
+  - class_id: 5
+    name: cucumber
+    display_name: cucumber
+    bbox_xyxy: [425, 318, 476, 443]
+
+  - class_id: 6
+    name: corn
+    display_name: corn
+    bbox_xyxy: [525, 314, 573, 444]
+
+notes:
+  - Pass this image explicitly as refer_image instead of using the target video's first frame.
+  - Keep each object as a separate visual-prompt class and SAM2 object ID.
+  - Add the collection box from a separate clean reference image before testing bussing tasks.
