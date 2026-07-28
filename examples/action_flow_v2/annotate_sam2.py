@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Annotate task-relevance masks in LeRobot videos with reviewed DINO boxes and SAM2.
+"""Annotate task-relevance masks with reviewed detector prompts and SAM2.
 
 Brief user manual:
 1. Start the app and open the printed local URL in a browser.
-2. Load an episode and camera. Reviewed Grounding DINO boxes are imported
-   automatically when no saved annotation workspace exists.
+2. Load an episode and camera. Reviewed Grounding DINO boxes or YOLOE points
+   are imported automatically when no saved annotation workspace exists.
 3. Inspect each box at its initialization frame. Add positive/negative clicks
    to refine it, or clear that object's prompts and initialize it manually.
 4. For the wrist camera, optionally set an object's final visible frame with
@@ -16,11 +16,34 @@ Use ``--mode batch --episodes all --cameras top wrist`` to process all fully
 resolved episode-camera pairs. Batch mode skips unresolved pairs and writes a
 report under the SAM metadata directory for subsequent manual correction.
 
+For the YOLOE point-review workflow, first run ``review_yoloe.py`` and correct
+the proposals in its browser UI. Then add ``--prompt-source yoloe`` in batch
+mode. Unchanged targets use YOLOE's selected point, while saved review
+decisions override that point or mark the target as not visible.
+
 Per-object SAM2 tracks, labels, clicks, and previews are saved under
 ``runs/sam`` for later experiments. Training rows under ``runs/dataset``
 contain one merged binary relevance mask and one loss weight per frame and
 camera. An all-zero mask is a valid negative label; excluded frames use a zero
 loss weight.
+
+Example:
+
+python examples/action_flow_v2/annotate_sam2.py \
+    --mode batch \
+    --prompt-source yoloe \
+    --dataset-root runs/dataset/rm65_single_table_preparation_and_bussing \
+    --yoloe-root runs/yoloe/rm65_single_table_preparation_and_bussing \
+    --yoloe-review runs/yoloe/rm65_single_table_preparation_and_bussing/review/decisions.json \
+    --output-root runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe \
+    --sam-root runs/sam/rm65_single_table_preparation_and_bussing_yoloe \
+    --model-path models/sam2.1-hiera-small \
+    --episodes all \
+    --cameras top wrist \
+    --device cuda \
+    --sam-frame-stride 2 \
+    --overwrite \
+    2>&1 | tee logs/annotate_sam2.log
 """
 
 from __future__ import annotations
@@ -38,7 +61,6 @@ from pathlib import Path
 from typing import Any
 
 import av
-import gradio as gr
 import numpy as np
 import pandas as pd
 import torch
@@ -52,6 +74,8 @@ DEFAULT_SAM_ROOT = Path("runs/sam/rm65_single_table_preparation_and_bussing")
 DEFAULT_MODEL_PATH = Path("models/sam2.1-hiera-small")
 DEFAULT_GROUNDING_ROOT = DEFAULT_SAM_ROOT / "grounding_dino"
 DEFAULT_GROUNDING_REVIEW = DEFAULT_SAM_ROOT / "grounding_dino_review.md"
+DEFAULT_YOLOE_ROOT = Path("runs/yoloe/rm65_single_table_preparation_and_bussing")
+DEFAULT_YOLOE_REVIEW = DEFAULT_YOLOE_ROOT / "review" / "decisions.json"
 CAMERAS = ("top", "wrist")
 OVERLAY_COLOR = np.array([0, 210, 170], dtype=np.float32)
 
@@ -189,10 +213,23 @@ class GroundingBoxPrompt:
 
 
 @dataclass(frozen=True)
+class GroundingPointPrompt:
+    """One reviewed positive point prompt ready for a SAM2 video session."""
+
+    object_id: int
+    object_name: str
+    object_role: str
+    frame_index: int
+    point_xy: tuple[int, int]
+    source: str
+
+
+@dataclass(frozen=True)
 class GroundingResolution:
     """Resolved prompts and items requiring manual intervention."""
 
     prompts: tuple[GroundingBoxPrompt, ...]
+    point_prompts: tuple[GroundingPointPrompt, ...]
     unresolved: dict[int, str]
     intentionally_not_visible: dict[int, str]
 
@@ -328,7 +365,156 @@ class GroundingDINOReview:
                 continue
             prompts.append(prompt)
 
-        return GroundingResolution(tuple(prompts), unresolved, intentionally_not_visible)
+        return GroundingResolution(
+            prompts=tuple(prompts),
+            point_prompts=(),
+            unresolved=unresolved,
+            intentionally_not_visible=intentionally_not_visible,
+        )
+
+
+class YOLOEReview:
+    """Resolve YOLOE defaults and saved point-review overrides for SAM2."""
+
+    VALID_STATUSES = {"candidate_point", "manual_point", "not_visible"}
+
+    def __init__(self, yoloe_root: Path, review_path: Path):
+        self.root = yoloe_root.resolve()
+        self.review_path = review_path.resolve()
+        if not self.root.is_dir():
+            raise FileNotFoundError(self.root)
+        if not self.review_path.is_file():
+            raise FileNotFoundError(
+                f"{self.review_path} does not exist; run review_yoloe.py first"
+            )
+        self.review_sha256 = hashlib.sha256(self.review_path.read_bytes()).hexdigest()
+        payload = json.loads(self.review_path.read_text())
+        if int(payload.get("format_version", 0)) != 1:
+            raise ValueError(f"Unsupported YOLOE review format in {self.review_path}")
+        saved_root = Path(payload["yoloe_root"]).resolve()
+        if saved_root != self.root:
+            raise ValueError(
+                f"YOLOE review belongs to {saved_root}, but --yoloe-root is {self.root}"
+            )
+        self.decisions = {}
+        for item in payload.get("decisions", []):
+            status = str(item["status"])
+            if status not in self.VALID_STATUSES:
+                raise ValueError(f"Invalid YOLOE review status {status!r}")
+            key = (
+                int(item["episode_index"]),
+                str(item["camera"]),
+                int(item["object_id"]),
+            )
+            self.decisions[key] = item
+
+    def _paths(self, episode_index: int, camera: str) -> tuple[Path, Path]:
+        episode_dir = f"episode-{episode_index:06d}"
+        return (
+            self.root / "data" / episode_dir / f"camera-{camera}.parquet",
+            self.root / "candidates" / episode_dir / f"camera-{camera}.parquet",
+        )
+
+    @staticmethod
+    def _point_prompt(row: pd.Series, source: str) -> GroundingPointPrompt | None:
+        point = (float(row["point_x"]), float(row["point_y"]))
+        width, height = int(row["image_width"]), int(row["image_height"])
+        if (
+            not bool(row["visible"])
+            or int(row["frame_index"]) < 0
+            or not np.isfinite(point).all()
+        ):
+            return None
+        x, y = (int(round(value)) for value in point)
+        if not (0 <= x < width and 0 <= y < height):
+            return None
+        return GroundingPointPrompt(
+            object_id=int(row["object_id"]),
+            object_name=str(row["object_name"]),
+            object_role=str(row["object_role"]),
+            frame_index=int(row["frame_index"]),
+            point_xy=(x, y),
+            source=source,
+        )
+
+    @staticmethod
+    def _manual_point_prompt(
+        selected_row: pd.Series,
+        decision: dict[str, Any],
+    ) -> GroundingPointPrompt | None:
+        frame_index = int(decision["frame_index"])
+        x, y = int(decision["point_x"]), int(decision["point_y"])
+        width, height = int(selected_row["image_width"]), int(selected_row["image_height"])
+        if frame_index < 0 or not (0 <= x < width and 0 <= y < height):
+            return None
+        return GroundingPointPrompt(
+            object_id=int(selected_row["object_id"]),
+            object_name=str(selected_row["object_name"]),
+            object_role=str(selected_row["object_role"]),
+            frame_index=frame_index,
+            point_xy=(x, y),
+            source="reviewed manual point",
+        )
+
+    def resolve(self, episode_index: int, camera: str) -> GroundingResolution:
+        """Return one positive point per visible task entity."""
+        selected_path, candidates_path = self._paths(episode_index, camera)
+        if not selected_path.is_file() or not candidates_path.is_file():
+            raise FileNotFoundError(
+                f"YOLOE artifacts are missing for episode {episode_index} {camera}"
+            )
+        selected = pd.read_parquet(selected_path).sort_values("object_id")
+        candidates = pd.read_parquet(candidates_path).sort_values(
+            ["object_id", "candidate_rank"]
+        )
+
+        point_prompts = []
+        unresolved = {}
+        intentionally_not_visible = {}
+        for selected_row in (row for _, row in selected.iterrows()):
+            object_id = int(selected_row["object_id"])
+            object_name = str(selected_row["object_name"])
+            key = (episode_index, camera, object_id)
+            decision = self.decisions.get(key)
+            if decision is not None and decision["status"] == "not_visible":
+                intentionally_not_visible[object_id] = (
+                    f"{object_name}: marked not_visible in YOLOE review"
+                )
+                continue
+
+            if decision is not None and decision["status"] == "manual_point":
+                prompt = self._manual_point_prompt(selected_row, decision)
+            else:
+                proposal_row = selected_row
+                source = "selected YOLOE point"
+                if decision is not None:
+                    candidate_rank = int(decision["candidate_rank"])
+                    matches = candidates.loc[
+                        (candidates["object_id"] == object_id)
+                        & (candidates["candidate_rank"] == candidate_rank)
+                    ]
+                    if len(matches) != 1:
+                        unresolved[object_id] = (
+                            f"{object_name}: YOLOE candidate {candidate_rank} is unavailable"
+                        )
+                        continue
+                    proposal_row = matches.iloc[0]
+                    source = f"reviewed YOLOE candidate {candidate_rank} point"
+                prompt = self._point_prompt(proposal_row, source)
+
+            if prompt is None:
+                unresolved[object_id] = (
+                    f"{object_name}: no usable YOLOE point; review it or mark not_visible"
+                )
+                continue
+            point_prompts.append(prompt)
+
+        return GroundingResolution(
+            prompts=(),
+            point_prompts=tuple(point_prompts),
+            unresolved=unresolved,
+            intentionally_not_visible=intentionally_not_visible,
+        )
 
 
 class TaskRelevanceAnnotator:
@@ -343,6 +529,9 @@ class TaskRelevanceAnnotator:
         device: str,
         grounding_root: Path | None = None,
         grounding_review: Path | None = None,
+        prompt_source: str = "grounding_dino",
+        yoloe_root: Path | None = None,
+        yoloe_review: Path | None = None,
         auto_grounding: bool = True,
         sam_frame_stride: int = 3,
     ):
@@ -357,9 +546,24 @@ class TaskRelevanceAnnotator:
         self.sam_frame_stride = sam_frame_stride
         self.grounding_review = None
         if auto_grounding:
-            if grounding_root is None or grounding_review is None:
-                raise ValueError("grounding_root and grounding_review are required with auto grounding")
-            self.grounding_review = GroundingDINOReview(grounding_root, grounding_review)
+            if prompt_source == "grounding_dino":
+                if grounding_root is None or grounding_review is None:
+                    raise ValueError(
+                        "grounding_root and grounding_review are required for Grounding DINO"
+                    )
+                self.grounding_review = GroundingDINOReview(
+                    grounding_root,
+                    grounding_review,
+                )
+            elif prompt_source == "yoloe":
+                if yoloe_root is None or yoloe_review is None:
+                    raise ValueError(
+                        "yoloe_root and yoloe_review are required for YOLOE"
+                    )
+                self.grounding_review = YOLOEReview(yoloe_root, yoloe_review)
+            else:
+                raise ValueError(f"Unsupported prompt source {prompt_source!r}")
+        self.prompt_source = prompt_source if auto_grounding else "manual"
 
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -405,6 +609,7 @@ class TaskRelevanceAnnotator:
             "grounding_review_sha256": (
                 self.grounding_review.review_sha256 if self.grounding_review else None
             ),
+            "prompt_source": self.prompt_source,
             "fps": self.source.fps,
             "sam_frame_stride": self.sam_frame_stride,
             "mask_interpolation": "nearest tracked frame; every prompt and explicit bound is retained",
@@ -425,6 +630,7 @@ class TaskRelevanceAnnotator:
             "grounding_review_sha256": (
                 self.grounding_review.review_sha256 if self.grounding_review else None
             ),
+            "prompt_source": self.prompt_source,
             "fps": self.source.fps,
             "sam_frame_stride": self.sam_frame_stride,
             "mask_interpolation": "nearest tracked frame; every prompt and explicit bound is retained",
@@ -524,6 +730,7 @@ class TaskRelevanceAnnotator:
             "grounding_review_sha256": (
                 self.grounding_review.review_sha256 if self.grounding_review else None
             ),
+            "prompt_source": self.prompt_source,
             "excluded_frames": sorted(self.excluded_frames),
         }
         self._write_json_atomic(path, payload)
@@ -545,15 +752,28 @@ class TaskRelevanceAnnotator:
             return False
         payload = json.loads(path.read_text())
         if self.grounding_review is not None:
+            if payload.get("prompt_source", "grounding_dino") != self.prompt_source:
+                logger.info(
+                    "Refreshing %s because the prompt source changed to %s",
+                    path,
+                    self.prompt_source,
+                )
+                return False
             saved_review_sha256 = payload.get("grounding_review_sha256")
             current_review_sha256 = self.grounding_review.review_sha256
+            if (
+                saved_review_sha256 != current_review_sha256
+                and self.prompt_source == "yoloe"
+            ):
+                logger.info("Refreshing %s because the YOLOE review changed", path)
+                return False
             has_manual_points = any(
                 points
                 for frame_prompts in payload.get("prompts", {}).values()
                 for points in frame_prompts.values()
             )
             if saved_review_sha256 != current_review_sha256 and not has_manual_points:
-                logger.info("Refreshing %s because the Grounding DINO review changed", path)
+                logger.info("Refreshing %s because the detector review changed", path)
                 return False
             if saved_review_sha256 != current_review_sha256:
                 logger.warning(
@@ -601,7 +821,7 @@ class TaskRelevanceAnnotator:
         self.excluded_frames = {int(index) for index in payload.get("excluded_frames", [])}
         return True
 
-    def _import_grounding_boxes(self) -> None:
+    def _import_reviewed_prompts(self) -> None:
         if self.grounding_review is None:
             return
         assert self.episode_index is not None and self.camera is not None
@@ -610,7 +830,18 @@ class TaskRelevanceAnnotator:
             self.boxes.setdefault(prompt.object_id, {})[prompt.frame_index] = prompt.box_xyxy
             self.box_sources.setdefault(prompt.object_id, {})[prompt.frame_index] = prompt.source
             self.object_labels[prompt.object_id] = prompt.object_name
-            default_start = 0 if self.camera == "top" else prompt.frame_index
+            # default_start = 0 if self.camera == "top" else prompt.frame_index
+            default_start = 0
+            self.bounds[prompt.object_id] = ObjectBounds(start=default_start)
+        for prompt in resolution.point_prompts:
+            x, y = prompt.point_xy
+            self.prompts.setdefault(prompt.object_id, {}).setdefault(
+                prompt.frame_index,
+                [],
+            ).append((x, y, 1))
+            self.object_labels[prompt.object_id] = prompt.object_name
+            # default_start = 0 if self.camera == "top" else prompt.frame_index
+            default_start = 0
             self.bounds[prompt.object_id] = ObjectBounds(start=default_start)
         self.grounding_unresolved = dict(resolution.unresolved)
         self.grounding_not_visible = dict(resolution.intentionally_not_visible)
@@ -621,8 +852,11 @@ class TaskRelevanceAnnotator:
             self.object_labels.setdefault(object_id, reason.partition(":")[0])
         self._save_workspace()
         logger.info(
-            "Imported %d DINO boxes for episode %d camera %s; %d unresolved",
+            "Imported %d boxes and %d points from %s for episode %d camera %s; "
+            "%d unresolved",
             len(resolution.prompts),
+            len(resolution.point_prompts),
+            self.prompt_source,
             self.episode_index,
             self.camera,
             len(resolution.unresolved),
@@ -684,7 +918,7 @@ class TaskRelevanceAnnotator:
         with self.lock:
             episode_index = int(episode_index)
             if episode_index not in self.source.episodes.index:
-                raise gr.Error(f"Episode {episode_index} does not exist")
+                raise RuntimeError(f"Episode {episode_index} does not exist")
             camera = str(camera)
             self.release_episode_memory()
             logger.info("Decoding episode %d camera %s", episode_index, camera)
@@ -695,7 +929,7 @@ class TaskRelevanceAnnotator:
             self.preview_mask = None
             workspace_loaded = self._load_workspace()
             if not workspace_loaded:
-                self._import_grounding_boxes()
+                self._import_reviewed_prompts()
             self._load_saved_masks()
             status = self.status(0)
             return self.render(0), self.task_prompt, len(self.video_frames) - 1, status
@@ -723,7 +957,7 @@ class TaskRelevanceAnnotator:
 
     def _require_loaded_video(self) -> None:
         if self.episode_index is None or self.camera is None or not self.video_frames:
-            raise gr.Error("Load an episode and camera first")
+            raise RuntimeError("Load an episode and camera first")
 
     def _tracking_frame_indices(self) -> list[int]:
         """Return memory-bounded SAM2 frames while retaining every conditioning boundary."""
@@ -819,7 +1053,7 @@ class TaskRelevanceAnnotator:
         if self.session is not None:
             return
         if not self.prompts and not self.boxes:
-            raise gr.Error("Add at least one positive point or box before running SAM2")
+            raise RuntimeError("Add at least one positive point or box before running SAM2")
         self.session = self._new_session()
         assert self.model is not None
         for frame_index in self._conditioning_frames():
@@ -876,14 +1110,14 @@ class TaskRelevanceAnnotator:
         object_id: int,
         object_label: str,
         point_mode: str,
-        event: gr.SelectData,
+        event: Any,
     ) -> tuple[np.ndarray, str]:
         with self.lock:
             self._require_loaded_video()
             frame_index = int(frame_index)
             object_id = int(object_id)
             if object_id < 1:
-                raise gr.Error("Object ID must be at least 1")
+                raise RuntimeError("Object ID must be at least 1")
             x, y = (int(value) for value in event.index[:2])
             label = 1 if point_mode == "Positive" else 0
             self.prompts.setdefault(object_id, {}).setdefault(frame_index, []).append((x, y, label))
@@ -1004,7 +1238,7 @@ class TaskRelevanceAnnotator:
             self._require_loaded_video()
             object_id = int(object_id)
             if object_id not in self.prompts and object_id not in self.boxes:
-                raise gr.Error(f"Object {object_id} has no prompt")
+                raise RuntimeError(f"Object {object_id} has no prompt")
             self.bounds.setdefault(object_id, ObjectBounds()).end = int(frame_index)
             self.propagated_object_masks = None
             self.propagated_masks = None
@@ -1038,19 +1272,19 @@ class TaskRelevanceAnnotator:
     def propagate_and_save(
         self,
         frame_index: int,
-        progress: gr.Progress | None = gr.Progress(),
+        progress: Any | None = None,
     ) -> tuple[np.ndarray, str]:
         with self.lock:
             self._require_loaded_video()
             if self.grounding_unresolved:
                 reasons = "; ".join(self.grounding_unresolved.values())
-                raise gr.Error(f"Resolve all manual Grounding DINO items before saving: {reasons}")
+                raise RuntimeError(f"Resolve all missing detector prompts before saving: {reasons}")
 
             conditioning_frames = self._conditioning_frames()
             active_object_ids = sorted(set(self.prompts) | set(self.boxes))
             tracked_object_ids = sorted(set(active_object_ids) | set(self.grounding_not_visible))
             if not tracked_object_ids:
-                raise gr.Error("Add at least one positive point or reviewed box before running SAM2")
+                raise RuntimeError("Add at least one positive point or reviewed box before running SAM2")
 
             height, width = self.video_frames[0].shape[:2]
             zero_mask = np.zeros((height, width), dtype=bool)
@@ -1291,7 +1525,13 @@ class TaskRelevanceAnnotator:
         )
 
 
-def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_camera: str) -> gr.Blocks:
+def build_app(
+    annotator: TaskRelevanceAnnotator,
+    default_episode: int,
+    default_camera: str,
+) -> Any:
+    import gradio as gr
+
     with gr.Blocks(title="Task-Relevance Mask Annotation") as app:
         with gr.Row():
             episode = gr.Number(
@@ -1333,6 +1573,9 @@ def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_c
             index = int(frame_index)
             return annotator.render(index), annotator.status(index)
 
+        def propagate(frame_index: float, progress: Any = gr.Progress()):
+            return annotator.propagate_and_save(int(frame_index), progress)
+
         load_button.click(load, inputs=[episode, camera], outputs=[image, prompt, frame_slider, status])
         frame_slider.change(show_frame, inputs=frame_slider, outputs=[image, status], show_progress="hidden")
         object_id.change(lambda _: "", inputs=object_id, outputs=object_label, show_progress="hidden")
@@ -1373,7 +1616,7 @@ def build_app(annotator: TaskRelevanceAnnotator, default_episode: int, default_c
             outputs=[image, status],
         )
         propagate_button.click(
-            annotator.propagate_and_save,
+            propagate,
             inputs=frame_slider,
             outputs=[image, status],
             concurrency_limit=1,
@@ -1542,10 +1785,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grounding-root", type=Path, default=DEFAULT_GROUNDING_ROOT)
     parser.add_argument("--grounding-review", type=Path, default=DEFAULT_GROUNDING_REVIEW)
     parser.add_argument(
+        "--prompt-source",
+        choices=("grounding_dino", "yoloe"),
+        default="grounding_dino",
+        help="Reviewed detector output used to initialize SAM2.",
+    )
+    parser.add_argument("--yoloe-root", type=Path, default=DEFAULT_YOLOE_ROOT)
+    parser.add_argument("--yoloe-review", type=Path, default=DEFAULT_YOLOE_REVIEW)
+    parser.add_argument(
         "--auto-grounding",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Import reviewed Grounding DINO boxes when no SAM2 workspace exists.",
+        help="Import reviewed detector prompts when no SAM2 workspace exists.",
     )
     parser.add_argument("--device", default="auto", help="auto, cuda, cuda:N, or cpu")
     parser.add_argument(
@@ -1579,6 +1830,9 @@ def main() -> None:
         device=args.device,
         grounding_root=args.grounding_root,
         grounding_review=args.grounding_review,
+        prompt_source=args.prompt_source,
+        yoloe_root=args.yoloe_root,
+        yoloe_review=args.yoloe_review,
         auto_grounding=args.auto_grounding,
         sam_frame_stride=args.sam_frame_stride,
     )

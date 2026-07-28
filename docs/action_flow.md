@@ -443,6 +443,21 @@ This experiment uses one binary relevance channel per camera. The target is the 
 The target does not distinguish source from destination and does not change between task phases.
 It is not used as a grasp-point or trajectory label.
 
+Grounding DINO receives detector-oriented text instead of the literal dataset entity name when a
+more visually specific description is needed:
+
+| Dataset entity | Grounding DINO query | Usage |
+|---|---|---|
+| `tomato` | `tomato` | Source vegetable |
+| `garlic` | `white garlic` | Source vegetable; the color reduces confusion with the table and paper |
+| `corn` | `corn` | Source vegetable |
+| `cucumber` | `green cucumber` | Source vegetable |
+| `pink plate` | `pink square bowl` | Source or destination container |
+| `yellow plate` | `cream square bowl` | Source or destination container; `cream` better matches its observed color |
+| `blue plate` | `blue square bowl` | Source or destination container |
+| `collection box` | `brown cardboard box` | Destination container |
+| `vegetable on the {color} plate` | Plate query plus all four vegetable queries | Detect the specified plate and the vegetables separately, then select the vegetable whose box lies inside the plate box |
+
 The annotations were generated as follows:
 
 1. Parse each task prompt into deterministic entity IDs, names, roles, and detector queries.
@@ -844,3 +859,145 @@ The next evaluation should report task success, grasp success, and held-out heat
 separately. It should use more repeated paired scenes with and without distractors and log
 predicted gripper commands to determine whether closure failures originate in the policy output or
 the physical gripper execution.
+
+### Training Log 2 of Objective 1
+
+#### Relevance Annotation
+
+The second annotation pass replaces open-vocabulary text grounding with
+[YOLOE](https://docs.ultralytics.com/models/yoloe/) visual prompting. This change addresses two
+problems observed in Training Log 1: text queries sometimes select semantically related but
+incorrect objects, and a box around an already combined object-and-plate region can initialize a
+fused SAM2 track. YOLOE is used only to obtain reviewed positive initialization points; SAM2 still
+generates the frame-level segmentation masks.
+
+##### Visual Reference
+
+YOLOE is initialized once from a 640 x 480 top-camera reference image containing clear examples of
+the task objects. Each bounding box is assigned a stable visual-prompt class:
+
+| Class ID | Reference class | Dataset entity |
+|---:|---|---|
+| 0 | `blue_plate` | `blue plate` |
+| 1 | `yellow_plate` | `yellow plate` |
+| 2 | `pink_plate` | `pink plate` |
+| 3 | `garlic` | `garlic` |
+| 4 | `tomato` | `tomato` |
+| 5 | `cucumber` | `cucumber` |
+| 6 | `corn` | `corn` |
+| 7 | `collection_box` | `collection box` |
+
+The reference definition is stored in:
+
+```text
+examples/action_flow_v2/ref/yoloe_reference_realsense_viewer_with_collection_box.yaml
+```
+
+This is a visual class mapping, not a text-query mapping. The task parser still determines which
+entities are relevant to each instruction, but only those corresponding YOLOE classes are retained
+for review and SAM2 initialization.
+
+##### YOLOE Proposal Generation
+
+`examples/action_flow_v2/annotate_yoloe.py` scans the top and wrist videos and writes detection
+artifacts under:
+
+```text
+runs/yoloe/rm65_single_table_preparation_and_bussing
+```
+
+| Parameter | Value |
+|---|---|
+| Model | `yoloe-26x-seg.pt` |
+| Cameras | `top`, `wrist` |
+| Frame selection | Every episode frame |
+| Input size | `640` |
+| Confidence threshold | `0.15` |
+| IoU threshold | `0.7` |
+| Candidates per entity | `3` |
+| Candidate quality threshold | `0.3` |
+| YOLOE mask threshold | `0.5` |
+| Inference batch size | `4` |
+
+For every prompt-relevant entity, YOLOE predicts a box and segmentation mask. A positive point is
+chosen at the mask pixel farthest from its boundary, which places it inside the object rather than
+on an uncertain edge. The box center is used only when YOLOE provides no usable mask.
+
+Candidates are ranked using detection confidence, visible area, border clearance, and image
+sharpness. Source objects receive a penalty for late frames so that their initialization is
+preferably captured before manipulation. Up to three temporally separated candidates are retained
+for each `(episode, camera, object_id)` item.
+
+##### Point Review
+
+The YOLOE result is reviewed with `examples/action_flow_v2/review_yoloe.py`. Unlike the first
+annotation workflow, review corrections are not transcribed into a Markdown table and then repeated
+manually in the SAM2 interface. The reviewer operates directly on the original video frames:
+
+| Review action | Saved result | SAM2 behavior |
+|---|---|---|
+| Leave unchanged | No explicit override | Use the selected YOLOE point |
+| Select a candidate and use its point | `candidate_point` | Use that candidate's frame and positive point |
+| Click the correct target in any frame | `manual_point` | Use the clicked frame and coordinates as a positive point |
+| Mark `Not visible` | `not_visible` | Produce an all-zero track for that entity and camera |
+
+Each action is saved immediately and can be resumed from:
+
+```text
+runs/yoloe/rm65_single_table_preparation_and_bussing/review/decisions.json
+```
+
+If an absent target is not marked `not_visible`, a missing YOLOE proposal leaves the
+episode-camera pair unresolved and batch SAM2 skips it. More seriously, an unreviewed false
+positive is treated as the target and produces an incorrect track. Therefore, every absent target
+and every false positive must be corrected during review.
+
+##### SAM2 Tracking
+
+`examples/action_flow_v2/annotate_sam2.py` loads the review file with
+`prompt_source=yoloe`. Untouched targets use the selected YOLOE points, while explicit decisions
+override them before the SAM2 session is constructed.
+
+| Parameter | Value |
+|---|---|
+| Model | `sam2.1-hiera-small` |
+| Prompt type | One positive point per visible entity |
+| Frame stride | `2` |
+| Intermediate frames | Mask from the nearest directly tracked frame |
+| Top-camera range | Propagate forward and backward to cover the full episode |
+| Wrist-camera range | Begin at the reviewed reference-point frame |
+| Missing reviewed target | Skip the unresolved episode-camera pair |
+| `not_visible` target | Save an all-zero per-object track |
+
+Reference-point frames are always processed even when they are not divisible by the frame stride.
+SAM2 tracks each entity independently, after which the per-object masks are unioned into one binary
+task-relevance mask per frame.
+
+The separate object tracks, resumable workspaces, batch report, and preview videos are stored under:
+
+```text
+runs/sam/rm65_single_table_preparation_and_bussing_yoloe
+```
+
+The full-resolution union masks and frame validity weights are stored under:
+
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe
+```
+
+Each annotation row is aligned by `episode_index`, `frame_index`, and camera, and contains the image
+size, compressed binary mask, and `loss_weight`. The source robot dataset remains unchanged.
+
+For policy training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins this sidecar with
+the original LeRobot dataset. It orders the cameras as wrist then top, converts each full-resolution
+mask to the SmolVLA-compatible 8 x 8 image-token grid using max pooling and left/top padding, and
+adds:
+
+- `observation.relevance_mask`: `uint8[2, 8, 8]`.
+- `observation.relevance_loss_weight`: `float32[2]`.
+
+The merged YOLOE/SAM2 training dataset should be stored separately as:
+
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_segmentation
+```
