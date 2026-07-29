@@ -47,6 +47,8 @@ from lerobot.utils.feature_utils import dataset_to_policy_features
 from .act.configuration_act import ACTConfig
 from .action_flow_v1.configuration_action_flow_v1 import ActionFlowV1Config
 from .action_flow_v2.configuration_action_flow_v2 import ActionFlowV2Config
+from .action_flow_v2_1.configuration_action_flow_v2_1 import ActionFlowV21Config
+from .action_flow_v2_2.configuration_action_flow_v2_2 import ActionFlowV22Config
 from .diffusion.configuration_diffusion import DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config
 from .gaussian_actor.configuration_gaussian_actor import GaussianActorConfig
@@ -92,7 +94,8 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
 
     Args:
         name: The name of the policy. Supported names include "tdmpc", "diffusion", "act",
-            "action_flow_v1", "action_flow_v2", "multi_task_dit", "vqbet", "pi0", "pi05",
+            "action_flow_v1", "action_flow_v2", "action_flow_v2_1", "action_flow_v2_2",
+            "multi_task_dit", "vqbet", "pi0", "pi05",
             "gaussian_actor", "smolvla", "wall_x", and "molmoact2".
     Returns:
         The policy class corresponding to the given name.
@@ -112,6 +115,15 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
         from .action_flow_v2.modeling_action_flow_v2 import ActionFlowV2Policy
 
         return ActionFlowV2Policy
+    elif name == "action_flow_v2_1":
+        from .action_flow_v2_1.modeling_action_flow_v2_1 import ActionFlowV21Policy
+
+        return ActionFlowV21Policy
+    elif name == "action_flow_v2_2":
+        raise NotImplementedError(
+            "Action Flow V2.2 currently provides Stage 1 configuration and data contracts only. "
+            "Its model will be added in a later development stage."
+        )
     elif name == "diffusion":
         from .diffusion.modeling_diffusion import DiffusionPolicy
 
@@ -188,8 +200,9 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
 
     Args:
         policy_type: The type of the policy. Supported types include "tdmpc", "action_flow_v1",
-            "action_flow_v2", "multi_task_dit", "diffusion", "act", "vqbet", "pi0", "pi05",
-            "gaussian_actor", "smolvla", "wall_x", and "molmoact2".
+            "action_flow_v2", "action_flow_v2_1", "action_flow_v2_2", "multi_task_dit",
+            "diffusion", "act", "vqbet", "pi0", "pi05", "gaussian_actor", "smolvla",
+            "wall_x", and "molmoact2".
         **kwargs: Keyword arguments to be passed to the configuration class constructor.
 
     Returns:
@@ -204,6 +217,10 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
         return ActionFlowV1Config(**kwargs)
     elif policy_type == "action_flow_v2":
         return ActionFlowV2Config(**kwargs)
+    elif policy_type == "action_flow_v2_1":
+        return ActionFlowV21Config(**kwargs)
+    elif policy_type == "action_flow_v2_2":
+        return ActionFlowV22Config(**kwargs)
     elif policy_type == "diffusion":
         return DiffusionConfig(**kwargs)
     elif policy_type == "act":
@@ -294,6 +311,12 @@ def make_pre_post_processors(
         NotImplementedError: If a processor factory is not implemented for the given
             policy configuration type.
     """
+    if isinstance(policy_cfg, ActionFlowV22Config):
+        raise NotImplementedError(
+            "Action Flow V2.2 processors are not part of Stage 1. "
+            "Use the configuration and data contracts only until the processor stage is implemented."
+        )
+
     if pretrained_path:
         # TODO(Steven): Temporary patch, implement correctly the processors for Gr00t
         if isinstance(policy_cfg, GrootConfig):
@@ -352,6 +375,16 @@ def make_pre_post_processors(
         from .action_flow_v1.processor_action_flow_v1 import make_action_flow_v1_pre_post_processors
 
         processors = make_action_flow_v1_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
+    elif isinstance(policy_cfg, ActionFlowV21Config):
+        from .action_flow_v2_1.processor_action_flow_v2_1 import (
+            make_action_flow_v2_1_pre_post_processors,
+        )
+
+        processors = make_action_flow_v2_1_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )

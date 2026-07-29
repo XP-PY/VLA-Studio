@@ -58,6 +58,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-width", type=int, default=8)
     parser.add_argument("--target-height", type=int, default=8)
     parser.add_argument("--decode-batch-size", type=int, default=32)
+    parser.add_argument(
+        "--write-batch-size",
+        type=int,
+        default=64,
+        help="Maximum number of dense mask rows materialized before writing Parquet.",
+    )
     return parser.parse_args()
 
 
@@ -137,16 +143,12 @@ def decode_and_resize_table(
     return output
 
 
-def load_episode_camera_labels(
+def load_episode_camera_table(
     segmentation_root: Path,
     *,
     episode_index: int,
     camera: str,
-    expected_frame_indices: np.ndarray,
-    target_width: int,
-    target_height: int,
-    decode_batch_size: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> pd.DataFrame:
     path = (
         segmentation_root
         / "data"
@@ -173,16 +175,36 @@ def load_episode_camera_labels(
         raise ValueError(f"{path} contains a different episode index.")
     if not np.all(table["camera"].to_numpy() == camera):
         raise ValueError(f"{path} contains a different camera name.")
-    if not np.array_equal(table["frame_index"].to_numpy(), expected_frame_indices):
-        raise ValueError(f"{path} frame indices do not match the robot dataset.")
+    if table["frame_index"].duplicated().any():
+        raise ValueError(f"{path} contains duplicate frame indices.")
+    return table.set_index("frame_index", drop=False)
+
+
+def select_episode_camera_labels(
+    table: pd.DataFrame,
+    *,
+    expected_frame_indices: np.ndarray,
+    target_width: int,
+    target_height: int,
+    decode_batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Decode the requested frame subset from a validated camera table."""
+
+    missing_frames = np.setdiff1d(expected_frame_indices, table.index.to_numpy())
+    if len(missing_frames):
+        raise ValueError(
+            "Segmentation table does not contain requested frame indices: "
+            f"{missing_frames[:10].tolist()}"
+        )
+    selected = table.loc[expected_frame_indices]
 
     masks = decode_and_resize_table(
-        table,
+        selected,
         target_width=target_width,
         target_height=target_height,
         batch_size=decode_batch_size,
     )
-    weights = table["loss_weight"].to_numpy(dtype=np.float32)
+    weights = selected["loss_weight"].to_numpy(dtype=np.float32)
     return masks, weights
 
 
@@ -195,43 +217,59 @@ def build_augmented_file(
     target_width: int,
     target_height: int,
     decode_batch_size: int,
+    write_batch_size: int,
     hf_features: datasets.Features,
 ) -> int:
     frame = pd.read_parquet(source_path)
-    masks = np.zeros(
-        (len(frame), len(cameras), target_height, target_width),
-        dtype=np.uint8,
-    )
-    weights = np.zeros((len(frame), len(cameras)), dtype=np.float32)
-
-    for episode_index, episode_rows in frame.groupby("episode_index", sort=False):
-        row_positions = frame.index.get_indexer(episode_rows.index)
-        expected_frames = episode_rows["frame_index"].to_numpy()
-        for camera_index, camera in enumerate(cameras):
-            camera_masks, camera_weights = load_episode_camera_labels(
-                segmentation_root,
-                episode_index=int(episode_index),
-                camera=camera,
-                expected_frame_indices=expected_frames,
-                target_width=target_width,
-                target_height=target_height,
-                decode_batch_size=decode_batch_size,
-            )
-            masks[row_positions, camera_index] = camera_masks
-            weights[row_positions, camera_index] = camera_weights
-
-    columns: dict[str, Any] = frame.to_dict(orient="list")
-    columns[RELEVANCE_MASK] = masks
-    columns[RELEVANCE_LOSS_WEIGHT] = weights
-    dataset = datasets.Dataset.from_dict(columns, features=hf_features, split="train")
-
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(
-        dataset.data.table,
-        target_path,
-        compression="snappy",
-        use_dictionary=True,
-    )
+    table_cache: dict[tuple[int, str], pd.DataFrame] = {}
+    writer: pq.ParquetWriter | None = None
+    try:
+        for start in range(0, len(frame), write_batch_size):
+            batch = frame.iloc[start : start + write_batch_size].reset_index(drop=True)
+            masks = np.zeros(
+                (len(batch), len(cameras), target_height, target_width),
+                dtype=np.uint8,
+            )
+            weights = np.zeros((len(batch), len(cameras)), dtype=np.float32)
+
+            for episode_index, episode_rows in batch.groupby("episode_index", sort=False):
+                row_positions = episode_rows.index.to_numpy()
+                expected_frames = episode_rows["frame_index"].to_numpy()
+                for camera_index, camera in enumerate(cameras):
+                    cache_key = (int(episode_index), camera)
+                    if cache_key not in table_cache:
+                        table_cache[cache_key] = load_episode_camera_table(
+                            segmentation_root,
+                            episode_index=cache_key[0],
+                            camera=camera,
+                        )
+                    camera_masks, camera_weights = select_episode_camera_labels(
+                        table_cache[cache_key],
+                        expected_frame_indices=expected_frames,
+                        target_width=target_width,
+                        target_height=target_height,
+                        decode_batch_size=decode_batch_size,
+                    )
+                    masks[row_positions, camera_index] = camera_masks
+                    weights[row_positions, camera_index] = camera_weights
+
+            columns: dict[str, Any] = batch.to_dict(orient="list")
+            columns[RELEVANCE_MASK] = masks
+            columns[RELEVANCE_LOSS_WEIGHT] = weights
+            dataset = datasets.Dataset.from_dict(columns, features=hf_features, split="train")
+            arrow_table = dataset.data.table
+            if writer is None:
+                writer = pq.ParquetWriter(
+                    target_path,
+                    arrow_table.schema,
+                    compression="snappy",
+                    use_dictionary=True,
+                )
+            writer.write_table(arrow_table)
+    finally:
+        if writer is not None:
+            writer.close()
     return len(frame)
 
 
@@ -299,6 +337,8 @@ def main() -> None:
         raise ValueError("Target width and height must be positive.")
     if args.decode_batch_size <= 0:
         raise ValueError("Decode batch size must be positive.")
+    if args.write_batch_size <= 0:
+        raise ValueError("Write batch size must be positive.")
     if len(set(args.cameras)) != len(args.cameras):
         raise ValueError("Camera names must be unique.")
     if not (args.robot_root / "meta" / "info.json").is_file():
@@ -343,6 +383,7 @@ def main() -> None:
             target_width=args.target_width,
             target_height=args.target_height,
             decode_batch_size=args.decode_batch_size,
+            write_batch_size=args.write_batch_size,
             hf_features=hf_features,
         )
         logging.info(

@@ -988,16 +988,480 @@ runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe
 Each annotation row is aligned by `episode_index`, `frame_index`, and camera, and contains the image
 size, compressed binary mask, and `loss_weight`. The source robot dataset remains unchanged.
 
-For policy training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins this sidecar with
-the original LeRobot dataset. It orders the cameras as wrist then top, converts each full-resolution
-mask to the SmolVLA-compatible 8 x 8 image-token grid using max pooling and left/top padding, and
-adds:
+##### Dense Training Dataset
 
-- `observation.relevance_mask`: `uint8[2, 8, 8]`.
+For policy training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins the YOLOE/SAM2
+sidecar with the original LeRobot dataset. The native-resolution SAM2 masks remain unchanged in
+the sidecar dataset. The merged copies are resized to 512 x 512 using the same
+aspect-ratio-preserving resize and left/top padding convention as the policy images. This retains
+dense spatial supervision instead of reducing each mask to the VLM's 8 x 8 image-token grid.
+
+The camera order is wrist then top. The merged dataset adds:
+
+- `observation.relevance_mask`: `uint8[2, 512, 512]`.
 - `observation.relevance_loss_weight`: `float32[2]`.
 
-The merged YOLOE/SAM2 training dataset should be stored separately as:
+The resulting training dataset contains 203 episodes and 92,545 frames at 30 FPS:
 
 ```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_segmentation
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation
 ```
+
+#### Policy and Loss Design
+
+This experiment uses Action Flow V2.1. It keeps the prompt-conditioned SmolVLA action-flow
+pipeline from Action Flow V2 but replaces the 8 x 8 relevance classifier with a learned dense
+decoder. For each camera, the decoder reshapes the corresponding image tokens to their spatial
+grid and applies six learned 2x upsampling stages:
+
+```text
+8 x 8 -> 16 x 16 -> 32 x 32 -> 64 x 64 -> 128 x 128 -> 256 x 256 -> 512 x 512
+```
+
+The decoder channels are `(256, 128, 64, 32, 16, 8)`, followed by a one-channel output projection.
+The relevance target size matches the 512 x 512 policy image size, so the prediction and target
+remain spatially aligned.
+
+The training objective is:
+
+```text
+L_total = L_flow + 0.1 * (L_BCE + L_Dice)
+```
+
+BCE supervises each output pixel, while Dice reduces the dominance of background pixels when the
+relevant objects occupy a small image region. `observation.relevance_loss_weight` excludes invalid
+camera annotations without treating a valid empty mask as missing data.
+
+The policy is initialized from the local `smolvla_base` checkpoint and local
+`SmolVLM2-500M-Video-Instruct` backbone. The VLM, action expert, state projection, camera
+embeddings, and dense relevance decoder are all trainable. The successful startup reports
+405 million learnable parameters out of 452 million total parameters.
+
+#### Training Configuration
+
+Output policy:
+
+```text
+rm65_action_flow_v21_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1
+```
+
+| Parameter | Configured value | Action Flow V2.1 default |
+|---|---:|---:|
+| `dataset.repo_id` | `rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation` | Not set |
+| `dataset.root` | `runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation` | Not set |
+| `dataset.return_uint8` | `true` | `false` |
+| `policy.pretrained_path` | `models/smolvla_base` | `None` |
+| `policy.vlm_model_name` | `models/SmolVLM2-500M-Video-Instruct` | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` |
+| `policy.input_features` | `null` (infer from dataset) | `{}` |
+| `policy.output_features` | `null` (infer from dataset) | `{}` |
+| `policy.n_action_steps` | `1` | `10` |
+| `policy.optimizer_lr` | `3e-5` | `1e-4` |
+| `policy.scheduler_warmup_steps` | `2,000` | `1,000` |
+| `policy.scheduler_decay_steps` | `40,000` | `30,000` |
+| `policy.push_to_hub` | `false` | `true` |
+| `steps` | `40,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_action_flow_v2_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
+| `accelerate --mixed_precision` | `bf16` | `no` |
+
+> **Note:** Parameters not listed in the table use their Action Flow V2.1 defaults. Important
+> retained values are `policy.chunk_size=50`, `batch_size=8`,
+> `policy.relevance_loss_weight=0.1`, `policy.relevance_bce_weight=1.0`,
+> `policy.relevance_dice_weight=1.0`, `policy.relevance_target_size=[512, 512]`,
+> `policy.freeze_vision_encoder=false`, `policy.train_expert_only=false`,
+> `policy.train_state_proj=true`, and `policy.load_vlm_weights=true`. Training uses one GPU
+> process, giving an effective batch size of 8.
+
+---
+
+### Training Log 3 of Objective 1
+
+#### Motivation
+
+Action Flow V2 and V2.1 train the VLM and continuous action expert jointly. The flow-matching loss
+therefore changes the pretrained VLM weights directly, while the relevance objective supervises
+spatial understanding through a separate heatmap head. Training Log 3 instead proposes **Action
+Flow V2.2**, a knowledge-insulated policy inspired by
+[pi0.5-KI](https://www.pi.website/download/pi05_KI.pdf).
+
+The experiment has three objectives:
+
+1. Represent future RM65 joint commands as offsets from the current joint state so that the policy
+   learns motion relative to the current pose rather than memorizing absolute workspace poses.
+2. Train the VLM autoregressively to predict prompt-relevant target boxes and FAST-discretized
+   action tokens.
+3. Train a separate action expert to predict continuous actions through flow matching while
+   preventing the flow loss from changing the VLM.
+
+Target boxes replace the dense segmentation objective in this experiment. They provide explicit
+camera, entity, role, visibility, and location supervision through the VLM token stream. They are
+intended to improve language-to-entity binding, but they remain coarse grounding labels rather
+than grasp-point labels.
+
+#### Policy Structure
+
+The planned policy has one trainable VLM branch and one trainable continuous-action branch:
+
+```text
+wrist/top images + prompt + current state
+                    |
+                 SmolVLM
+              /             \
+     target-box tokens     FAST action tokens
+          box CE loss        FAST CE loss
+              \             /
+          per-layer VLM prefix K/V
+                    |
+             stop-gradient
+                    |
+       flow-matching action expert
+       + noisy actions + timestep
+                    |
+       continuous relative actions
+```
+
+The VLM receives gradients from target-box and FAST-token prediction. The action expert receives
+gradients from flow matching. The flow loss must not update the vision encoder, connector,
+language model, token embeddings, LM head, state projection, or camera embeddings.
+
+The policy will be implemented in a new package:
+
+```text
+repos/lerobot/src/lerobot/policies/action_flow_v2_2/
+```
+
+At minimum, it will contain:
+
+| File | Responsibility |
+|---|---|
+| `configuration_action_flow_v2_2.py` | Token vocabulary, relative-action, loss-weight, model, and inference configuration |
+| `data_contracts_action_flow_v2_2.py` | Structured box sidecars, feature metadata, model-batch keys, and schema validation |
+| `processor_action_flow_v2_2.py` | Relative-action conversion, normalization, box serialization, and FAST tokenization |
+| `modeling_action_flow_v2_2.py` | Autoregressive VLM branch, detached prefix cache, flow expert, losses, and inference |
+| `__init__.py` | Policy exports and registration |
+
+Action Flow V2 and V2.1 must remain unchanged so their checkpoints and ablation results stay
+reproducible.
+
+##### Relative Action Representation
+
+Only the six RM65 joint targets are converted to relative values. The continuous gripper target
+remains absolute:
+
+```text
+delta_joint[t, k, d] = absolute_joint[t + k, d] - current_joint[t, d]
+gripper_target[t, k] = absolute_gripper[t + k]
+```
+
+Here, `k` indexes the future step in a chunk and `d` indexes one of the six joints. This is a
+current-state-relative action chunk, not a sequence of frame-to-frame differences.
+`observation.state` remains the current absolute robot state.
+
+The preprocessing order must be:
+
+```text
+absolute action
+-> relative joint conversion
+-> normalization with relative-action statistics
+-> shared normalized action chunk
+   -> FAST tokenizer
+   -> flow-matching target
+```
+
+The FAST and flow branches must receive the same normalized relative action values. The original
+absolute-action statistics cannot be reused for joint deltas. Relative-action statistics must be
+computed after conversion and saved with the policy preprocessor. During rollout, the continuous
+prediction is unnormalized and converted back to an absolute RM65 command:
+
+```text
+absolute_joint[k] = current_joint + predicted_delta_joint[k]
+```
+
+The gripper value passes through without the relative offset.
+
+##### Target-Box Labels
+
+The box dataset will be derived from the reviewed, entity-specific SAM2 tracks under:
+
+```text
+runs/sam/rm65_single_table_preparation_and_bussing_yoloe
+```
+
+The union relevance masks used by V2 and V2.1 are not sufficient because a token sequence must
+associate each box with one entity. For every frame, the V2.2 sidecar will store one structured
+record per prompt-relevant entity and camera:
+
+```text
+(camera, entity_name, entity_role, visibility, x1, y1, x2, y2, loss_weight)
+```
+
+The first experiment keeps all entities required by the complete prompt active throughout the
+episode; it does not yet use phase-dependent or next-subtask labels.
+
+| Task type | Box entities |
+|---|---|
+| Place one vegetable | Source vegetable and destination plate |
+| Arrange two vegetables | Both source vegetables and both destination plates |
+| Clear a specified plate | Source vegetable, source plate, and collection box |
+| Bus the table | All task vegetables and the collection box |
+
+Each native-image box is transformed with exactly the same aspect-ratio-preserving resize and
+left/top padding used for the corresponding VLM image. Coordinates are then normalized in the
+512 x 512 policy image and quantized into 256 bins:
+
+```text
+location_token = round(clamp(coordinate / 511, 0, 1) * 255)
+```
+
+A target that is validly absent from a camera uses `<not_visible>`. An uncertain or incorrect
+annotation uses `loss_weight=0` and is excluded from the box loss. These two cases must remain
+distinct.
+
+Entities are serialized in deterministic order:
+
+1. Camera order follows the policy image features: wrist, then top.
+2. Entities explicitly named in the instruction follow prompt order.
+3. Entities implied by `all vegetables` follow a fixed dataset class order.
+4. Source precedes destination when two entries otherwise have the same order.
+
+An example teacher-forced target is:
+
+```text
+<grounding>
+<camera_wrist>
+<source> tomato <box> <loc_071> <loc_106> <loc_138> <loc_201>
+<destination> pink_plate <not_visible>
+<camera_top>
+<source> tomato <box> <loc_083> <loc_119> <loc_141> <loc_188>
+<destination> pink_plate <box> <loc_176> <loc_074> <loc_239> <loc_146>
+</grounding>
+<action> <fast_...> ... <action_end>
+```
+
+##### SmolVLM Token Vocabulary
+
+The PaliGemma-specific reverse token mapping in the existing PI0-FAST processor must not be copied
+unchanged. Action Flow uses SmolVLM2, so Action Flow V2.2 will extend the SmolVLM tokenizer and LM
+head with non-colliding tokens:
+
+- 256 coordinate tokens: `<loc_000>` through `<loc_255>`.
+- Structural tokens for grounding, cameras, roles, boxes, visibility, actions, and sequence ends.
+- One dedicated `<fast_N>` language-model token for each FAST tokenizer symbol.
+
+The FAST tokenizer still performs DCT, quantization, and BPE compression. A fixed one-to-one table
+maps each FAST symbol to its added SmolVLM token ID. The extended tokenizer, mapping table, resized
+input embeddings, and resized LM head must be saved with every checkpoint.
+
+##### Autoregressive VLM Branch
+
+The VLM is trained with teacher forcing on one autoregressive target sequence containing the box
+span followed by the FAST-action span. Separate token masks compute independent mean losses:
+
+```text
+L_box  = mean cross-entropy over valid target-box tokens
+L_FAST = mean cross-entropy over valid FAST-action tokens
+```
+
+The target-box and FAST losses are normalized independently so that a longer FAST sequence cannot
+silently dominate the shorter grounding sequence. The prefix and target-token attention rules are:
+
+| Query tokens | Allowed keys/values |
+|---|---|
+| Image, prompt, and state prefix | Valid prefix tokens only |
+| Target-box tokens | Complete prefix and earlier/current autoregressive tokens |
+| FAST tokens | Complete prefix, target-box tokens, and earlier/current FAST tokens |
+| Padding tokens | Masked |
+
+The prefix cannot attend to teacher-forced output tokens. This prevents ground-truth boxes and
+future actions from leaking into the VLM representation consumed by the action expert.
+
+##### Knowledge-Insulated Flow Branch
+
+After the prefix pass, the model retains the VLM key/value tensors for every transformer layer.
+The action expert receives detached copies:
+
+```text
+expert_prefix_k[layer] = vlm_prefix_k[layer].detach()
+expert_prefix_v[layer] = vlm_prefix_v[layer].detach()
+```
+
+The noisy continuous-action suffix may attend to the detached prefix and to the action-expert
+suffix according to the configured expert attention pattern. It must not attend to target-box or
+FAST target tokens. Conversely, autoregressive target tokens must not attend to continuous-action
+tokens.
+
+The two-stream attention requirements are:
+
+| Query stream | Prefix K/V | Autoregressive K/V | Expert K/V |
+|---|---:|---:|---:|
+| VLM prefix | Yes | No | No |
+| Box/FAST autoregressive stream | Yes | Causal self-attention | No |
+| Continuous action expert | Yes, detached | No | Expert attention |
+
+Detaching only the final prefix output is not the implementation target. Gradient insulation must
+cover every prefix key/value path used by every expert attention layer.
+
+##### Training Loss and Parameter Ownership
+
+The planned objective is:
+
+```text
+L_VLM    = lambda_box * L_box + lambda_FAST * L_FAST
+L_expert = L_flow
+L_total  = L_VLM + lambda_flow * L_expert
+```
+
+All three losses are reduced independently before weighting. Initial experiments will use
+`lambda_box=1`, `lambda_FAST=1`, and `lambda_flow=1`; changing a weight must be documented in the
+training configuration.
+
+| Parameter group | Box CE | FAST CE | Flow loss |
+|---|---:|---:|---:|
+| Vision encoder and connector | Yes | Yes | No |
+| VLM transformer | Yes | Yes | No |
+| Token embeddings and LM head | Yes | Yes | No |
+| State projection and camera embeddings | Yes | Yes | No |
+| Action expert transformer | No | No | Yes |
+| Action input/output and timestep projections | No | No | Yes |
+
+The total scalar loss may be backpropagated once, but the graph must enforce this ownership. A
+flow-only backward pass must produce no gradients for any VLM-side parameter.
+
+##### Inference
+
+Standard rollout does not autoregressively decode target boxes or FAST actions. It performs:
+
+```text
+images + prompt + current state
+-> VLM prefix and per-layer K/V cache
+-> continuous action expert denoising
+-> unnormalize relative actions
+-> convert joint deltas to absolute RM65 commands
+```
+
+This preserves the fast continuous-action inference path. A separate diagnostic method may decode
+target boxes for visualization and grounding evaluation, but those predicted tokens are not fed
+back into the action expert in the first V2.2 experiment. Conditioning the expert on generated box
+tokens would add autoregressive latency and error propagation and should be evaluated separately
+only after the insulated baseline works.
+
+#### Development Order
+
+##### Stage 1: Define Configuration and Data Contracts
+
+**Status:** Implemented on 2026-07-29.
+
+1. Create the `action_flow_v2_2` policy package without modifying V2 or V2.1.
+2. Define configuration fields for relative actions, tokenizer paths, token ranges, maximum box
+   and FAST sequence lengths, loss weights, and knowledge insulation.
+3. Define structured box-sidecar and model-batch keys with explicit shapes, dtypes, camera order,
+   visibility, and validity semantics.
+4. Add configuration validation for vocabulary size, camera count, action dimensions, sequence
+   lengths, and incompatible options.
+
+Completion criterion: configuration serialization and checkpoint reload reproduce the same token
+IDs, feature metadata, and policy structure.
+
+The implemented contract keeps the existing 49,280 SmolVLM token IDs unchanged, then allocates 12
+structural tokens, 256 coordinate tokens, and 2,048 dedicated FAST tokens. The resulting extended
+vocabulary size is 51,596. Model and processor construction are deliberately disabled until their
+later development stages are complete; only configuration parsing, serialization, sidecar
+metadata, feature validation, and batch-contract inspection are enabled in Stage 1.
+
+##### Stage 2: Build and Inspect the Box Dataset
+
+1. Read separate SAM2 object tracks rather than union masks.
+2. Convert each valid mask to an entity-specific bounding box for every camera frame.
+3. Apply the exact 512 x 512 image geometry transform and quantize coordinates to 256 bins.
+4. Save `not_visible` and invalid annotations separately.
+5. Generate per-episode preview videos and a review report showing entity names, roles, boxes, and
+   excluded labels.
+6. Join structured box labels to the 203-episode robot dataset by `episode_index`, `frame_index`,
+   and camera.
+
+Completion criterion: sampled labels remain aligned with the resized policy images, preserve
+entity identity through manipulation, and contain no camera-order mismatch.
+
+##### Stage 3: Implement Relative-Action Processing
+
+1. Convert six joint targets relative to the current state while excluding the gripper.
+2. Compute and save statistics from the converted joint deltas and absolute gripper values.
+3. Normalize the shared relative action chunk before both FAST tokenization and flow matching.
+4. Implement inverse normalization and relative-to-absolute conversion for rollout.
+
+Completion criterion: preprocessing followed by postprocessing reconstructs the original absolute
+action chunk within floating-point tolerance, including batched training and single-step rollout.
+
+##### Stage 4: Extend and Validate the Tokenizer
+
+1. Add structural, coordinate, and FAST tokens to the local SmolVLM tokenizer.
+2. Resize the VLM input embeddings and LM head without changing existing token IDs.
+3. Implement deterministic structured-box serialization and parsing.
+4. Map FAST symbols to dedicated SmolVLM token IDs and implement the inverse mapping for
+   inspection.
+5. Save and reload all tokenizer artifacts from a policy checkpoint.
+
+Completion criterion: box and FAST sequences round-trip exactly, no generated token ID exceeds the
+resized vocabulary, and no task-language token collides with an action token.
+
+##### Stage 5: Train the Autoregressive Branch Without the Expert
+
+1. Implement the multimodal prefix and teacher-forced box-plus-FAST target sequence.
+2. Build causal and padding masks that prevent prefix label leakage.
+3. Compute separately masked `box_ce_loss` and `fast_ce_loss`.
+4. Overfit 4-8 short episodes before enabling flow matching.
+
+Completion criterion: both CE losses decrease, decoded training boxes achieve high IoU with their
+targets, and FAST-token decoding reconstructs the normalized relative action chunks without
+systematic truncation.
+
+##### Stage 6: Add the Knowledge-Insulated Flow Expert
+
+1. Expose per-layer VLM prefix key/value caches.
+2. Detach every prefix K/V tensor before expert attention.
+3. Prevent all attention between the autoregressive target stream and continuous-action stream.
+4. Train the expert on the same normalized relative action chunk used by FAST.
+5. Add independent box, FAST, flow, and total loss metrics.
+
+Completion criterion: a flow-only backward test produces zero or `None` gradients for every
+VLM-side parameter while producing nonzero expert gradients. Box/FAST-only backward produces no
+expert gradients.
+
+##### Stage 7: Implement Inference and Diagnostics
+
+1. Use prefix-cache plus continuous denoising for normal rollout.
+2. Restore absolute RM65 commands after unnormalization.
+3. Retain action queue, temporal ensemble, and RTC compatibility only where their behavior is
+   explicitly tested.
+4. Add optional target-box decoding and camera overlays without requiring it for action inference.
+
+Completion criterion: repeated inference returns finite actions with the correct RM65 dimensions,
+the gripper remains absolute, and diagnostic box decoding can be enabled without changing the
+continuous action result.
+
+##### Stage 8: Run Controlled Ablations
+
+Train and compare the following policies on identical dataset splits and rollout scenes:
+
+| Experiment | Relative actions | FAST CE | Box CE | Flow-to-VLM gradient |
+|---|---:|---:|---:|---:|
+| Relative flow baseline | Yes | No | No | Enabled |
+| KI + FAST | Yes | Yes | No | Blocked |
+| KI + FAST + boxes | Yes | Yes | Yes | Blocked |
+
+Action Flow V2.1 remains the dense-segmentation comparison. Evaluation must separately report:
+
+- Task completion and language-following success.
+- Correct source and destination selection.
+- Grasp success, hold success, and placement success.
+- Box visibility accuracy and box IoU per camera.
+- FAST reconstruction error and token truncation rate.
+- Continuous action smoothness and rollout latency.
+
+The first full training run should begin only after the small-set overfit test, tokenizer
+round-trip test, relative-action round-trip test, attention-mask test, and gradient-insulation test
+all pass.

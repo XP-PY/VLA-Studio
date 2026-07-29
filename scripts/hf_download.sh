@@ -5,7 +5,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-export HF_TOKEN=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
+# export HF_TOKEN=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
 
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 

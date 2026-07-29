@@ -14,8 +14,17 @@ export TORCH_HOME="$STORAGE_ROOT/.cache/torch"
 export HF_HOME="$STORAGE_ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export HF_LEROBOT_HOME="$STORAGE_ROOT/.cache/lerobot"
-# export HF_ENDPOINT="https://hf-mirror.com"
-export HF_ENDPOINT="https://huggingface.co"
+export HF_ENDPOINT="https://hf-mirror.com"
+# export HF_ENDPOINT="https://huggingface.co"
+
+export YOLOE_CACHE_DIR="$STORAGE_ROOT/.cache/yoloe"
+export YOLOE_WEIGHT_DIR="$YOLOE_CACHE_DIR/weights"
+export YOLOE_DATASET_DIR="$YOLOE_CACHE_DIR/datasets"
+export YOLOE_RUNS_DIR="$YOLOE_CACHE_DIR/runs"
+# yolo settings weights_dir="${YOLOE_WEIGHT_DIR}"
+# yolo settings datasets_dir="${YOLOE_DATASET_DIR}"
+# yolo settings runs_dir="${YOLOE_RUNS_DIR}"
+
 
 # ===== Python path =====
 export PYTHONPATH="$PROJECT_ROOT/repos/lerobot/src:${PYTHONPATH}"
@@ -26,16 +35,16 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 # export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export TASK_ID="rm65_single_table_preparation_and_bussing"
-export TASK_PROMPT="Place the tomato on the pink plate."
+export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation"
+export TASK_PROMPT=""
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
-export TASK_SUBSET_ID="bus_the_table"
+export TASK_SUBSET_ID=""
 export TASK_EPISODES=203
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.0"
-export POLICY_TYPE="action_flow_v2"
+export POLICY_ID=""
+export POLICY_TYPE="action_flow_v2_1"
 export STEPS=40000
 export PER_DEVICE_BATCH_SIZE=8
 export SAVE_FREQ=10000
@@ -61,3 +70,10 @@ export RTC_QUEUE_THRESHOLD=25
 
 # ===== W&B =====
 export WANDB_ENABLE=true
+
+# ===== CPU Restriction =====
+# CORE_LIST=0-15
+# for pid in $(pgrep -u $USER -f "lerobot_train|accelerate"); do
+#     taskset -cp $CORE_LIST $pid
+#     renice +10 -p $pid
+# done
