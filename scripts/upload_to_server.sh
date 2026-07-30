@@ -11,6 +11,7 @@ REMOTE_ROOT="${REMOTE_ROOT:-/root/autodl-tmp/vla_studio}"
 DRY_RUN="${DRY_RUN:-false}"
 
 SOURCES=(
+    "./artifacts/tokenizers/action_flow_v2_2_smolvlm_fast"
     "./configs"
     "./models/pi0_base"
     "./models/paligemma-3b-pt-224"

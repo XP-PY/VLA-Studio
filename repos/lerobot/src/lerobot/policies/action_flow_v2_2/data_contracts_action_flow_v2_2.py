@@ -14,6 +14,7 @@ from typing import Any
 from lerobot.utils.constants import ACTION_TOKEN_MASK, ACTION_TOKENS
 
 TARGET_BOXES = "observation.target_boxes"
+TARGET_BOX_BINS = "observation.target_box_bins"
 TARGET_BOX_VISIBILITY = "observation.target_box_visibility"
 TARGET_BOX_LOSS_WEIGHT = "observation.target_box_loss_weight"
 TARGET_ENTITY_IDS = "observation.target_entity_ids"
@@ -22,6 +23,7 @@ TARGET_ENTITY_VALID = "observation.target_entity_valid"
 
 BOX_FEATURE_KEYS = (
     TARGET_BOXES,
+    TARGET_BOX_BINS,
     TARGET_BOX_VISIBILITY,
     TARGET_BOX_LOSS_WEIGHT,
     TARGET_ENTITY_IDS,
@@ -129,6 +131,7 @@ class ActionFlowV22DatasetMetadata:
     entity_names: tuple[str, ...]
     max_entities: int
     schema_version: int = 1
+    coordinate_bins: int = 256
     coordinate_space: str = "policy_image_normalized_xyxy"
 
     def __post_init__(self) -> None:
@@ -142,8 +145,10 @@ class ActionFlowV22DatasetMetadata:
             raise ValueError("`entity_names` must contain non-empty names.")
         if len(set(self.entity_names)) != len(self.entity_names):
             raise ValueError("`entity_names` must be unique.")
-        if self.max_entities <= 0 or len(self.entity_names) > self.max_entities:
-            raise ValueError("`max_entities` must be positive and fit the entity vocabulary.")
+        if self.max_entities <= 0:
+            raise ValueError("`max_entities` must be positive.")
+        if self.coordinate_bins < 2:
+            raise ValueError("`coordinate_bins` must be at least 2.")
         if self.coordinate_space != "policy_image_normalized_xyxy":
             raise ValueError(
                 "Action Flow V2.2 boxes must use `policy_image_normalized_xyxy` coordinates."
@@ -164,10 +169,18 @@ class ActionFlowV22DatasetMetadata:
             "camera_names": list(self.camera_names),
             "entity_names": list(self.entity_names),
             "schema_version": self.schema_version,
+            "coordinate_bins": self.coordinate_bins,
         }
         return {
             TARGET_BOXES: {
                 "dtype": "float32",
+                "shape": [camera_count, self.max_entities, 4],
+                "names": ["camera", "entity", "coordinate"],
+                "coordinate_names": list(BOX_COORDINATE_NAMES),
+                **shared_metadata,
+            },
+            TARGET_BOX_BINS: {
+                "dtype": "int64",
                 "shape": [camera_count, self.max_entities, 4],
                 "names": ["camera", "entity", "coordinate"],
                 "coordinate_names": list(BOX_COORDINATE_NAMES),
@@ -247,6 +260,7 @@ class ActionFlowV22DatasetMetadata:
             "entity_names": list(self.entity_names),
             "max_entities": self.max_entities,
             "schema_version": self.schema_version,
+            "coordinate_bins": self.coordinate_bins,
             "coordinate_space": self.coordinate_space,
         }
 
@@ -304,6 +318,12 @@ def make_model_batch_contract(
             "float32",
             ("batch_size", camera_count, max_entities, 4),
             "Normalized policy-image xyxy boxes; zeros for not-visible or padded entries.",
+        ),
+        BatchFieldSpec(
+            TARGET_BOX_BINS,
+            "int64",
+            ("batch_size", camera_count, max_entities, 4),
+            "Quantized xyxy bins aligned with target boxes; zeros when coordinates are unused.",
         ),
         BatchFieldSpec(
             TARGET_BOX_VISIBILITY,

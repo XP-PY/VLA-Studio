@@ -120,10 +120,9 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
 
         return ActionFlowV21Policy
     elif name == "action_flow_v2_2":
-        raise NotImplementedError(
-            "Action Flow V2.2 currently provides Stage 1 configuration and data contracts only. "
-            "Its model will be added in a later development stage."
-        )
+        from .action_flow_v2_2.modeling_action_flow_v2_2 import ActionFlowV22Policy
+
+        return ActionFlowV22Policy
     elif name == "diffusion":
         from .diffusion.modeling_diffusion import DiffusionPolicy
 
@@ -311,13 +310,26 @@ def make_pre_post_processors(
         NotImplementedError: If a processor factory is not implemented for the given
             policy configuration type.
     """
-    if isinstance(policy_cfg, ActionFlowV22Config):
-        raise NotImplementedError(
-            "Action Flow V2.2 processors are not part of Stage 1. "
-            "Use the configuration and data contracts only until the processor stage is implemented."
-        )
-
     if pretrained_path:
+        if isinstance(policy_cfg, ActionFlowV22Config):
+            from .action_flow_v2_2.processor_action_flow_v2_2 import (
+                TARGET_TOKENIZER_PROCESSOR_NAME,
+                resolve_tokenizer_artifact_path,
+            )
+
+            tokenizer_root = resolve_tokenizer_artifact_path(
+                policy_cfg,
+                pretrained_path=pretrained_path,
+            )
+            preprocessor_overrides = dict(kwargs.get("preprocessor_overrides", {}))
+            preprocessor_overrides["tokenizer_processor"] = {
+                "tokenizer_name": str(tokenizer_root / "vlm_tokenizer"),
+            }
+            preprocessor_overrides[TARGET_TOKENIZER_PROCESSOR_NAME] = {
+                "tokenizer_artifact_path": str(tokenizer_root),
+            }
+            kwargs["preprocessor_overrides"] = preprocessor_overrides
+
         # TODO(Steven): Temporary patch, implement correctly the processors for Gr00t
         if isinstance(policy_cfg, GrootConfig):
             # GROOT handles normalization in groot_pack_inputs_v3 step
@@ -375,6 +387,16 @@ def make_pre_post_processors(
         from .action_flow_v1.processor_action_flow_v1 import make_action_flow_v1_pre_post_processors
 
         processors = make_action_flow_v1_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
+    elif isinstance(policy_cfg, ActionFlowV22Config):
+        from .action_flow_v2_2.processor_action_flow_v2_2 import (
+            make_action_flow_v2_2_pre_post_processors,
+        )
+
+        processors = make_action_flow_v2_2_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )

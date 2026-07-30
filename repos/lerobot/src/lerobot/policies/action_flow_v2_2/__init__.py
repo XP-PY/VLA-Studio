@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 
-"""Action Flow V2.2 configuration and data contracts.
-
-The policy model and processor are intentionally introduced in later development
-stages. Stage 1 exposes only the stable configuration and dataset interfaces.
-"""
+"""Jointly trained, knowledge-insulated Action Flow V2.2 policy."""
 
 from .configuration_action_flow_v2_2 import ActionFlowV22Config
 from .data_contracts_action_flow_v2_2 import (
@@ -13,6 +9,7 @@ from .data_contracts_action_flow_v2_2 import (
     GROUNDING_TOKEN_LOSS_WEIGHT,
     GROUNDING_TOKEN_MASK,
     GROUNDING_TOKENS,
+    TARGET_BOX_BINS,
     TARGET_BOXES,
     TARGET_BOX_LOSS_WEIGHT,
     TARGET_BOX_VISIBILITY,
@@ -26,6 +23,22 @@ from .data_contracts_action_flow_v2_2 import (
     TargetVisibility,
     make_model_batch_contract,
 )
+from .processor_action_flow_v2_2 import (
+    ActionFlowV22LatestStateProcessorStep,
+    ActionFlowV22TargetTokenizerProcessorStep,
+    make_action_flow_v2_2_pre_post_processors,
+    resolve_tokenizer_artifact_path,
+    validate_relative_action_stats,
+)
+from .tokenization_action_flow_v2_2 import (
+    ActionFlowV22TargetTokenizer,
+    DecodedTargetBox,
+    SerializedTargets,
+    action_flow_v2_2_added_tokens,
+    extend_smolvlm_tokenizer,
+    resize_vlm_token_embeddings,
+    validate_vlm_token_embeddings,
+)
 
 __all__ = [
     "BOX_COORDINATE_NAMES",
@@ -33,6 +46,7 @@ __all__ = [
     "GROUNDING_TOKEN_LOSS_WEIGHT",
     "GROUNDING_TOKEN_MASK",
     "GROUNDING_TOKENS",
+    "TARGET_BOX_BINS",
     "TARGET_BOXES",
     "TARGET_BOX_LOSS_WEIGHT",
     "TARGET_BOX_VISIBILITY",
@@ -41,9 +55,21 @@ __all__ = [
     "TARGET_ENTITY_VALID",
     "ActionFlowV22Config",
     "ActionFlowV22DatasetMetadata",
+    "ActionFlowV22LatestStateProcessorStep",
+    "ActionFlowV22TargetTokenizerProcessorStep",
     "BatchFieldSpec",
     "TargetBoxRecord",
     "TargetRole",
     "TargetVisibility",
+    "ActionFlowV22TargetTokenizer",
+    "DecodedTargetBox",
+    "SerializedTargets",
+    "action_flow_v2_2_added_tokens",
+    "extend_smolvlm_tokenizer",
+    "make_action_flow_v2_2_pre_post_processors",
     "make_model_batch_contract",
+    "resize_vlm_token_embeddings",
+    "resolve_tokenizer_artifact_path",
+    "validate_relative_action_stats",
+    "validate_vlm_token_embeddings",
 ]

@@ -1104,7 +1104,7 @@ than grasp-point labels.
 
 #### Policy Structure
 
-The planned policy has one trainable VLM branch and one trainable continuous-action branch:
+The implemented policy has one trainable VLM branch and one trainable continuous-action branch:
 
 ```text
 wrist/top images + prompt + current state
@@ -1128,13 +1128,13 @@ The VLM receives gradients from target-box and FAST-token prediction. The action
 gradients from flow matching. The flow loss must not update the vision encoder, connector,
 language model, token embeddings, LM head, state projection, or camera embeddings.
 
-The policy will be implemented in a new package:
+The policy is implemented in a separate package:
 
 ```text
 repos/lerobot/src/lerobot/policies/action_flow_v2_2/
 ```
 
-At minimum, it will contain:
+The package contains:
 
 | File | Responsibility |
 |---|---|
@@ -1185,7 +1185,7 @@ The gripper value passes through without the relative offset.
 
 ##### Target-Box Labels
 
-The box dataset will be derived from the reviewed, entity-specific SAM2 tracks under:
+The box dataset is derived from the reviewed, entity-specific SAM2 tracks under:
 
 ```text
 runs/sam/rm65_single_table_preparation_and_bussing_yoloe
@@ -1232,12 +1232,14 @@ An example teacher-forced target is:
 
 ```text
 <grounding>
-<camera_wrist>
+<camera> wrist
 <source> tomato <box> <loc_071> <loc_106> <loc_138> <loc_201>
-<destination> pink_plate <not_visible>
-<camera_top>
+<destination> pink plate <not_visible>
+</camera>
+<camera> top
 <source> tomato <box> <loc_083> <loc_119> <loc_141> <loc_188>
-<destination> pink_plate <box> <loc_176> <loc_074> <loc_239> <loc_146>
+<destination> pink plate <box> <loc_176> <loc_074> <loc_239> <loc_146>
+</camera>
 </grounding>
 <action> <fast_...> ... <action_end>
 ```
@@ -1245,7 +1247,7 @@ An example teacher-forced target is:
 ##### SmolVLM Token Vocabulary
 
 The PaliGemma-specific reverse token mapping in the existing PI0-FAST processor must not be copied
-unchanged. Action Flow uses SmolVLM2, so Action Flow V2.2 will extend the SmolVLM tokenizer and LM
+unchanged. Action Flow uses SmolVLM2, so Action Flow V2.2 extends the SmolVLM tokenizer and LM
 head with non-colliding tokens:
 
 - 256 coordinate tokens: `<loc_000>` through `<loc_255>`.
@@ -1324,7 +1326,7 @@ training configuration.
 | Vision encoder and connector | Yes | Yes | No |
 | VLM transformer | Yes | Yes | No |
 | Token embeddings and LM head | Yes | Yes | No |
-| State projection and camera embeddings | Yes | Yes | No |
+| State projection | Yes | Yes | No |
 | Action expert transformer | No | No | Yes |
 | Action input/output and timestep projections | No | No | Yes |
 
@@ -1374,6 +1376,8 @@ metadata, feature validation, and batch-contract inspection are enabled in Stage
 
 ##### Stage 2: Build and Inspect the Box Dataset
 
+**Status:** Implemented on 2026-07-30.
+
 1. Read separate SAM2 object tracks rather than union masks.
 2. Convert each valid mask to an entity-specific bounding box for every camera frame.
 3. Apply the exact 512 x 512 image geometry transform and quantize coordinates to 256 bins.
@@ -1386,7 +1390,55 @@ metadata, feature validation, and batch-contract inspection are enabled in Stage
 Completion criterion: sampled labels remain aligned with the resized policy images, preserve
 entity identity through manipulation, and contain no camera-order mismatch.
 
+The completed dataset is:
+
+```text
+runs/dataset/rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes
+```
+
+| Item | Value |
+|---|---|
+| Robot dataset | `runs/dataset/rm65_single_table_preparation_and_bussing` |
+| Reviewed entity tracks | `runs/sam/rm65_single_table_preparation_and_bussing_yoloe` |
+| Reviewed entity definitions | `runs/yoloe/rm65_single_table_preparation_and_bussing` |
+| Episodes | 203 |
+| Frames | 92,545 |
+| Camera order | `wrist`, `top` |
+| Policy image size | 512 x 512 |
+| Coordinate bins | 256 |
+| Maximum entity slots per frame | 8 |
+| Global entity vocabulary | 11 names |
+
+The builder is
+`examples/action_flow_v2/build_action_flow_v2_2_box_dataset.py`. It reads the compressed SAM2
+run-length encoding directly, so it does not materialize all dense masks in memory. The original
+robot rows are preserved and the following frame-aligned features are added:
+
+| Feature | Shape | Meaning |
+|---|---:|---|
+| `observation.target_boxes` | `(2, 8, 4)` | Normalized `xyxy` boxes in padded policy-image coordinates |
+| `observation.target_box_bins` | `(2, 8, 4)` | Box coordinates quantized to integers in `[0, 255]` |
+| `observation.target_box_visibility` | `(2, 8)` | Visible or validly not visible in each camera |
+| `observation.target_box_loss_weight` | `(2, 8)` | Zero excludes an invalid camera/entity annotation |
+| `observation.target_entity_ids` | `(8,)` | Stable IDs in the dataset-wide entity vocabulary |
+| `observation.target_entity_roles` | `(8,)` | Source, destination, or container role IDs |
+| `observation.target_entity_valid` | `(8,)` | Valid prompt entities versus padded slots |
+
+Long-form records are retained under `annotations/boxes/episode-*/camera-*.parquet` for debugging.
+The review report is `review/index.html`, and 12 evenly distributed episodes have side-by-side
+wrist/top preview videos under `review/videos`. The builder applies
+`runs/yoloe/rm65_single_table_preparation_and_bussing/review/decisions.json` before resolving track
+visibility. Validation found 1,382 camera/entity tracks: 1,365 contain visible masks and only the 17
+targets explicitly reviewed as absent are supervised as `not_visible`. No track was marked invalid
+or unexpectedly never visible. LeRobot loads all generated features with the expected shapes,
+including the source file that contains episodes 36 through 59.
+
+Because `runs/dataset` is stored on an exFAT volume, it does not support hard links or symbolic
+links. The unchanged source videos are therefore copied into this dataset rather than linked.
+
 ##### Stage 3: Implement Relative-Action Processing
+
+**Status:** Implemented on 2026-07-30.
 
 1. Convert six joint targets relative to the current state while excluding the gripper.
 2. Compute and save statistics from the converted joint deltas and absolute gripper values.
@@ -1396,7 +1448,51 @@ entity identity through manipulation, and contain no camera-order mismatch.
 Completion criterion: preprocessing followed by postprocessing reconstructs the original absolute
 action chunk within floating-point tolerance, including batched training and single-step rollout.
 
+The processor is implemented in
+`repos/lerobot/src/lerobot/policies/action_flow_v2_2/processor_action_flow_v2_2.py` and registered
+with the LeRobot processor factory. Its action path is:
+
+```text
+training:
+absolute future actions
+-> subtract the current state from joint_1 through joint_6
+-> keep gripper.pos absolute
+-> normalize with relative-action statistics
+
+rollout:
+normalized policy output
+-> unnormalize
+-> add the current state to joint_1 through joint_6
+-> keep gripper.pos absolute
+-> send absolute RM65 commands
+```
+
+Both FAST tokenization and flow matching consume the same normalized tensor produced by this
+pipeline. The raw current state is cached before state normalization, which prevents
+normalized state values from being added to physical joint commands during rollout.
+
+Relative statistics were prepared for the Stage 2 dataset with a 50-frame action chunk:
+
+| Item | Value |
+|---|---|
+| Valid chunk starts | 82,598 |
+| Future-action samples | 4,129,900 |
+| Relative dimensions | `joint_1.pos` through `joint_6.pos` |
+| Absolute dimension | `gripper.pos` |
+| Installed statistics | `meta/stats.json` |
+| Original statistics backup | `meta/stats.absolute_actions.json` |
+| Transformation record | `meta/action_flow_v2_2_relative_stats.json` |
+
+The preparation utility is
+`examples/action_flow_v2/prepare_action_flow_v2_2_relative_stats.py`. It replaces only the action
+statistics; state, image, and target-box metadata remain unchanged. Processor validation covers
+the seven-dimensional RM65 action contract, six-relative/one-absolute mask, factory construction,
+checkpoint save/reload, batched chunks, and inverse conversion. A real dataset chunk of shape
+`(1, 50, 7)` reconstructed its original absolute actions with zero measured round-trip error.
+
 ##### Stage 4: Extend and Validate the Tokenizer
+
+**Status:** Implemented on 2026-07-30.
 
 1. Add structural, coordinate, and FAST tokens to the local SmolVLM tokenizer.
 2. Resize the VLM input embeddings and LM head without changing existing token IDs.
@@ -1408,30 +1504,102 @@ action chunk within floating-point tolerance, including batched training and sin
 Completion criterion: box and FAST sequences round-trip exactly, no generated token ID exceeds the
 resized vocabulary, and no task-language token collides with an action token.
 
-##### Stage 5: Train the Autoregressive Branch Without the Expert
+The implementation is in
+`repos/lerobot/src/lerobot/policies/action_flow_v2_2/tokenization_action_flow_v2_2.py`. The
+unmodified SmolVLM tokenizer has 49,280 entries: 49,152 base language tokens followed by 128
+existing multimodal/special-token entries. V2.2 appends tokens without replacing or reordering
+those entries:
 
-1. Implement the multimodal prefix and teacher-forced box-plus-FAST target sequence.
-2. Build causal and padding masks that prevent prefix label leakage.
-3. Compute separately masked `box_ce_loss` and `fast_ce_loss`.
-4. Overfit 4-8 short episodes before enabling flow matching.
+| Token group | Count | Inclusive ID range |
+|---|---:|---:|
+| Existing SmolVLM vocabulary | 49,280 | `0-49279` |
+| Structural tokens | 12 | `49280-49291` |
+| Coordinate tokens | 256 | `49292-49547` |
+| Dedicated FAST tokens | 2,048 | `49548-51595` |
 
-Completion criterion: both CE losses decrease, decoded training boxes achieve high IoU with their
-targets, and FAST-token decoding reconstructs the normalized relative action chunks without
-systematic truncation.
+The final vocabulary size is 51,596. Every new string encodes as exactly one token, and the
+manifest records a SHA-256 digest over the complete ordered extension. Loading fails if token
+order, camera order, vocabulary size, or token-contract metadata differs from the policy
+configuration.
 
-##### Stage 6: Add the Knowledge-Insulated Flow Expert
+Grounding serialization uses the configured wrist-then-top camera order and prompt-relative entity
+slot order. Visible entities encode their role, name, `<box>`, and four coordinate tokens. Validly
+absent entities use `<not_visible>`. Padded entities and annotations with zero loss weight are not
+serialized. The parser reconstructs camera name, entity name, role, visibility, and coordinate
+bins, while preserving the distinction between not-visible and excluded annotations.
 
-1. Expose per-layer VLM prefix key/value caches.
-2. Detach every prefix K/V tensor before expert attention.
-3. Prevent all attention between the autoregressive target stream and continuous-action stream.
-4. Train the expert on the same normalized relative action chunk used by FAST.
-5. Add independent box, FAST, flow, and total loss metrics.
+The same normalized relative action chunk prepared in Stage 3 is passed to the 2,048-symbol FAST
+tokenizer. FAST symbol `n` maps directly to VLM token
+`49548 + n`; the inverse mapping is exact. FAST's conversion between continuous actions and its
+discrete symbols remains intentionally lossy.
 
-Completion criterion: a flow-only backward test produces zero or `None` gradients for every
-VLM-side parameter while producing nonzero expert gradients. Box/FAST-only backward produces no
-expert gradients.
+The generated checkpoint-ready artifact is:
 
-##### Stage 7: Implement Inference and Diagnostics
+```text
+artifacts/tokenizers/action_flow_v2_2_smolvlm_fast
+```
+
+It contains the extended VLM tokenizer, the complete FAST processor and BPE tokenizer, the token
+contract manifest, and a validation summary. The preparation command is
+`examples/action_flow_v2/prepare_action_flow_v2_2_tokenizer.py`. Validation on a real 50-frame
+dataset chunk produced 56 grounding tokens and 34 FAST symbols. Structured boxes, FAST-symbol
+mapping, and checkpoint save/reload were exact; continuous FAST reconstruction had a mean absolute
+error of 0.0116 in normalized action space. A full scan of all 92,545 frames found a maximum
+grounding length of 76 tokens, leaving substantial margin within the configured 192-token budget.
+
+The actual SmolVLM input embedding and LM-head tables were resized from `(49280, 960)` to
+`(51596, 960)`. Sampled rows from the original vocabulary were unchanged after resizing.
+
+##### Stage 5: Implement Joint Knowledge-Insulated Training
+
+**Status:** Implemented on 2026-07-30.
+
+The VLM and action expert are optimized together from the beginning. There is no separate VLM-only
+training stage followed by an expert-only stage.
+
+1. Serialize normalized relative action chunks and structured boxes in the preprocessor.
+2. Run one teacher-forced VLM pass over the multimodal context followed by grounding and FAST
+   targets.
+3. Use prefix-LM attention for image, prompt, and state tokens, then causal attention for each
+   autoregressive target token. Context queries cannot attend to teacher targets.
+4. Compute independently normalized `box_ce_loss` and `fast_ce_loss`.
+5. Keep only the context portion of every layer's VLM key/value cache. Remove grounding and FAST
+   target K/V entries, then detach the retained context K/V tensors.
+6. Condition the continuous flow expert on that detached cache and compute `flow_loss` from the
+   same normalized relative action chunk used by FAST.
+7. Combine all three per-sample losses and perform one backward pass:
+
+```text
+loss = box_loss_weight * box_ce_loss
+     + fast_loss_weight * fast_ce_loss
+     + flow_loss_weight * flow_loss
+```
+
+This trains both branches at every optimizer step while preserving parameter ownership. Box and
+FAST losses update the vision-language branch; flow loss updates the action expert but cannot cross
+the detached cache boundary into the VLM.
+
+The implementation is in
+`repos/lerobot/src/lerobot/policies/action_flow_v2_2/modeling_action_flow_v2_2.py`. The complete
+preprocessor now performs:
+
+```text
+absolute actions
+-> relative joint conversion
+-> shared normalization
+-> grounding and FAST target serialization
+-> device transfer
+```
+
+A real batch with shape `(1, 50, 7)` completed preprocessing, joint forward, and backward. All three
+losses were finite, and both the VLM and expert received nonzero gradients from the combined
+objective.
+
+The gradient-isolation checks pass: flow-only backward produces zero VLM gradients and nonzero
+expert gradients, while box/FAST-only backward produces nonzero VLM gradients and zero expert
+gradients.
+
+##### Stage 6: Implement Inference and Diagnostics
 
 1. Use prefix-cache plus continuous denoising for normal rollout.
 2. Restore absolute RM65 commands after unnormalization.
@@ -1442,6 +1610,18 @@ expert gradients.
 Completion criterion: repeated inference returns finite actions with the correct RM65 dimensions,
 the gripper remains absolute, and diagnostic box decoding can be enabled without changing the
 continuous action result.
+
+##### Stage 7: Validate Checkpoints and Run a Small-Set Overfit
+
+1. Save the extended VLM tokenizer and FAST tokenizer inside every policy checkpoint.
+2. Reload the policy and processors without depending on the original tokenizer artifact path.
+3. Overfit 4-8 short episodes with all three losses enabled.
+4. Verify that box and FAST losses decrease and that flow predictions fit the same action chunks.
+5. Decode teacher targets and sampled VLM outputs to check box IoU, visibility accuracy, FAST
+   reconstruction error, and truncation.
+
+Completion criterion: a moved checkpoint reloads locally, reproduces finite action inference, and
+the small-set run can fit all three objectives without violating gradient insulation.
 
 ##### Stage 8: Run Controlled Ablations
 

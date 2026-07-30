@@ -1,0 +1,30 @@
+{
+  "extended_vocabulary_size": 51596,
+  "grounding_tokens": 56,
+  "fast_target_tokens": 36,
+  "fast_symbols": 34,
+  "decoded_boxes": 8,
+  "fast_decode_mae": 0.011581698432564735,
+  "checkpoint_reload_exact": true,
+  "frames_scanned": 92545,
+  "maximum_grounding_tokens": 76,
+  "maximum_grounding_dataset_index": 23652,
+  "grounding_length_histogram": {
+    "22": 47,
+    "26": 1356,
+    "30": 4611,
+    "34": 6402,
+    "36": 344,
+    "38": 3796,
+    "40": 5442,
+    "44": 6667,
+    "48": 4914,
+    "52": 6720,
+    "56": 10577,
+    "60": 14652,
+    "64": 14846,
+    "68": 8509,
+    "72": 2897,
+    "76": 765
+  }
+}

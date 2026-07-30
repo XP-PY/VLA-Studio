@@ -36,7 +36,7 @@ DEFAULT_STRUCTURAL_TOKENS = (
 @PreTrainedConfig.register_subclass("action_flow_v2_2")
 @dataclass
 class ActionFlowV22Config(SmolVLAConfig):
-    """Stage 1 configuration for knowledge-insulated Action Flow V2.2.
+    """Configuration for knowledge-insulated Action Flow V2.2.
 
     The token ranges are deterministic and non-overlapping:
 
@@ -73,6 +73,8 @@ class ActionFlowV22Config(SmolVLAConfig):
     # Tokenizer sources and fixed sequence budgets.
     vlm_tokenizer_name: str | None = None
     action_tokenizer_name: str = "lerobot/fast-action-tokenizer"
+    tokenizer_artifact_path: str = "artifacts/tokenizers/action_flow_v2_2_smolvlm_fast"
+    checkpoint_tokenizer_dirname: str = "action_flow_v2_2_tokenizer"
     max_grounding_tokens: int = 192
     max_fast_action_tokens: int = 256
 
@@ -133,6 +135,12 @@ class ActionFlowV22Config(SmolVLAConfig):
             raise ValueError("A SmolVLM tokenizer path must be provided.")
         if not self.action_tokenizer_name:
             raise ValueError("`action_tokenizer_name` must be non-empty.")
+        if not self.tokenizer_artifact_path:
+            raise ValueError("`tokenizer_artifact_path` must be non-empty.")
+        if not self.checkpoint_tokenizer_dirname or "/" in self.checkpoint_tokenizer_dirname:
+            raise ValueError(
+                "`checkpoint_tokenizer_dirname` must be one non-empty directory name."
+            )
         if self.max_grounding_tokens < self.minimum_grounding_tokens:
             raise ValueError(
                 f"`max_grounding_tokens={self.max_grounding_tokens}` is too small for the configured "
@@ -164,6 +172,8 @@ class ActionFlowV22Config(SmolVLAConfig):
             raise ValueError(
                 "`train_expert_only=True` is incompatible with nonzero box or FAST loss weights."
             )
+        if not self.use_cache:
+            raise ValueError("Joint Action Flow V2.2 training requires `use_cache=True`.")
         if self.knowledge_insulation:
             if not self.detach_expert_prefix_kv:
                 raise ValueError("Knowledge insulation requires detached expert prefix K/V tensors.")
@@ -290,6 +300,7 @@ class ActionFlowV22Config(SmolVLAConfig):
             entity_names=entity_names,
             max_entities=self.max_box_entities,
             schema_version=self.box_schema_version,
+            coordinate_bins=self.coordinate_token_count,
         )
 
     def model_batch_contract(self):

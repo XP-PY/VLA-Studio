@@ -13,6 +13,7 @@ from lerobot.policies.action_flow_v2_2.data_contracts_action_flow_v2_2 import (
     GROUNDING_TOKEN_LOSS_WEIGHT,
     GROUNDING_TOKEN_MASK,
     GROUNDING_TOKENS,
+    TARGET_BOX_BINS,
     TARGET_BOXES,
     TARGET_BOX_LOSS_WEIGHT,
     TARGET_BOX_VISIBILITY,
@@ -27,7 +28,6 @@ from lerobot.policies.action_flow_v2_2.data_contracts_action_flow_v2_2 import (
 from lerobot.policies.factory import (
     get_policy_class,
     make_policy_config,
-    make_pre_post_processors,
 )
 from lerobot.utils.constants import ACTION, ACTION_TOKEN_MASK, ACTION_TOKENS
 
@@ -76,6 +76,7 @@ def make_policy_features() -> tuple[dict[str, PolicyFeature], dict[str, PolicyFe
         "observation.images.wrist": PolicyFeature(FeatureType.VISUAL, (3, 480, 640)),
         "observation.images.top": PolicyFeature(FeatureType.VISUAL, (3, 480, 640)),
         TARGET_BOXES: PolicyFeature(FeatureType.STATE, (2, 8, 4)),
+        TARGET_BOX_BINS: PolicyFeature(FeatureType.STATE, (2, 8, 4)),
         TARGET_BOX_VISIBILITY: PolicyFeature(FeatureType.STATE, (2, 8)),
         TARGET_BOX_LOSS_WEIGHT: PolicyFeature(FeatureType.STATE, (2, 8)),
         TARGET_ENTITY_IDS: PolicyFeature(FeatureType.STATE, (8,)),
@@ -86,14 +87,11 @@ def make_policy_features() -> tuple[dict[str, PolicyFeature], dict[str, PolicyFe
     return input_features, output_features
 
 
-def test_config_registration_is_available_but_stage1_model_is_gated():
+def test_config_and_policy_registration_are_available():
     config = make_policy_config("action_flow_v2_2", device="cpu")
 
     assert isinstance(config, ActionFlowV22Config)
-    with pytest.raises(NotImplementedError, match="Stage 1"):
-        get_policy_class("action_flow_v2_2")
-    with pytest.raises(NotImplementedError, match="not part of Stage 1"):
-        make_pre_post_processors(config)
+    assert get_policy_class("action_flow_v2_2").__name__ == "ActionFlowV22Policy"
 
 
 def test_token_ranges_are_deterministic_and_non_overlapping():
@@ -193,6 +191,17 @@ def test_dataset_metadata_round_trip_and_feature_validation(tmp_path):
     loaded.validate_feature_metadata(make_features(metadata))
 
 
+def test_global_entity_vocabulary_may_exceed_per_frame_slot_count():
+    metadata = ActionFlowV22DatasetMetadata(
+        camera_names=("wrist", "top"),
+        entity_names=tuple(f"entity_{index}" for index in range(11)),
+        max_entities=8,
+    )
+
+    assert len(metadata.entity_names) == 11
+    assert metadata.feature_metadata()[TARGET_BOX_BINS]["coordinate_bins"] == 256
+
+
 def test_dataset_metadata_is_validated_and_box_labels_are_not_model_inputs():
     input_features, output_features = make_policy_features()
     config = ActionFlowV22Config(
@@ -251,6 +260,7 @@ def test_model_batch_contract_exposes_box_grounding_and_fast_fields():
     }
 
     assert contract[TARGET_BOXES].shape == ("batch_size", 2, 8, 4)
+    assert contract[TARGET_BOX_BINS].shape == ("batch_size", 2, 8, 4)
     assert contract[GROUNDING_TOKENS].shape == ("batch_size", 192)
     assert contract[GROUNDING_TOKEN_MASK].dtype == "bool"
     assert contract[GROUNDING_TOKEN_LOSS_WEIGHT].dtype == "float32"
