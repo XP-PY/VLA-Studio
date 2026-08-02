@@ -39,7 +39,7 @@ robot:
     max_relative_target: 100.0
 
     use_canfd: true
-    canfd_follow: false
+    canfd_follow: true
     canfd_expand: 1000
     canfd_trajectory_mode: 0
     canfd_smooth: 0

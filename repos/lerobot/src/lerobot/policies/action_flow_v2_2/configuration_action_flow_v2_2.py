@@ -54,6 +54,9 @@ class ActionFlowV22Config(SmolVLAConfig):
     freeze_vision_encoder: bool = False
     train_expert_only: bool = False
     load_vlm_weights: bool = True
+    # Optional warm start for the shared SmolVLA architecture. None preserves
+    # the original V2.2 initialization (pretrained SmolVLM plus random expert).
+    smolvla_pretrained_path: str | None = None
     n_action_steps: int = 10
 
     # Relative actions: six RM65 joints are relative while gripper stays absolute.
@@ -115,6 +118,8 @@ class ActionFlowV22Config(SmolVLAConfig):
             )
         if self.expected_state_dim <= 0 or self.expected_action_dim <= 0:
             raise ValueError("Expected state and action dimensions must be positive.")
+        if self.smolvla_pretrained_path is not None and not self.smolvla_pretrained_path.strip():
+            raise ValueError("`smolvla_pretrained_path` must be None or a non-empty path/repo ID.")
         if not 0 < self.expected_relative_action_dim <= self.expected_action_dim:
             raise ValueError(
                 "`expected_relative_action_dim` must be in [1, expected_action_dim]."

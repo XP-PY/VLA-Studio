@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import torch
 
 from lerobot.configs import FeatureType, PolicyFeature, PreTrainedConfig
 from lerobot.policies.action_flow_v2_2.configuration_action_flow_v2_2 import (
@@ -24,6 +25,10 @@ from lerobot.policies.action_flow_v2_2.data_contracts_action_flow_v2_2 import (
     TargetBoxRecord,
     TargetRole,
     TargetVisibility,
+)
+from lerobot.policies.action_flow_v2_2.modeling_action_flow_v2_2 import (
+    _copy_smolvla_tensor,
+    _smolvla_tensor_copy_mode,
 )
 from lerobot.policies.factory import (
     get_policy_class,
@@ -114,18 +119,51 @@ def test_config_checkpoint_reload_preserves_contracts(tmp_path):
         device="cpu",
         camera_names=("wrist", "top"),
         relative_exclude_joints=["gripper"],
+        smolvla_pretrained_path="lerobot/smolvla_base",
     )
     config.save_pretrained(tmp_path)
 
     loaded = PreTrainedConfig.from_pretrained(tmp_path, local_files_only=True)
 
     assert isinstance(loaded, ActionFlowV22Config)
+    assert loaded.smolvla_pretrained_path == "lerobot/smolvla_base"
     assert loaded.token_contract() == config.token_contract()
     assert loaded.architecture_contract() == config.architecture_contract()
     assert loaded.model_batch_contract() == config.model_batch_contract()
     assert loaded.dataset_contract(("tomato", "pink_plate")).feature_metadata() == config.dataset_contract(
         ("tomato", "pink_plate")
     ).feature_metadata()
+
+
+def test_smolvla_vocabulary_initialization_preserves_added_rows():
+    source = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    target = torch.full((6, 3), -1.0)
+    key = "model.vlm_with_expert.vlm.lm_head.weight"
+
+    mode = _smolvla_tensor_copy_mode(
+        key,
+        tuple(target.shape),
+        tuple(source.shape),
+        base_vocab_size=4,
+    )
+    with torch.no_grad():
+        _copy_smolvla_tensor(target, source, mode)
+
+    assert mode == "vocabulary_prefix"
+    torch.testing.assert_close(target[:4], source)
+    torch.testing.assert_close(target[4:], torch.full((2, 3), -1.0))
+
+
+def test_smolvla_initialization_rejects_non_vocabulary_shape_mismatch():
+    assert (
+        _smolvla_tensor_copy_mode(
+            "model.action_in_proj.weight",
+            (8, 4),
+            (6, 4),
+            base_vocab_size=4,
+        )
+        is None
+    )
 
 
 def test_sidecar_record_distinguishes_visible_absent_and_invalid_labels():

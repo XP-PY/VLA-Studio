@@ -29,15 +29,7 @@ This design borrows the core idea from SmolVLA flow matching while avoiding the 
 
 ### Policy Structure
 
-The implementation lives under:
-
-```text
-repos/lerobot/src/lerobot/policies/action_flow_v1/
-├── configuration_action_flow_v1.py
-├── modeling_action_flow_v1.py
-├── processor_action_flow_v1.py
-└── __init__.py
-```
+The policy package contains separate configuration, modeling, processor, and registration modules.
 
 The policy is registered as:
 
@@ -45,8 +37,8 @@ The policy is registered as:
 policy.type=action_flow_v1
 ```
 
-It is also wired into `policies/factory.py`, so the normal LeRobot factory path
-can create the config, model class, and pre/post processors.
+It is also registered with LeRobot's policy factory, which creates the config, model class, and
+pre/post processors.
 
 #### Configuration
 
@@ -155,10 +147,6 @@ I used the dataset recorded for [ACT Training Objective 2, Log 1](./act.md#train
 
 I used the same setting as [ACT Training Objective 2, Log 1](./act.md#training-log-1-of-objective-2):
 
-Dataset: `rm65_bimanual_grasp_and_place`
-
-Output policy: `rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50`
-
 | Parameter | Configured value | Default value |
 |---|---:|---:|
 | `policy.push_to_hub` | `false` | `true` |
@@ -176,10 +164,6 @@ Output policy: `rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_2
 #### Evaluation
 
 In this evaluation, `canfd_follow` was disabled. The actual rollout speed was about 10 FPS; when `canfd_follow` was enabled, the arms showed noticeable lag. Therefore, rollout `fps` was set to 10 to better match the real execution speed. The rollout dataset was resumed when its output directory already existed.
-
-Robot config: `configs/rm65_left_right_wrist_front_top.yaml`
-
-Checkpoint: `rm65_action_flow_v1_bimanual_grasp_and_place_episodes_20_steps_20000_batch_16_chunk_50/checkpoints/last/pretrained_model`
 
 Task: `grasp two assembly parts and place them in the center`
 
@@ -227,21 +211,9 @@ Dataset information:
   | 3 | 3 visible parts on each side | 30 | 80 | 67884 |
   | 4 | Mixed visibility between left and right sides | 30 | 60 | 32852 |
 
-The final combined dataset is named:
-
-```text
-rm65_bimanual_farthest_to_closest_assembly_parts_to_center
-```
-
 #### Training Configuration
 
 Similar to [ACT Training Log 4 of Objective 2](act.md#training-log-4-of-objective-2), I trained Action Flow V1 with `policy.chunk_size` values of 20, 30, and 40. The saved training configurations show that each policy was trained for 40,000 steps with batch size 8.
-
-Output policies:
-
-- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_20`
-- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_30`
-- `rm65_action_flow_v1_bimanual_assembly_parts_to_center_episodes_240_steps_40000_batch_8_chunk_40`
 
 | Parameter | Policy 1 | Policy 2 | Policy 3 | Default value |
 |---|---:|---:|---:|---:|
@@ -410,12 +382,6 @@ The main question is whether auxiliary spatial supervision improves target recog
 
 #### Dataset
 
-Base dataset:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing
-```
-
 The cleaned dataset contains 203 successful episodes, 92,545 frames, and 52 prompt variants recorded at 30 FPS. Each frame contains:
 
 - `observation.images.top`: 640 x 480 overhead workspace image.
@@ -468,30 +434,14 @@ The annotations were generated as follows:
 6. Merge the requested per-object tracks into one union relevance mask for each camera frame.
 7. Join the frame-aligned masks to the LeRobot data by `episode_index`, `frame_index`, and camera.
 
-The reviewed Grounding DINO proposals and separate SAM2 object tracks are stored under:
-
-```text
-runs/sam/rm65_single_table_preparation_and_bussing
-```
-
-Keeping each object as a separate track preserves entity identity for inspection and future source/destination or phase-dependent experiments.
-
-The full-resolution union masks are stored separately under:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2
-```
-
-This annotation dataset contains one Parquet file per episode and camera. Each row stores the episode and frame indices, camera name, image dimensions, compressed union mask, and annotation validity weight.
+The reviewed Grounding DINO proposals and separate SAM2 object tracks are retained for inspection.
+Keeping each object as a separate track preserves entity identity for future source/destination or
+phase-dependent experiments. Full-resolution union masks are stored in a separate annotation
+dataset containing one Parquet file per episode and camera. Each row stores the episode and frame
+indices, camera name, image dimensions, compressed union mask, and annotation validity weight.
 
 For training, the union masks are merged with the robot dataset and resized to the VLM image-token
-grid:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation
-```
-
-The merged dataset adds:
+grid. The merged dataset adds:
 
 - `observation.relevance_mask` with shape `(2, 8, 8)`, ordered as wrist then top.
 - `observation.relevance_loss_weight` with shape `(2,)`.
@@ -500,7 +450,9 @@ An all-zero mask is a valid label when no relevant entity is visible. A zero val
 
 #### Policy and Loss Design
 
-The policy is initialized from `smolvla_base` and uses the local `SmolVLM2-500M-Video-Instruct` backbone. A learned camera embedding is added to each camera's image tokens before the shared multimodal transformer.
+The policy is initialized from the SmolVLA base checkpoint and uses the
+`SmolVLM2-500M-Video-Instruct` backbone. A learned camera embedding is added to each camera's image
+tokens before the shared multimodal transformer.
 
 For each camera, the relevance head applies:
 
@@ -523,22 +475,11 @@ The complete VLM and action expert remain trainable so the relevance loss can mo
 
 #### Training Configuration
 
-Output policies:
-
-```text
-rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1
-rm65_action_flow_v2_single_table_preparation_and_bussing_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.0
-```
-
 | Parameter | Configured value | Action Flow V2 default |
 |---|---:|---:|
-| `dataset.repo_id` | `rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
-| `dataset.root` | `runs/dataset/rm65_single_table_preparation_and_bussing_afv2_segmentation` | Not set |
 | `dataset.return_uint8` | `true` | `false` |
 | `policy.type` | `action_flow_v2` | Not set |
 | `policy.device` | `cuda` | Automatically selected |
-| `policy.pretrained_path` | `models/smolvla_base` | `None` |
-| `policy.vlm_model_name` | `models/SmolVLM2-500M-Video-Instruct` | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` |
 | `policy.input_features` | `null` (infer from dataset) | `{}` |
 | `policy.output_features` | `null` (infer from dataset) | `{}` |
 | `policy.n_action_steps` | `1` | `10` |
@@ -589,17 +530,15 @@ training and rollout settings apart from the relevance-loss weight.
 | `inference.rtc.execution_horizon` | `15` | `10` |
 | `inference.rtc.max_guidance_weight` | `15` | `10` |
 | `inference.queue_threshold` | `25` | `30` |
-| `policy.n_action_steps` | `1` | `10` |
 | `policy.num_steps` | `5` | `10` |
 | `robot.single_arm.max_relative_target` | `1000.0` | `100.0` in the robot YAML |
 | `fps` | `20` | `30` |
 
 > **Note:** `inference.rtc.prefix_attention_schedule=LINEAR`,
 > `robot.single_arm.canfd_follow=false`, and `return_to_initial_position=true` use their
-> defaults. All other unlisted parameters use their defaults. Although
-> `policy.n_action_steps=1` is configured, RTC
-> calls `predict_action_chunk` and manages its own action queue; continuity is controlled by
-> `inference.rtc.execution_horizon`, not by `policy.n_action_steps`.
+> defaults. All other unlisted parameters use their defaults. RTC calls `predict_action_chunk`
+> directly and manages its own queue, so `policy.n_action_steps` is not an effective rollout
+> parameter in this evaluation.
 
 ##### Results
 
@@ -887,24 +826,14 @@ the task objects. Each bounding box is assigned a stable visual-prompt class:
 | 6 | `corn` | `corn` |
 | 7 | `collection_box` | `collection box` |
 
-The reference definition is stored in:
-
-```text
-examples/action_flow_v2/ref/yoloe_reference_realsense_viewer_with_collection_box.yaml
-```
-
-This is a visual class mapping, not a text-query mapping. The task parser still determines which
-entities are relevant to each instruction, but only those corresponding YOLOE classes are retained
-for review and SAM2 initialization.
+The reference definition stores this visual class mapping. It is not a text-query mapping: the task
+parser still determines which entities are relevant to each instruction, but only those
+corresponding YOLOE classes are retained for review and SAM2 initialization.
 
 ##### YOLOE Proposal Generation
 
-`examples/action_flow_v2/annotate_yoloe.py` scans the top and wrist videos and writes detection
-artifacts under:
-
-```text
-runs/yoloe/rm65_single_table_preparation_and_bussing
-```
+The YOLOE proposal-generation pass scans the top and wrist videos and stores its detections for
+review.
 
 | Parameter | Value |
 |---|---|
@@ -930,9 +859,9 @@ for each `(episode, camera, object_id)` item.
 
 ##### Point Review
 
-The YOLOE result is reviewed with `examples/action_flow_v2/review_yoloe.py`. Unlike the first
-annotation workflow, review corrections are not transcribed into a Markdown table and then repeated
-manually in the SAM2 interface. The reviewer operates directly on the original video frames:
+The YOLOE result is reviewed with an interactive interface. Unlike the first annotation workflow,
+review corrections are not transcribed into a Markdown table and then repeated manually in the
+SAM2 interface. The reviewer operates directly on the original video frames:
 
 | Review action | Saved result | SAM2 behavior |
 |---|---|---|
@@ -941,11 +870,7 @@ manually in the SAM2 interface. The reviewer operates directly on the original v
 | Click the correct target in any frame | `manual_point` | Use the clicked frame and coordinates as a positive point |
 | Mark `Not visible` | `not_visible` | Produce an all-zero track for that entity and camera |
 
-Each action is saved immediately and can be resumed from:
-
-```text
-runs/yoloe/rm65_single_table_preparation_and_bussing/review/decisions.json
-```
+Each action is saved immediately in a resumable review-decision record.
 
 If an absent target is not marked `not_visible`, a missing YOLOE proposal leaves the
 episode-camera pair unresolved and batch SAM2 skips it. More seriously, an unreviewed false
@@ -954,9 +879,9 @@ and every false positive must be corrected during review.
 
 ##### SAM2 Tracking
 
-`examples/action_flow_v2/annotate_sam2.py` loads the review file with
-`prompt_source=yoloe`. Untouched targets use the selected YOLOE points, while explicit decisions
-override them before the SAM2 session is constructed.
+The SAM2 annotation pass loads the review decisions with `prompt_source=yoloe`. Untouched targets
+use the selected YOLOE points, while explicit decisions override them before the SAM2 session is
+constructed.
 
 | Parameter | Value |
 |---|---|
@@ -973,39 +898,25 @@ Reference-point frames are always processed even when they are not divisible by 
 SAM2 tracks each entity independently, after which the per-object masks are unioned into one binary
 task-relevance mask per frame.
 
-The separate object tracks, resumable workspaces, batch report, and preview videos are stored under:
-
-```text
-runs/sam/rm65_single_table_preparation_and_bussing_yoloe
-```
-
-The full-resolution union masks and frame validity weights are stored under:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe
-```
-
-Each annotation row is aligned by `episode_index`, `frame_index`, and camera, and contains the image
-size, compressed binary mask, and `loss_weight`. The source robot dataset remains unchanged.
+The workflow retains separate object tracks, resumable workspaces, a batch report, and preview
+videos. Full-resolution union masks and frame validity weights are stored separately from the
+source robot data. Each annotation row is aligned by `episode_index`, `frame_index`, and camera,
+and contains the image size, compressed binary mask, and `loss_weight`.
 
 ##### Dense Training Dataset
 
-For policy training, `examples/action_flow_v2/merge_segmentation_dataset.py` joins the YOLOE/SAM2
-sidecar with the original LeRobot dataset. The native-resolution SAM2 masks remain unchanged in
-the sidecar dataset. The merged copies are resized to 512 x 512 using the same
-aspect-ratio-preserving resize and left/top padding convention as the policy images. This retains
-dense spatial supervision instead of reducing each mask to the VLM's 8 x 8 image-token grid.
+For policy training, the merge step joins the YOLOE/SAM2 sidecar with the original LeRobot dataset.
+The native-resolution SAM2 masks remain unchanged in the sidecar dataset. The merged copies are
+resized to 512 x 512 using the same aspect-ratio-preserving resize and left/top padding convention
+as the policy images. This retains dense spatial supervision instead of reducing each mask to the
+VLM's 8 x 8 image-token grid.
 
 The camera order is wrist then top. The merged dataset adds:
 
 - `observation.relevance_mask`: `uint8[2, 512, 512]`.
 - `observation.relevance_loss_weight`: `float32[2]`.
 
-The resulting training dataset contains 203 episodes and 92,545 frames at 30 FPS:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation
-```
+The resulting training dataset contains 203 episodes and 92,545 frames at 30 FPS.
 
 #### Policy and Loss Design
 
@@ -1032,26 +943,16 @@ BCE supervises each output pixel, while Dice reduces the dominance of background
 relevant objects occupy a small image region. `observation.relevance_loss_weight` excludes invalid
 camera annotations without treating a valid empty mask as missing data.
 
-The policy is initialized from the local `smolvla_base` checkpoint and local
+The policy is initialized from the SmolVLA base checkpoint and the
 `SmolVLM2-500M-Video-Instruct` backbone. The VLM, action expert, state projection, camera
 embeddings, and dense relevance decoder are all trainable. The successful startup reports
 405 million learnable parameters out of 452 million total parameters.
 
 #### Training Configuration
 
-Output policy:
-
-```text
-rm65_action_flow_v21_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation_episodes_203_steps_40000_batch_8_chunk_50_relevance_0.1
-```
-
 | Parameter | Configured value | Action Flow V2.1 default |
 |---|---:|---:|
-| `dataset.repo_id` | `rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation` | Not set |
-| `dataset.root` | `runs/dataset/rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation` | Not set |
 | `dataset.return_uint8` | `true` | `false` |
-| `policy.pretrained_path` | `models/smolvla_base` | `None` |
-| `policy.vlm_model_name` | `models/SmolVLM2-500M-Video-Instruct` | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` |
 | `policy.input_features` | `null` (infer from dataset) | `{}` |
 | `policy.output_features` | `null` (infer from dataset) | `{}` |
 | `policy.n_action_steps` | `1` | `10` |
@@ -1075,6 +976,200 @@ rm65_action_flow_v21_single_table_preparation_and_bussing_afv2_yoloe_dense_segme
 > `policy.freeze_vision_encoder=false`, `policy.train_expert_only=false`,
 > `policy.train_state_proj=true`, and `policy.load_vlm_weights=true`. Training uses one GPU
 > process, giving an effective batch size of 8.
+
+#### Evaluation
+
+The dense-segmentation policy was evaluated on five prompts, with two trials per prompt. The
+evaluation tested target selection, grasping, transfer, placement, and multi-step execution while
+recording dense heatmap overlays from the wrist and top cameras. None of the ten trials completed
+the requested task.
+
+##### Rollout Configuration
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `strategy.type` | `episodic` | `base` |
+| `inference.type` | `rtc` | `sync` |
+| `inference.rtc.execution_horizon` | `15` | `10` |
+| `inference.rtc.max_guidance_weight` | `15` | `10` |
+| `inference.rtc.prefix_attention_schedule` | `LINEAR` | `LINEAR` |
+| `inference.queue_threshold` | `25` | `30` |
+| `policy.num_steps` | `5` | `10` |
+| `robot.single_arm.max_relative_target` | `1000.0` | `100.0` in the robot YAML |
+| `fps` | `20` | `30` |
+| Heatmap overlay alpha | `0.45` | `0.45` |
+
+> **Note:** `robot.single_arm.canfd_follow=false` and
+> `return_to_initial_position=true`. Heatmaps were recorded for both policy cameras. Parameters not
+> listed above use their defaults. RTC calls `predict_action_chunk` directly and manages its own
+> queue, so `policy.n_action_steps` is not an effective rollout parameter in this evaluation.
+
+##### Results
+
+The dense decoder produces substantially sharper spatial predictions than the upsampled 8 x 8
+heatmaps from Training Log 1. However, improved boundary quality does not imply correct semantic
+grounding. The policy frequently highlights nearly every vegetable and sometimes unrelated plates,
+which makes the requested source and destination difficult to distinguish.
+
+| Prompt | Trials | Successes | Main observations |
+|---|---:|---:|---|
+| `Place the tomato on the pink plate.` | 2 | 0 | One trial followed an incorrect wrist-camera region. The other approached the correct target but remained misaligned and failed during grasping or transfer. |
+| `Place the cucumber on the blue plate.` | 2 | 0 | One trial produced incorrect heatmaps in both views. The other grasped and transferred the cucumber but failed to place and release it on the blue plate. |
+| `Put the vegetable from the blue plate into the collection box.` | 2 | 0 | The policy either hovered above the relevant region without progressing or followed redundant heatmap regions into an incorrect grasp. |
+| `Put the vegetable from the yellow plate into the collection box.` | 2 | 0 | Both trials highlighted many vegetables instead of isolating the object on the yellow plate, leading to incorrect target selection. |
+| `Place the tomato on the pink plate, then place the garlic on the blue plate.` | 2 | 0 | Redundant and unstable relevance predictions caused poor alignment, and neither trial completed the first placement reliably. |
+| **Total** | **10** | **0 (0%)** | **Dense segmentation improved visualization quality but did not produce reliable grounding or manipulation.** |
+
+##### Rollout Videos
+
+**Place the tomato on the pink plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_0.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: a redundant wrist-camera heatmap led to an incorrect grasp.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_1.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: mostly correct relevance, but unstable alignment caused grasp and transfer failure.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the cucumber on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_2.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: incorrect relevance predictions in both camera views.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_3.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: successful grasp and transfer, followed by failed placement and redundant relevance.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the blue plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_4.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: hovered above the target without progressing, while unrelated regions remained active.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_5.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: redundant relevance predictions led to an incorrect grasp.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the yellow plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_6.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: the heatmap highlighted nearly every vegetable.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_7.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: redundant relevance predictions led to an incorrect grasp.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the tomato on the pink plate, then place the garlic on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_8.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: redundant relevance predictions caused unstable target alignment.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_2_rollout_9.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: unstable relevance prevented reliable completion of the first placement.</em></p>
+    </td>
+</tr>
+</table>
+
+##### Analysis
+
+1. **Higher output resolution improved localization detail but not language-conditioned
+   selectivity.** The dense decoder creates more coherent object-shaped regions than direct 8 x 8
+   prediction. Nevertheless, it often activates on most vegetables and several plates. The decoder
+   is therefore learning generic task-scene saliency more reliably than the prompt-specific source
+   and destination identities.
+
+2. **A 512 x 512 output does not restore information absent from the 8 x 8 image-token grid.** The
+   dense decoder starts from the same coarse SmolVLM image-token features and learns six upsampling
+   stages. It can sharpen boundaries from training priors, but precise grasp geometry and separation
+   of nearby objects still depend on the quality of those coarse, prompt-conditioned features.
+
+3. **The auxiliary segmentation output does not directly control the action expert.** Action Flow
+   V2.1 shares VLM features between the relevance decoder and action branch, but the predicted mask
+   is not passed into the flow expert as an explicit input. Correct segmentation can therefore
+   coexist with misaligned motion, an unstable grasp, or an incorrect release trajectory. This was
+   visible in trials where the gripper approached the correct object but could not align or maintain
+   a stable grasp.
+
+4. **Grasp retention is a separate action-quality failure.** During transfer, the predicted gripper
+   command fluctuated around `539-560`. Even this relatively small opening variation can reduce
+   contact force when the command is near the object's grasp width. RTC can reduce disagreement at
+   chunk boundaries, but it cannot remove gripper variation already present inside each predicted
+   chunk.
+
+5. **The policy does not represent task phase explicitly.** In one cucumber trial, the policy
+   successfully grasped the object and moved it above the correct plate, but then failed to place or
+   release it and appeared unable to select the next action. The union segmentation target marks all
+   relevant entities throughout the episode; it does not indicate whether the active phase is
+   approach, grasp, transfer, placement, release, or transition to a second object.
+
+6. **The evaluation runtime adds a continuity confounder.** The rollout log repeatedly reports that
+   RTC's wall-clock delay estimate differs by one action from the number of actions actually
+   consumed. The control loop also occasionally falls below the requested 20 FPS while recording
+   camera and heatmap videos. These timing differences may amplify chunk-boundary and gripper
+   instability, although they do not explain the persistent incorrect segmentation of distractors.
+
+7. **The experiment does not support increasing segmentation loss alone.** A larger relevance-loss
+   weight might strengthen the dense decoder, but it could also divert shared VLM capacity from
+   action learning without fixing task phase or establishing a direct grounding-to-action path. The
+   next design should make entity identity and role explicit and evaluate grounding independently
+   from grasp and placement success.
+
+##### Conclusion
+
+Action Flow V2.1 demonstrates that dense relevance prediction can produce cleaner spatial outputs,
+but this experiment achieved `0/10` task successes. Its main limitation is not mask resolution
+alone: the policy still lacks reliable prompt-to-entity binding, precise grasp control, stable
+gripper retention, and phase-aware placement behavior. The result motivates Action Flow V2.2's
+structured source/destination boxes and knowledge-insulated training, while also showing that
+grounding supervision must eventually influence action generation more explicitly and be paired
+with improved gripper and task-progress modeling.
 
 ---
 
@@ -1128,13 +1223,7 @@ The VLM receives gradients from target-box and FAST-token prediction. The action
 gradients from flow matching. The flow loss must not update the vision encoder, connector,
 language model, token embeddings, LM head, state projection, or camera embeddings.
 
-The policy is implemented in a separate package:
-
-```text
-repos/lerobot/src/lerobot/policies/action_flow_v2_2/
-```
-
-The package contains:
+Action Flow V2.2 is implemented in a separate policy package containing:
 
 | File | Responsibility |
 |---|---|
@@ -1185,14 +1274,10 @@ The gripper value passes through without the relative offset.
 
 ##### Target-Box Labels
 
-The box dataset is derived from the reviewed, entity-specific SAM2 tracks under:
-
-```text
-runs/sam/rm65_single_table_preparation_and_bussing_yoloe
-```
+The box dataset is derived from the reviewed, entity-specific SAM2 tracks initialized by YOLOE.
 
 The union relevance masks used by V2 and V2.1 are not sufficient because a token sequence must
-associate each box with one entity. For every frame, the V2.2 sidecar will store one structured
+associate each box with one entity. For every frame, the V2.2 sidecar stores one structured
 record per prompt-relevant entity and camera:
 
 ```text
@@ -1220,6 +1305,19 @@ location_token = round(clamp(coordinate / 511, 0, 1) * 255)
 A target that is validly absent from a camera uses `<not_visible>`. An uncertain or incorrect
 annotation uses `loss_weight=0` and is excluded from the box loss. These two cases must remain
 distinct.
+
+The completed training dataset contains 203 episodes and 92,545 frames. It adds the following
+frame-aligned features in wrist-then-top camera order:
+
+| Feature | Shape | Meaning |
+|---|---:|---|
+| `observation.target_boxes` | `(2, 8, 4)` | Normalized `xyxy` boxes in padded policy-image coordinates |
+| `observation.target_box_bins` | `(2, 8, 4)` | Coordinates quantized into `[0, 255]` |
+| `observation.target_box_visibility` | `(2, 8)` | Per-camera entity visibility |
+| `observation.target_box_loss_weight` | `(2, 8)` | Zero excludes an invalid annotation |
+| `observation.target_entity_ids` | `(8,)` | Dataset-wide entity IDs |
+| `observation.target_entity_roles` | `(8,)` | Source, destination, or container roles |
+| `observation.target_entity_valid` | `(8,)` | Valid prompt entities versus padding |
 
 Entities are serialized in deterministic order:
 
@@ -1309,7 +1407,7 @@ cover every prefix key/value path used by every expert attention layer.
 
 ##### Training Loss and Parameter Ownership
 
-The planned objective is:
+The implemented objective is:
 
 ```text
 L_VLM    = lambda_box * L_box + lambda_FAST * L_FAST
@@ -1317,7 +1415,7 @@ L_expert = L_flow
 L_total  = L_VLM + lambda_flow * L_expert
 ```
 
-All three losses are reduced independently before weighting. Initial experiments will use
+All three losses are reduced independently before weighting. The default weights are
 `lambda_box=1`, `lambda_FAST=1`, and `lambda_flow=1`; changing a weight must be documented in the
 training configuration.
 
@@ -1351,297 +1449,401 @@ back into the action expert in the first V2.2 experiment. Conditioning the exper
 tokens would add autoregressive latency and error propagation and should be evaluated separately
 only after the insulated baseline works.
 
-#### Development Order
+#### Training Configuration
 
-##### Stage 1: Define Configuration and Data Contracts
+This run jointly fine-tunes the VLM branch and continuous action expert on the 203-episode
+target-box dataset. The observation contains a seven-dimensional robot state and two RGB views,
+`wrist` and `top`, at 480 x 640 resolution. The action contains six joint positions and one
+continuous gripper position. Local dataset, tokenizer, checkpoint, and output paths are omitted
+because these artifacts are not version-controlled.
 
-**Status:** Implemented on 2026-07-29.
-
-1. Create the `action_flow_v2_2` policy package without modifying V2 or V2.1.
-2. Define configuration fields for relative actions, tokenizer paths, token ranges, maximum box
-   and FAST sequence lengths, loss weights, and knowledge insulation.
-3. Define structured box-sidecar and model-batch keys with explicit shapes, dtypes, camera order,
-   visibility, and validity semantics.
-4. Add configuration validation for vocabulary size, camera count, action dimensions, sequence
-   lengths, and incompatible options.
-
-Completion criterion: configuration serialization and checkpoint reload reproduce the same token
-IDs, feature metadata, and policy structure.
-
-The implemented contract keeps the existing 49,280 SmolVLM token IDs unchanged, then allocates 12
-structural tokens, 256 coordinate tokens, and 2,048 dedicated FAST tokens. The resulting extended
-vocabulary size is 51,596. Model and processor construction are deliberately disabled until their
-later development stages are complete; only configuration parsing, serialization, sidecar
-metadata, feature validation, and batch-contract inspection are enabled in Stage 1.
-
-##### Stage 2: Build and Inspect the Box Dataset
-
-**Status:** Implemented on 2026-07-30.
-
-1. Read separate SAM2 object tracks rather than union masks.
-2. Convert each valid mask to an entity-specific bounding box for every camera frame.
-3. Apply the exact 512 x 512 image geometry transform and quantize coordinates to 256 bins.
-4. Save `not_visible` and invalid annotations separately.
-5. Generate per-episode preview videos and a review report showing entity names, roles, boxes, and
-   excluded labels.
-6. Join structured box labels to the 203-episode robot dataset by `episode_index`, `frame_index`,
-   and camera.
-
-Completion criterion: sampled labels remain aligned with the resized policy images, preserve
-entity identity through manipulation, and contain no camera-order mismatch.
-
-The completed dataset is:
-
-```text
-runs/dataset/rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes
-```
-
-| Item | Value |
-|---|---|
-| Robot dataset | `runs/dataset/rm65_single_table_preparation_and_bussing` |
-| Reviewed entity tracks | `runs/sam/rm65_single_table_preparation_and_bussing_yoloe` |
-| Reviewed entity definitions | `runs/yoloe/rm65_single_table_preparation_and_bussing` |
-| Episodes | 203 |
-| Frames | 92,545 |
-| Camera order | `wrist`, `top` |
-| Policy image size | 512 x 512 |
-| Coordinate bins | 256 |
-| Maximum entity slots per frame | 8 |
-| Global entity vocabulary | 11 names |
-
-The builder is
-`examples/action_flow_v2/build_action_flow_v2_2_box_dataset.py`. It reads the compressed SAM2
-run-length encoding directly, so it does not materialize all dense masks in memory. The original
-robot rows are preserved and the following frame-aligned features are added:
-
-| Feature | Shape | Meaning |
-|---|---:|---|
-| `observation.target_boxes` | `(2, 8, 4)` | Normalized `xyxy` boxes in padded policy-image coordinates |
-| `observation.target_box_bins` | `(2, 8, 4)` | Box coordinates quantized to integers in `[0, 255]` |
-| `observation.target_box_visibility` | `(2, 8)` | Visible or validly not visible in each camera |
-| `observation.target_box_loss_weight` | `(2, 8)` | Zero excludes an invalid camera/entity annotation |
-| `observation.target_entity_ids` | `(8,)` | Stable IDs in the dataset-wide entity vocabulary |
-| `observation.target_entity_roles` | `(8,)` | Source, destination, or container role IDs |
-| `observation.target_entity_valid` | `(8,)` | Valid prompt entities versus padded slots |
-
-Long-form records are retained under `annotations/boxes/episode-*/camera-*.parquet` for debugging.
-The review report is `review/index.html`, and 12 evenly distributed episodes have side-by-side
-wrist/top preview videos under `review/videos`. The builder applies
-`runs/yoloe/rm65_single_table_preparation_and_bussing/review/decisions.json` before resolving track
-visibility. Validation found 1,382 camera/entity tracks: 1,365 contain visible masks and only the 17
-targets explicitly reviewed as absent are supervised as `not_visible`. No track was marked invalid
-or unexpectedly never visible. LeRobot loads all generated features with the expected shapes,
-including the source file that contains episodes 36 through 59.
-
-Because `runs/dataset` is stored on an exFAT volume, it does not support hard links or symbolic
-links. The unchanged source videos are therefore copied into this dataset rather than linked.
-
-##### Stage 3: Implement Relative-Action Processing
-
-**Status:** Implemented on 2026-07-30.
-
-1. Convert six joint targets relative to the current state while excluding the gripper.
-2. Compute and save statistics from the converted joint deltas and absolute gripper values.
-3. Normalize the shared relative action chunk before both FAST tokenization and flow matching.
-4. Implement inverse normalization and relative-to-absolute conversion for rollout.
-
-Completion criterion: preprocessing followed by postprocessing reconstructs the original absolute
-action chunk within floating-point tolerance, including batched training and single-step rollout.
-
-The processor is implemented in
-`repos/lerobot/src/lerobot/policies/action_flow_v2_2/processor_action_flow_v2_2.py` and registered
-with the LeRobot processor factory. Its action path is:
-
-```text
-training:
-absolute future actions
--> subtract the current state from joint_1 through joint_6
--> keep gripper.pos absolute
--> normalize with relative-action statistics
-
-rollout:
-normalized policy output
--> unnormalize
--> add the current state to joint_1 through joint_6
--> keep gripper.pos absolute
--> send absolute RM65 commands
-```
-
-Both FAST tokenization and flow matching consume the same normalized tensor produced by this
-pipeline. The raw current state is cached before state normalization, which prevents
-normalized state values from being added to physical joint commands during rollout.
-
-Relative statistics were prepared for the Stage 2 dataset with a 50-frame action chunk:
-
-| Item | Value |
-|---|---|
-| Valid chunk starts | 82,598 |
-| Future-action samples | 4,129,900 |
-| Relative dimensions | `joint_1.pos` through `joint_6.pos` |
-| Absolute dimension | `gripper.pos` |
-| Installed statistics | `meta/stats.json` |
-| Original statistics backup | `meta/stats.absolute_actions.json` |
-| Transformation record | `meta/action_flow_v2_2_relative_stats.json` |
-
-The preparation utility is
-`examples/action_flow_v2/prepare_action_flow_v2_2_relative_stats.py`. It replaces only the action
-statistics; state, image, and target-box metadata remain unchanged. Processor validation covers
-the seven-dimensional RM65 action contract, six-relative/one-absolute mask, factory construction,
-checkpoint save/reload, batched chunks, and inverse conversion. A real dataset chunk of shape
-`(1, 50, 7)` reconstructed its original absolute actions with zero measured round-trip error.
-
-##### Stage 4: Extend and Validate the Tokenizer
-
-**Status:** Implemented on 2026-07-30.
-
-1. Add structural, coordinate, and FAST tokens to the local SmolVLM tokenizer.
-2. Resize the VLM input embeddings and LM head without changing existing token IDs.
-3. Implement deterministic structured-box serialization and parsing.
-4. Map FAST symbols to dedicated SmolVLM token IDs and implement the inverse mapping for
-   inspection.
-5. Save and reload all tokenizer artifacts from a policy checkpoint.
-
-Completion criterion: box and FAST sequences round-trip exactly, no generated token ID exceeds the
-resized vocabulary, and no task-language token collides with an action token.
-
-The implementation is in
-`repos/lerobot/src/lerobot/policies/action_flow_v2_2/tokenization_action_flow_v2_2.py`. The
-unmodified SmolVLM tokenizer has 49,280 entries: 49,152 base language tokens followed by 128
-existing multimodal/special-token entries. V2.2 appends tokens without replacing or reordering
-those entries:
-
-| Token group | Count | Inclusive ID range |
+| Parameter | Configured value | Action Flow V2.2 default |
 |---|---:|---:|
-| Existing SmolVLM vocabulary | 49,280 | `0-49279` |
-| Structural tokens | 12 | `49280-49291` |
-| Coordinate tokens | 256 | `49292-49547` |
-| Dedicated FAST tokens | 2,048 | `49548-51595` |
+| `dataset.return_uint8` | `true` | `false` |
+| `policy.input_features` | State `(7)`; wrist and top images `(3, 480, 640)` | `{}` |
+| `policy.output_features` | Action `(7)` | `{}` |
+| `policy.n_action_steps` | `1` | `10` |
+| `policy.optimizer_lr` | `3e-5` | `1e-4` |
+| `policy.scheduler_warmup_steps` | `2,000` | `1,000` |
+| `policy.scheduler_decay_steps` | `40,000` | `30,000` |
+| `policy.push_to_hub` | `false` | `true` |
+| `steps` | `40,000` | `100,000` |
+| `eval_freq` | `0` (disabled) | `20,000` |
+| `save_freq` | `10,000` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_action_flow_v2_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
+| `accelerate --mixed_precision` | `bf16` | `no` |
 
-The final vocabulary size is 51,596. Every new string encodes as exactly one token, and the
-manifest records a SHA-256 digest over the complete ordered extension. Loading fails if token
-order, camera order, vocabulary size, or token-contract metadata differs from the policy
-configuration.
+> **Note:** Parameters not listed in the table use their Action Flow V2.2 defaults. Important
+> retained values are `policy.chunk_size=50`, `batch_size=8`, `policy.num_steps=10`,
+> `policy.vlm_model_name=HuggingFaceTB/SmolVLM2-500M-Video-Instruct`,
+> `policy.resize_imgs_with_padding=[512, 512]`,
+> `policy.freeze_vision_encoder=false`, `policy.train_expert_only=false`,
+> `policy.train_state_proj=true`, `policy.load_vlm_weights=true`,
+> `policy.use_relative_actions=true`, `policy.relative_exclude_joints=["gripper"]`,
+> `policy.box_loss_weight=1.0`, `policy.fast_loss_weight=1.0`,
+> `policy.flow_loss_weight=1.0`, `policy.knowledge_insulation=true`, and
+> `policy.detach_expert_prefix_kv=true`. Training uses one GPU process, so the global batch size is
+> 8.
 
-Grounding serialization uses the configured wrist-then-top camera order and prompt-relative entity
-slot order. Visible entities encode their role, name, `<box>`, and four coordinate tokens. Validly
-absent entities use `<not_visible>`. Padded entities and annotations with zero loss weight are not
-serialized. The parser reconstructs camera name, entity name, role, visibility, and coordinate
-bins, while preserving the distinction between not-visible and excluded annotations.
+#### Evaluation
 
-The same normalized relative action chunk prepared in Stage 3 is passed to the 2,048-symbol FAST
-tokenizer. FAST symbol `n` maps directly to VLM token
-`49548 + n`; the inverse mapping is exact. FAST's conversion between continuous actions and its
-discrete symbols remains intentionally lossy.
+The Action Flow V2.2 policy was evaluated on five prompts, with two trials per prompt. All ten
+trials failed. Compared with Action Flow V2.1, the policy showed substantially less coherent,
+goal-directed behavior and usually did not establish a clear source object or next manipulation
+step. Only one trial selected and approached the requested source object, but the gripper did not
+close sufficiently to secure it.
 
-The generated checkpoint-ready artifact is:
+##### Rollout Configuration
+
+| Parameter | Configured value | Default value |
+|---|---:|---:|
+| `strategy.type` | `episodic` | `base` |
+| `inference.type` | `rtc` | `sync` |
+| `inference.rtc.execution_horizon` | `15` | `10` |
+| `inference.rtc.max_guidance_weight` | `15` | `10` |
+| `inference.rtc.prefix_attention_schedule` | `LINEAR` | `LINEAR` |
+| `inference.queue_threshold` | `25` | `30` |
+| `policy.num_steps` | `5` | `10` |
+| `robot.single_arm.max_relative_target` | `1000.0` | `100.0` in the robot YAML |
+| `fps` | `20` | `30` |
+
+> **Note:** `robot.single_arm.canfd_follow=false` and
+> `return_to_initial_position=true` were retained. RTC calls `predict_action_chunk` directly, so
+> `policy.n_action_steps` is not an effective rollout parameter in this evaluation.
+
+##### Results
+
+| Prompt | Trials | Successes | Main observations |
+|---|---:|---:|---|
+| `Place the tomato on the pink plate.` | 2 | 0 | One trial approached the wrong object; the other produced no coherent task progression. |
+| `Place the cucumber on the blue plate.` | 2 | 0 | The policy selected an incorrect initial target or moved without a clear manipulation objective. |
+| `Put the vegetable from the blue plate into the collection box.` | 2 | 0 | One trial approached the correct source but failed to close the gripper sufficiently. The other confused the destination with the source and did not recover. |
+| `Put the vegetable from the yellow plate into the collection box.` | 2 | 0 | One trial grasped empty space. The other transferred a tomato to the box, but the tomato was unrelated to the requested source plate. |
+| `Place the tomato on the pink plate, then place the garlic on the blue plate.` | 2 | 0 | Both trials selected the wrong first target and did not complete the first subtask. |
+| **Total** | **10** | **0 (0%)** | **Only one trial approached the requested source; no requested object was grasped successfully.** |
+
+##### Offline Grounding Evaluation
+
+To separate grounding failure from continuous-control failure, the trained VLM box decoder was
+evaluated on every frame of all 203 episodes. This covered 92,545 frames without temporal
+subsampling.
+
+| Metric | Result |
+|---|---:|
+| Parsed grounding sequences | `0 / 92,545` (`0%`) |
+| Exact generated sequences | `0%` |
+| Target recall | `0%` |
+| Visible-box recall at IoU 0.25 / 0.50 | `0% / 0%` |
+| First generated token | `<box>` on all 92,545 frames |
+| Teacher-forced token accuracy | `33.77%` |
+| Teacher-forced structural-token accuracy | `28.13%` |
+| Teacher-forced text-token accuracy | `99.999%` |
+| Teacher-forced coordinate-token accuracy | `0%` |
+| Teacher-forced exact-sequence accuracy | `0%` |
+| Teacher-forced weighted NLL | `4.295` |
+
+**Metric definitions:** Free-running metrics decode from the observation prefix without supplying
+the expected grounding output. Teacher-forced metrics instead supply every preceding ground-truth
+token, so they diagnose local next-token learning rather than autonomous sequence generation.
+
+- **Parsed grounding sequences:** Number of generated sequences accepted by the grounding parser as
+  complete, structurally valid records containing the expected cameras, entities, roles,
+  visibility states, and box coordinates where applicable. This measures syntax, not box accuracy.
+- **Exact generated sequences:** Fraction of free-running generated token sequences that exactly
+  match the complete ground-truth sequence, including structure, text, visibility, and coordinates.
+- **Target recall:** Number of ground-truth targets matched by the same camera, entity name, and
+  entity role in the parsed prediction, divided by the total number of ground-truth targets. It does
+  not by itself require correct visibility or coordinates.
+- **Visible-box recall at IoU 0.25 / 0.50:** Fraction of visible ground-truth targets that have a
+  matching visible prediction whose box intersection-over-union reaches the stated threshold.
+- **First generated token:** First token selected by the model after the shared observation prefix;
+  it should start the expected grounding grammar.
+- **Teacher-forced token accuracy:** Exact next-token accuracy over all valid ground-truth grounding
+  tokens while the correct preceding tokens are supplied.
+- **Teacher-forced structural-token accuracy:** Teacher-forced accuracy restricted to grammar tokens
+  such as grounding, camera, role, visibility, box, and closing markers.
+- **Teacher-forced text-token accuracy:** Teacher-forced accuracy restricted to ordinary tokenizer
+  tokens used for camera names and entity names, excluding structural and coordinate tokens.
+- **Teacher-forced coordinate-token accuracy:** Teacher-forced accuracy restricted to quantized
+  location tokens; four coordinate tokens encode each visible bounding box.
+- **Teacher-forced exact-sequence accuracy:** Fraction of samples for which every valid grounding
+  target token is predicted correctly under teacher forcing.
+- **Teacher-forced weighted NLL:** Mean negative log-likelihood of the ground-truth grounding tokens,
+  weighted by their annotation loss weights. Lower is better; zero would mean full confidence in all
+  weighted target tokens.
+
+The required first output was `<grounding>`, but the policy selected `<box>` for every frame. The
+decoder therefore produced no valid sequence that could be parsed into camera, entity, visibility,
+and coordinate records. Almost perfect text-token accuracy only means that the VLM can reproduce
+the entity words when all preceding ground-truth tokens are supplied; it does not demonstrate
+free-running target recognition or localization. Zero coordinate-token accuracy confirms that the
+box objective itself was not learned.
+
+##### Rollout Videos
+
+**Place the tomato on the pink plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_0.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: approached the wrong grasp target.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_1.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: no coherent task progression.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the cucumber on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_2.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: selected the wrong initial target and did not recover.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_3.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: motion was not directed toward a clear task objective.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the blue plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_4.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: approached the correct source, but insufficient gripper closure caused the grasp to fail.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_5.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: confused the collection box with the source and failed to recover.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the yellow plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_6.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: closed the gripper in empty space.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_7.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: transferred a tomato to the collection box, but the action was unrelated to the requested source plate.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the tomato on the pink plate, then place the garlic on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_8.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: selected the wrong target for the first subtask.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_9.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: again selected the wrong target for the first subtask.</em></p>
+    </td>
+</tr>
+</table>
+
+##### Analysis
+
+1. **V2.2 is worse than the V2.1 dense-segmentation policy in goal-directed behavior.** V2.1 also
+   achieved no complete task successes, but it more often approached relevant objects and once
+   completed grasp and transfer before failing at placement. V2.2 selected the requested source in
+   only one of ten trials and otherwise showed weak or incorrect task progression.
+
+2. **The offline evaluation identifies failed grounding as a primary cause rather than an inference
+   ambiguity.** None of the 92,545 frames produced a parsable grounding sequence. Every sequence
+   began with `<box>` instead of `<grounding>`, and teacher-forced coordinate accuracy was zero.
+   The VLM therefore did not acquire a usable source or destination localization representation.
+
+3. **Teacher-forced entity-text accuracy is misleading in isolation.** The nearly 100% text score
+   is obtained after supplying the correct preceding structural tokens. Structural accuracy remained
+   only 28.13%, coordinate accuracy was zero, and no complete sequence was correct. The decoder
+   learned repeated entity names more readily than output grammar or image-conditioned geometry.
+
+4. **The original autoregressive format makes two avoidable demands.** The VLM must infer that
+   `<grounding>` is the first output without receiving a grounding-task cue, and the FAST span is
+   conditioned on the complete teacher-forced grounding span. The first design allows collapse to
+   the frequent `<box>` token; the second allows discrete-action prediction to rely on box labels
+   that are unavailable during standard rollout.
+
+5. **The new token rows had insufficient grounding pretraining.** Structural, coordinate, and FAST
+   tokens were added to the SmolVLM vocabulary with newly initialized embedding and LM-head rows.
+   Although the dataset has 92,545 frames, adjacent video frames are strongly correlated and come
+   from only 203 demonstrations. This is much weaker and less diverse supervision than the object
+   localization mixtures used by established grounding VLMs.
+
+6. **Knowledge insulation cannot help when the VLM-side objectives fail.** During rollout, the
+   continuous expert receives only detached VLM prefix K/V features. Because the box decoder did
+   not learn localization, the auxiliary grounding objective did not equip that prefix with the
+   intended spatial representation. The expert then had to learn control from an inadequately
+   adapted and unchangeable conditioning stream.
+
+7. **The unrelated tomato-to-box trajectory indicates a manipulation prior but weak language
+   binding.** That trial showed that the policy can sometimes execute a grasp-and-place pattern, but
+   it did not select the vegetable specified by the prompt. This is evidence of task-pattern
+   memorization rather than successful prompt-conditioned grounding.
+
+8. **The only correct-source attempt exposed a separate gripper-control failure.** The arm
+   approached the requested object, but the absolute gripper command did not close enough to hold
+   it. Better grounding alone therefore would not be sufficient; continuous gripper prediction
+   still requires improvement.
+
+9. **The rollout settings are a secondary uncertainty, not a sufficient explanation.** This test
+   used five denoising steps and relatively strong RTC continuity settings. A control evaluation
+   with `policy.num_steps=10` and synchronous inference is needed to exclude RTC or reduced-step
+   degradation. However, zero parsable box predictions across the complete training dataset cannot
+   be explained by RTC or continuous-action inference settings.
+
+##### Conclusion
+
+The first Action Flow V2.2 experiment failed all ten rollouts and all 92,545 offline grounding
+evaluations. The complete-dataset result shows that the failure begins in the VLM branch: it learned
+entity words under teacher forcing but did not learn the grounding start, structured grammar, or
+coordinate tokens. The continuous expert therefore received detached prefix features that had not
+acquired the intended localization capability.
+
+The next experiment should first repair autoregressive training rather than immediately condition
+the expert on generated boxes or remove knowledge insulation. Grounding and FAST prediction need
+separate fixed decoder-start tokens and independent causal branches over the same shared prefix.
+The next run should also warm-start the complete compatible SmolVLA policy and use offline
+grounding metrics as a checkpoint gate before robot rollout. Only after valid boxes are generated
+consistently can later experiments determine whether explicit grounding-to-expert conditioning is
+necessary.
+
+---
+
+### Training Log 4 of Objective 1
+
+#### Motivation
+
+Training Log 3 showed that the original VLM output format failed before continuous control was
+considered. Across the complete 92,545-frame dataset, the decoder always selected `<box>` as its
+first token instead of `<grounding>`, produced no parsable sequences, and achieved zero coordinate
+accuracy. The original FAST target also followed the complete teacher-forced grounding span, so
+discrete-action prediction could depend on box labels that are absent during standard rollout.
+
+Training Log 4 changes only the autoregressive organization. It retains relative RM65 actions,
+target-box labels, FAST tokenization, the continuous flow expert, and knowledge insulation.
+
+#### Modified Token Design
+
+Images, task language, and robot state still form one shared VLM prefix:
 
 ```text
-artifacts/tokenizers/action_flow_v2_2_smolvlm_fast
+shared prefix = wrist image + top image + task prompt + robot state
 ```
 
-It contains the extended VLM tokenizer, the complete FAST processor and BPE tokenizer, the token
-contract manifest, and a validation summary. The preparation command is
-`examples/action_flow_v2/prepare_action_flow_v2_2_tokenizer.py`. Validation on a real 50-frame
-dataset chunk produced 56 grounding tokens and 34 FAST symbols. Structured boxes, FAST-symbol
-mapping, and checkpoint save/reload were exact; continuous FAST reconstruction had a mean absolute
-error of 0.0116 in normalized action space. A full scan of all 92,545 frames found a maximum
-grounding length of 76 tokens, leaving substantial margin within the configured 192-token budget.
-
-The actual SmolVLM input embedding and LM-head tables were resized from `(49280, 960)` to
-`(51596, 960)`. Sampled rows from the original vocabulary were unchanged after resizing.
-
-##### Stage 5: Implement Joint Knowledge-Insulated Training
-
-**Status:** Implemented on 2026-07-30.
-
-The VLM and action expert are optimized together from the beginning. There is no separate VLM-only
-training stage followed by an expert-only stage.
-
-1. Serialize normalized relative action chunks and structured boxes in the preprocessor.
-2. Run one teacher-forced VLM pass over the multimodal context followed by grounding and FAST
-   targets.
-3. Use prefix-LM attention for image, prompt, and state tokens, then causal attention for each
-   autoregressive target token. Context queries cannot attend to teacher targets.
-4. Compute independently normalized `box_ce_loss` and `fast_ce_loss`.
-5. Keep only the context portion of every layer's VLM key/value cache. Remove grounding and FAST
-   target K/V entries, then detach the retained context K/V tensors.
-6. Condition the continuous flow expert on that detached cache and compute `flow_loss` from the
-   same normalized relative action chunk used by FAST.
-7. Combine all three per-sample losses and perform one backward pass:
+Three branches use this prefix independently:
 
 ```text
-loss = box_loss_weight * box_ce_loss
-     + fast_loss_weight * fast_ce_loss
-     + flow_loss_weight * flow_loss
+Grounding branch:
+shared prefix + <grounding>
+-> <camera> ... <box> <loc_...> ... </camera> ... </grounding>
+
+Discrete-action branch:
+shared prefix + <action>
+-> <fast_...> ... <action_end>
+
+Continuous-action branch:
+stop_gradient(shared prefix K/V) + noisy actions + timestep
+-> continuous relative action chunk
 ```
 
-This trains both branches at every optimizer step while preserving parameter ownership. Box and
-FAST losses update the vision-language branch; flow loss updates the action expert but cannot cross
-the detached cache boundary into the VLM.
+`<grounding>` and `<action>` are fixed decoder-start inputs. They are not prediction targets and
+do not contribute to cross-entropy loss. This removes the requirement to infer the output type from
+the shared prefix alone.
 
-The implementation is in
-`repos/lerobot/src/lerobot/policies/action_flow_v2_2/modeling_action_flow_v2_2.py`. The complete
-preprocessor now performs:
+#### Branched Attention
 
-```text
-absolute actions
--> relative joint conversion
--> shared normalization
--> grounding and FAST target serialization
--> device transfer
-```
+The two autoregressive suffixes are stored in one physical VLM sequence for a single forward pass,
+but a block attention mask makes them logically independent:
 
-A real batch with shape `(1, 50, 7)` completed preprocessing, joint forward, and backward. All three
-losses were finite, and both the VLM and expert received nonzero gradients from the combined
-objective.
-
-The gradient-isolation checks pass: flow-only backward produces zero VLM gradients and nonzero
-expert gradients, while box/FAST-only backward produces nonzero VLM gradients and zero expert
-gradients.
-
-##### Stage 6: Implement Inference and Diagnostics
-
-1. Use prefix-cache plus continuous denoising for normal rollout.
-2. Restore absolute RM65 commands after unnormalization.
-3. Retain action queue, temporal ensemble, and RTC compatibility only where their behavior is
-   explicitly tested.
-4. Add optional target-box decoding and camera overlays without requiring it for action inference.
-
-Completion criterion: repeated inference returns finite actions with the correct RM65 dimensions,
-the gripper remains absolute, and diagnostic box decoding can be enabled without changing the
-continuous action result.
-
-##### Stage 7: Validate Checkpoints and Run a Small-Set Overfit
-
-1. Save the extended VLM tokenizer and FAST tokenizer inside every policy checkpoint.
-2. Reload the policy and processors without depending on the original tokenizer artifact path.
-3. Overfit 4-8 short episodes with all three losses enabled.
-4. Verify that box and FAST losses decrease and that flow predictions fit the same action chunks.
-5. Decode teacher targets and sampled VLM outputs to check box IoU, visibility accuracy, FAST
-   reconstruction error, and truncation.
-
-Completion criterion: a moved checkpoint reloads locally, reproduces finite action inference, and
-the small-set run can fit all three objectives without violating gradient insulation.
-
-##### Stage 8: Run Controlled Ablations
-
-Train and compare the following policies on identical dataset splits and rollout scenes:
-
-| Experiment | Relative actions | FAST CE | Box CE | Flow-to-VLM gradient |
+| Query stream | Shared prefix | Grounding branch | FAST branch | Expert branch |
 |---|---:|---:|---:|---:|
-| Relative flow baseline | Yes | No | No | Enabled |
-| KI + FAST | Yes | Yes | No | Blocked |
-| KI + FAST + boxes | Yes | Yes | Yes | Blocked |
+| Shared prefix | Yes | No | No | No |
+| Grounding branch | Yes | Causal | No | No |
+| FAST branch | Yes | No | Causal | No |
+| Continuous expert | Yes, detached | No | No | Expert attention |
 
-Action Flow V2.1 remains the dense-segmentation comparison. Evaluation must separately report:
+Grounding and FAST position IDs independently continue from the final valid shared-prefix position.
+Therefore, neither branch is represented as occurring after the other. The expert cache is sliced
+at the original shared-prefix length, excluding both decoder-start tokens and every teacher-forced
+output token.
 
-- Task completion and language-following success.
-- Correct source and destination selection.
-- Grasp success, hold success, and placement success.
-- Box visibility accuracy and box IoU per camera.
-- FAST reconstruction error and token truncation rate.
-- Continuous action smoothness and rollout latency.
+#### Loss and Gradient Flow
 
-The first full training run should begin only after the small-set overfit test, tokenizer
-round-trip test, relative-action round-trip test, attention-mask test, and gradient-insulation test
-all pass.
+The objective remains:
+
+```text
+L_total = lambda_box * L_box + lambda_FAST * L_FAST + lambda_flow * L_flow
+```
+
+- `L_box` predicts grounding labels after the fixed `<grounding>` input.
+- `L_FAST` predicts FAST labels after the fixed `<action>` input.
+- `L_flow` trains the continuous action expert from detached VLM prefix K/V features.
+
+Box and FAST losses update the shared VLM, token embeddings, and LM head. Flow loss updates only
+the action expert and its action/timestep projections. The grounding and FAST losses are normalized
+independently.
+
+#### Implementation and Training Plan
+
+The existing box dataset and tokenizer artifact remain valid because their serialized sequences
+already contain `<grounding>` and `<action>` markers. Target packing now removes these markers from
+the labels and supplies them as branch inputs. The grounding evaluator likewise seeds decoding with
+`<grounding>` before generating the first `<camera>` token.
+
+The parameter shapes are unchanged, so the Training Log 3 checkpoint can still be loaded for
+rollout or diagnostic comparison. However, it should not be resumed for Training Log 4 because the
+FAST branch previously attended to teacher-forced grounding tokens. The corrected policy should be
+trained as a new run, preferably warm-started from a compatible complete SmolVLA checkpoint so the
+action expert and shared VLM begin from learned robot-control representations.
+
+Before robot rollout, each saved checkpoint should pass an offline grounding gate covering:
+
+1. First-token accuracy after the fixed `<grounding>` seed.
+2. Free-running parse-success and exact-sequence rates.
+3. Structural-, entity-text-, and coordinate-token accuracy.
+4. Visibility accuracy, target recall, coordinate error, and box IoU.
+
+Robot evaluation should begin only after the VLM produces valid prompt-conditioned boxes
+consistently. This separates grounding quality from later grasp, gripper, trajectory, and RTC
+failures.
+
+---

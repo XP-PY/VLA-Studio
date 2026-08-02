@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,8 +12,12 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F  # noqa: N812
+from huggingface_hub import hf_hub_download
+from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
+from safetensors import safe_open
 from torch import Tensor
 
+from lerobot.configs import PreTrainedConfig
 from lerobot.utils.constants import (
     ACTION,
     ACTION_TOKEN_MASK,
@@ -25,6 +30,7 @@ from lerobot.utils.import_utils import require_package
 
 from ..act.modeling_act import ACTTemporalEnsembler
 from ..pretrained import PreTrainedPolicy
+from ..smolvla.configuration_smolvla import SmolVLAConfig
 from ..smolvla.modeling_smolvla import SmolVLAPolicy, VLAFlowMatching, make_att_2d_masks
 from .configuration_action_flow_v2_2 import ActionFlowV22Config
 from .data_contracts_action_flow_v2_2 import (
@@ -41,12 +47,13 @@ from .tokenization_action_flow_v2_2 import (
 
 @dataclass(frozen=True)
 class PackedAutoregressiveTargets:
-    """Compact teacher targets shared by the grounding and FAST CE objectives."""
+    """Independent compact teacher targets for grounding and FAST decoding."""
 
-    token_ids: Tensor
-    token_mask: Tensor
-    box_loss_weight: Tensor
-    fast_loss_weight: Tensor
+    grounding_token_ids: Tensor
+    grounding_token_mask: Tensor
+    grounding_loss_weight: Tensor
+    action_token_ids: Tensor
+    action_token_mask: Tensor
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,187 @@ class ActionFlowV22ForwardOutput:
     fast_loss: Tensor
 
 
+@dataclass(frozen=True)
+class SmolVLAInitializationReport:
+    """Summary of parameters copied from a pretrained SmolVLA policy."""
+
+    source: str
+    exact_tensor_count: int
+    vocabulary_prefix_tensor_count: int
+    retained_v2_2_tensor_count: int
+    ignored_source_tensor_count: int
+
+
+_VOCABULARY_WEIGHT_KEYS = frozenset(
+    {
+        "model.vlm_with_expert.vlm.model.text_model.embed_tokens.weight",
+        "model.vlm_with_expert.vlm.lm_head.weight",
+    }
+)
+_REQUIRED_SMOLVLA_WEIGHT_KEYS = _VOCABULARY_WEIGHT_KEYS | {
+    "model.action_in_proj.weight",
+    "model.action_out_proj.weight",
+    "model.state_proj.weight",
+}
+
+
+def _effective_expert_layers(config: SmolVLAConfig) -> int:
+    return config.num_expert_layers if config.num_expert_layers > 0 else config.num_vlm_layers
+
+
+def _validate_smolvla_initialization_config(
+    source_config: PreTrainedConfig,
+    target_config: ActionFlowV22Config,
+) -> None:
+    """Reject a source checkpoint whose shared SmolVLA architecture is incompatible."""
+
+    if not isinstance(source_config, SmolVLAConfig) or source_config.type != "smolvla":
+        raise TypeError(
+            "`smolvla_pretrained_path` must identify a SmolVLA checkpoint, got "
+            f"{source_config.type!r}."
+        )
+    mismatches = []
+    for name in (
+        "vlm_model_name",
+        "num_vlm_layers",
+        "expert_width_multiplier",
+        "attention_mode",
+        "self_attn_every_n_layers",
+        "max_state_dim",
+        "max_action_dim",
+    ):
+        source_value = getattr(source_config, name)
+        target_value = getattr(target_config, name)
+        if source_value != target_value:
+            mismatches.append(f"{name}: source={source_value!r}, target={target_value!r}")
+    source_expert_layers = _effective_expert_layers(source_config)
+    target_expert_layers = _effective_expert_layers(target_config)
+    if source_expert_layers != target_expert_layers:
+        mismatches.append(
+            "effective expert layers: "
+            f"source={source_expert_layers}, target={target_expert_layers}"
+        )
+    if mismatches:
+        raise ValueError("Incompatible SmolVLA initialization checkpoint: " + "; ".join(mismatches))
+
+
+def _resolve_smolvla_checkpoint(source: str) -> tuple[str | Path, Path]:
+    """Resolve a local directory/file or Hub model ID to config and safetensors sources."""
+
+    local_source = Path(source).expanduser()
+    if local_source.is_file():
+        if local_source.name != SAFETENSORS_SINGLE_FILE:
+            raise ValueError(
+                f"A SmolVLA checkpoint file must be named {SAFETENSORS_SINGLE_FILE!r}."
+            )
+        return local_source.parent, local_source
+    if local_source.is_dir():
+        model_file = local_source / SAFETENSORS_SINGLE_FILE
+        if not model_file.is_file():
+            raise FileNotFoundError(f"SmolVLA weights not found: {model_file}")
+        return local_source, model_file
+    model_file = Path(hf_hub_download(repo_id=source, filename=SAFETENSORS_SINGLE_FILE))
+    return source, model_file
+
+
+def _smolvla_tensor_copy_mode(
+    key: str,
+    target_shape: tuple[int, ...],
+    source_shape: tuple[int, ...],
+    *,
+    base_vocab_size: int,
+) -> str | None:
+    """Classify one compatible exact or vocabulary-prefix tensor copy."""
+
+    if target_shape == source_shape:
+        return "exact"
+    if (
+        key in _VOCABULARY_WEIGHT_KEYS
+        and len(target_shape) == len(source_shape) == 2
+        and source_shape[0] == base_vocab_size
+        and target_shape[0] > source_shape[0]
+        and target_shape[1:] == source_shape[1:]
+    ):
+        return "vocabulary_prefix"
+    return None
+
+
+def _copy_smolvla_tensor(target: Tensor, source: Tensor, mode: str) -> None:
+    """Apply one validated SmolVLA tensor copy while preserving added vocabulary rows."""
+
+    source = source.to(device=target.device, dtype=target.dtype)
+    if mode == "exact":
+        target.copy_(source)
+    elif mode == "vocabulary_prefix":
+        target[: source.shape[0]].copy_(source)
+    else:
+        raise ValueError(f"Unsupported SmolVLA tensor copy mode: {mode!r}.")
+
+
+def initialize_from_smolvla_pretrained(
+    policy: ActionFlowV22Policy,
+    source: str,
+) -> SmolVLAInitializationReport:
+    """Warm-start V2.2 from compatible SmolVLA weights without replacing added token rows."""
+
+    config_source, model_file = _resolve_smolvla_checkpoint(source)
+    source_config = PreTrainedConfig.from_pretrained(config_source)
+    _validate_smolvla_initialization_config(source_config, policy.config)
+
+    target_state = policy.state_dict()
+    copy_modes: dict[str, str] = {}
+    incompatible = []
+    with safe_open(model_file, framework="pt", device="cpu") as checkpoint:
+        source_keys = set(checkpoint.keys())
+        for key in sorted(source_keys & target_state.keys()):
+            source_shape = tuple(checkpoint.get_slice(key).get_shape())
+            target_shape = tuple(target_state[key].shape)
+            mode = _smolvla_tensor_copy_mode(
+                key,
+                target_shape,
+                source_shape,
+                base_vocab_size=policy.config.base_vlm_vocab_size,
+            )
+            if mode is None:
+                incompatible.append(f"{key}: source={source_shape}, target={target_shape}")
+            else:
+                copy_modes[key] = mode
+        missing_required = sorted(_REQUIRED_SMOLVLA_WEIGHT_KEYS - copy_modes.keys())
+        if incompatible or missing_required:
+            details = []
+            if incompatible:
+                details.append("incompatible tensors: " + "; ".join(incompatible))
+            if missing_required:
+                details.append(f"missing required tensors: {missing_required}")
+            raise ValueError("Cannot initialize Action Flow V2.2 from SmolVLA: " + "; ".join(details))
+
+        with torch.no_grad():
+            for key, mode in copy_modes.items():
+                source_tensor = checkpoint.get_tensor(key)
+                target_tensor = target_state[key]
+                _copy_smolvla_tensor(target_tensor, source_tensor, mode)
+
+    report = SmolVLAInitializationReport(
+        source=source,
+        exact_tensor_count=sum(mode == "exact" for mode in copy_modes.values()),
+        vocabulary_prefix_tensor_count=sum(
+            mode == "vocabulary_prefix" for mode in copy_modes.values()
+        ),
+        retained_v2_2_tensor_count=len(target_state.keys() - copy_modes.keys()),
+        ignored_source_tensor_count=len(source_keys - target_state.keys()),
+    )
+    logging.info(
+        "Initialized Action Flow V2.2 from SmolVLA %s: exact=%d, vocabulary_prefix=%d, "
+        "retained_v2_2=%d, ignored_source=%d.",
+        report.source,
+        report.exact_tensor_count,
+        report.vocabulary_prefix_tensor_count,
+        report.retained_v2_2_tensor_count,
+        report.ignored_source_tensor_count,
+    )
+    return report
+
+
 def pack_autoregressive_targets(
     grounding_tokens: Tensor,
     grounding_mask: Tensor,
@@ -66,8 +254,16 @@ def pack_autoregressive_targets(
     action_mask: Tensor,
     *,
     pad_token_id: int,
+    grounding_start_token_id: int,
+    action_start_token_id: int,
 ) -> PackedAutoregressiveTargets:
-    """Remove internal padding and concatenate grounding then FAST targets."""
+    """Compact independent grounding and FAST labels after fixed decoder starts.
+
+    Every serialized grounding sequence begins with ``<grounding>``. That token
+    is supplied to the grounding branch rather than predicted. Likewise,
+    ``<action>`` starts an independent FAST branch. Neither branch can attend to
+    the other, and the continuous action expert receives neither branch.
+    """
 
     tensors = (
         grounding_tokens,
@@ -88,9 +284,9 @@ def pack_autoregressive_targets(
     if action_tokens.shape != action_mask.shape:
         raise ValueError("FAST token IDs and masks must have identical shapes.")
 
-    sequences: list[Tensor] = []
-    box_weights: list[Tensor] = []
-    fast_weights: list[Tensor] = []
+    grounding_sequences: list[Tensor] = []
+    grounding_weights: list[Tensor] = []
+    action_sequences: list[Tensor] = []
     for index in range(batch_size):
         valid_grounding = grounding_mask[index].bool()
         valid_actions = action_mask[index].bool()
@@ -98,67 +294,71 @@ def pack_autoregressive_targets(
         action_ids = action_tokens[index, valid_actions]
         if grounding_ids.numel() == 0 or action_ids.numel() == 0:
             raise ValueError("Every training sample requires grounding and FAST target tokens.")
-
-        sequences.append(torch.cat([grounding_ids, action_ids]))
-        box_weights.append(
-            torch.cat(
-                [
-                    grounding_loss_weight[index, valid_grounding].float(),
-                    torch.zeros(
-                        action_ids.shape[0],
-                        device=grounding_tokens.device,
-                        dtype=torch.float32,
-                    ),
-                ]
+        if int(grounding_ids[0].item()) != grounding_start_token_id:
+            raise ValueError(
+                "Every grounding sequence must begin with the configured grounding-start token."
             )
-        )
-        fast_weights.append(
-            torch.cat(
-                [
-                    torch.zeros(
-                        grounding_ids.shape[0],
-                        device=grounding_tokens.device,
-                        dtype=torch.float32,
-                    ),
-                    torch.ones(
-                        action_ids.shape[0],
-                        device=grounding_tokens.device,
-                        dtype=torch.float32,
-                    ),
-                ]
+        if int(action_ids[0].item()) != action_start_token_id:
+            raise ValueError(
+                "Every FAST sequence must begin with the configured action-start token."
             )
-        )
+        grounding_ids = grounding_ids[1:]
+        sample_grounding_weights = grounding_loss_weight[index, valid_grounding].float()[1:]
+        action_ids = action_ids[1:]
+        if grounding_ids.numel() == 0:
+            raise ValueError("Grounding sequences require a target after the decoder-start token.")
+        if action_ids.numel() == 0:
+            raise ValueError("FAST sequences require a target after the decoder-start token.")
 
-    max_length = max(sequence.shape[0] for sequence in sequences)
-    token_ids = torch.full(
-        (batch_size, max_length),
+        grounding_sequences.append(grounding_ids)
+        grounding_weights.append(sample_grounding_weights)
+        action_sequences.append(action_ids)
+
+    max_grounding_length = max(sequence.shape[0] for sequence in grounding_sequences)
+    max_action_length = max(sequence.shape[0] for sequence in action_sequences)
+    packed_grounding_ids = torch.full(
+        (batch_size, max_grounding_length),
         pad_token_id,
         device=grounding_tokens.device,
         dtype=torch.long,
     )
-    token_mask = torch.zeros(
-        (batch_size, max_length),
+    packed_grounding_mask = torch.zeros(
+        (batch_size, max_grounding_length),
         device=grounding_tokens.device,
         dtype=torch.bool,
     )
-    packed_box_weights = torch.zeros(
-        (batch_size, max_length),
+    packed_grounding_weights = torch.zeros(
+        (batch_size, max_grounding_length),
         device=grounding_tokens.device,
         dtype=torch.float32,
     )
-    packed_fast_weights = torch.zeros_like(packed_box_weights)
-    for index, sequence in enumerate(sequences):
+    packed_action_ids = torch.full(
+        (batch_size, max_action_length),
+        pad_token_id,
+        device=action_tokens.device,
+        dtype=torch.long,
+    )
+    packed_action_mask = torch.zeros(
+        (batch_size, max_action_length),
+        device=action_tokens.device,
+        dtype=torch.bool,
+    )
+    for index, sequence in enumerate(grounding_sequences):
         length = sequence.shape[0]
-        token_ids[index, :length] = sequence
-        token_mask[index, :length] = True
-        packed_box_weights[index, :length] = box_weights[index]
-        packed_fast_weights[index, :length] = fast_weights[index]
+        packed_grounding_ids[index, :length] = sequence
+        packed_grounding_mask[index, :length] = True
+        packed_grounding_weights[index, :length] = grounding_weights[index]
+    for index, sequence in enumerate(action_sequences):
+        length = sequence.shape[0]
+        packed_action_ids[index, :length] = sequence
+        packed_action_mask[index, :length] = True
 
     return PackedAutoregressiveTargets(
-        token_ids=token_ids,
-        token_mask=token_mask,
-        box_loss_weight=packed_box_weights,
-        fast_loss_weight=packed_fast_weights,
+        grounding_token_ids=packed_grounding_ids,
+        grounding_token_mask=packed_grounding_mask,
+        grounding_loss_weight=packed_grounding_weights,
+        action_token_ids=packed_action_ids,
+        action_token_mask=packed_action_mask,
     )
 
 
@@ -182,6 +382,89 @@ def build_joint_attention_mask(
     )
     attention_mask = make_att_2d_masks(full_pad_mask, full_attention_groups)
     position_ids = torch.cumsum(full_pad_mask, dim=1) - 1
+    return attention_mask, position_ids
+
+
+def build_branched_attention_mask(
+    prefix_pad_mask: Tensor,
+    prefix_attention_groups: Tensor,
+    grounding_mask: Tensor,
+    action_mask: Tensor,
+) -> tuple[Tensor, Tensor]:
+    """Build independent causal grounding and FAST branches over one prefix.
+
+    Both branches attend to the shared image/language/state prefix and their own
+    previous tokens. Grounding tokens never attend to FAST tokens, and FAST
+    tokens never attend to grounding tokens. Their position IDs independently
+    continue from the end of the valid shared prefix.
+    """
+
+    if prefix_pad_mask.shape != prefix_attention_groups.shape:
+        raise ValueError("Prefix padding and attention-group masks must have identical shapes.")
+    batch_size, prefix_length = prefix_pad_mask.shape
+    for name, branch_mask in (("grounding", grounding_mask), ("action", action_mask)):
+        if branch_mask.ndim != 2 or branch_mask.shape[0] != batch_size:
+            raise ValueError(
+                f"{name.capitalize()} mask must be shaped (batch_size, branch_length)."
+            )
+
+    prefix_pad_mask = prefix_pad_mask.bool()
+    grounding_mask = grounding_mask.bool()
+    action_mask = action_mask.bool()
+    grounding_length = grounding_mask.shape[1]
+    action_length = action_mask.shape[1]
+    total_length = prefix_length + grounding_length + action_length
+    attention_mask = torch.zeros(
+        (batch_size, total_length, total_length),
+        dtype=torch.bool,
+        device=prefix_pad_mask.device,
+    )
+    attention_mask[:, :prefix_length, :prefix_length] = make_att_2d_masks(
+        prefix_pad_mask,
+        prefix_attention_groups,
+    )
+
+    prefix_keys = prefix_pad_mask[:, None, :]
+    grounding_start = prefix_length
+    grounding_stop = grounding_start + grounding_length
+    action_start = grounding_stop
+    action_stop = action_start + action_length
+    attention_mask[:, grounding_start:grounding_stop, :prefix_length] = (
+        grounding_mask[:, :, None] & prefix_keys
+    )
+    attention_mask[:, action_start:action_stop, :prefix_length] = (
+        action_mask[:, :, None] & prefix_keys
+    )
+
+    grounding_causal = torch.ones(
+        (grounding_length, grounding_length),
+        dtype=torch.bool,
+        device=prefix_pad_mask.device,
+    ).tril()
+    action_causal = torch.ones(
+        (action_length, action_length),
+        dtype=torch.bool,
+        device=prefix_pad_mask.device,
+    ).tril()
+    attention_mask[:, grounding_start:grounding_stop, grounding_start:grounding_stop] = (
+        grounding_mask[:, :, None]
+        & grounding_mask[:, None, :]
+        & grounding_causal[None]
+    )
+    attention_mask[:, action_start:action_stop, action_start:action_stop] = (
+        action_mask[:, :, None] & action_mask[:, None, :] & action_causal[None]
+    )
+
+    prefix_positions = torch.cumsum(prefix_pad_mask, dim=1) - 1
+    branch_position_start = prefix_pad_mask.sum(dim=1, keepdim=True)
+    grounding_positions = (
+        branch_position_start + torch.cumsum(grounding_mask, dim=1) - 1
+    )
+    action_positions = branch_position_start + torch.cumsum(action_mask, dim=1) - 1
+    position_ids = torch.cat(
+        [prefix_positions, grounding_positions, action_positions],
+        dim=1,
+    ).clamp_min(0)
     return attention_mask, position_ids
 
 
@@ -272,14 +555,82 @@ class ActionFlowV22Model(VLAFlowMatching):
         prefix_pad_mask: Tensor,
         prefix_attention_groups: Tensor,
         targets: PackedAutoregressiveTargets,
-    ) -> tuple[Tensor, dict[int, dict[str, Tensor]]]:
-        target_embeddings = self.vlm_with_expert.embed_language_tokens(targets.token_ids)
-        target_embeddings = target_embeddings * math.sqrt(target_embeddings.shape[-1])
-        full_embeddings = torch.cat([prefix_embeddings, target_embeddings], dim=1)
-        attention_mask, position_ids = build_joint_attention_mask(
+    ) -> tuple[Tensor, Tensor, dict[int, dict[str, Tensor]]]:
+        """Predict independent grounding and FAST targets in one masked VLM pass.
+
+        The physical token layout is ``prefix, grounding branch, FAST branch``,
+        but the block mask makes the two suffixes logically independent. The
+        returned cache contains only the original shared prefix for use by the
+        continuous action expert.
+        """
+
+        batch_size = targets.grounding_token_ids.shape[0]
+        grounding_start_ids = torch.full(
+            (batch_size, 1),
+            self.config.structural_token_id("<grounding>"),
+            dtype=torch.long,
+            device=targets.grounding_token_ids.device,
+        )
+        action_start_ids = torch.full(
+            (batch_size, 1),
+            self.config.structural_token_id("<action>"),
+            dtype=torch.long,
+            device=targets.action_token_ids.device,
+        )
+        grounding_start_embeddings = self.vlm_with_expert.embed_language_tokens(
+            grounding_start_ids
+        )
+        action_start_embeddings = self.vlm_with_expert.embed_language_tokens(
+            action_start_ids
+        )
+        grounding_target_embeddings = self.vlm_with_expert.embed_language_tokens(
+            targets.grounding_token_ids
+        )
+        action_target_embeddings = self.vlm_with_expert.embed_language_tokens(
+            targets.action_token_ids
+        )
+        embedding_scale = math.sqrt(prefix_embeddings.shape[-1])
+        grounding_start_embeddings = grounding_start_embeddings * embedding_scale
+        action_start_embeddings = action_start_embeddings * embedding_scale
+        grounding_target_embeddings = grounding_target_embeddings * embedding_scale
+        action_target_embeddings = action_target_embeddings * embedding_scale
+        full_embeddings = torch.cat(
+            [
+                prefix_embeddings,
+                grounding_start_embeddings,
+                grounding_target_embeddings,
+                action_start_embeddings,
+                action_target_embeddings,
+            ],
+            dim=1,
+        )
+        grounding_decoder_mask = torch.cat(
+            [
+                torch.ones(
+                    (batch_size, 1),
+                    dtype=torch.bool,
+                    device=targets.grounding_token_mask.device,
+                ),
+                targets.grounding_token_mask,
+            ],
+            dim=1,
+        )
+        action_decoder_mask = torch.cat(
+            [
+                torch.ones(
+                    (batch_size, 1),
+                    dtype=torch.bool,
+                    device=targets.action_token_mask.device,
+                ),
+                targets.action_token_mask,
+            ],
+            dim=1,
+        )
+        attention_mask, position_ids = build_branched_attention_mask(
             prefix_pad_mask,
             prefix_attention_groups,
-            targets.token_mask,
+            grounding_decoder_mask,
+            action_decoder_mask,
         )
         (full_output, _), full_cache = self.vlm_with_expert.forward(
             attention_mask=attention_mask,
@@ -291,35 +642,48 @@ class ActionFlowV22Model(VLAFlowMatching):
         )
 
         prefix_length = prefix_embeddings.shape[1]
-        valid_prefix_positions = torch.arange(
-            prefix_length,
-            device=prefix_pad_mask.device,
-        )[None, :].expand_as(prefix_pad_mask)
-        last_prefix_index = valid_prefix_positions.masked_fill(
-            ~prefix_pad_mask.bool(),
-            -1,
-        ).max(dim=1).values
-        if torch.any(last_prefix_index < 0):
-            raise ValueError("Every sample requires at least one valid prefix token.")
-        first_prediction_hidden = full_output[
-            torch.arange(full_output.shape[0], device=full_output.device),
-            last_prefix_index,
-        ][:, None]
-        remaining_prediction_hidden = full_output[
-            :,
-            prefix_length : prefix_length + targets.token_ids.shape[1] - 1,
-        ]
-        prediction_hidden = torch.cat(
-            [first_prediction_hidden, remaining_prediction_hidden],
+        grounding_target_length = targets.grounding_token_ids.shape[1]
+        grounding_start = prefix_length
+        grounding_prediction_hidden = torch.cat(
+            [
+                full_output[:, grounding_start : grounding_start + 1],
+                full_output[
+                    :,
+                    grounding_start + 1 : grounding_start + grounding_target_length,
+                ],
+            ],
             dim=1,
         )
-        logits = self.vlm_with_expert.vlm.get_output_embeddings()(prediction_hidden)
+        action_start = grounding_start + 1 + grounding_target_length
+        action_target_length = targets.action_token_ids.shape[1]
+        action_prediction_hidden = torch.cat(
+            [
+                full_output[:, action_start : action_start + 1],
+                full_output[
+                    :,
+                    action_start + 1 : action_start + action_target_length,
+                ],
+            ],
+            dim=1,
+        )
+        prediction_hidden = torch.cat(
+            [grounding_prediction_hidden, action_prediction_hidden],
+            dim=1,
+        )
+        prediction_logits = self.vlm_with_expert.vlm.get_output_embeddings()(
+            prediction_hidden
+        )
+        grounding_logits = prediction_logits[:, :grounding_target_length]
+        action_logits = prediction_logits[
+            :,
+            grounding_target_length : grounding_target_length + action_target_length,
+        ]
         prefix_cache = slice_prefix_key_values(
             full_cache,
             prefix_length=prefix_length,
             detach=self.config.detach_expert_prefix_kv,
         )
-        return logits, prefix_cache
+        return grounding_logits, action_logits, prefix_cache
 
     def forward_joint(
         self,
@@ -362,22 +726,24 @@ class ActionFlowV22Model(VLAFlowMatching):
             action_tokens,
             action_token_mask,
             pad_token_id=self.target_tokenizer.vlm_tokenizer.pad_token_id,
+            grounding_start_token_id=self.config.structural_token_id("<grounding>"),
+            action_start_token_id=self.config.structural_token_id("<action>"),
         )
-        token_logits, prefix_cache = self._autoregressive_vlm_pass(
+        grounding_logits, action_logits, prefix_cache = self._autoregressive_vlm_pass(
             prefix_embeddings,
             prefix_pad_mask,
             prefix_attention_groups,
             packed_targets,
         )
         box_loss = weighted_token_cross_entropy(
-            token_logits,
-            packed_targets.token_ids,
-            packed_targets.box_loss_weight,
+            grounding_logits,
+            packed_targets.grounding_token_ids,
+            packed_targets.grounding_loss_weight,
         )
         fast_loss = weighted_token_cross_entropy(
-            token_logits,
-            packed_targets.token_ids,
-            packed_targets.fast_loss_weight,
+            action_logits,
+            packed_targets.action_token_ids,
+            packed_targets.action_token_mask.float(),
         )
 
         predicted_velocity = self.denoise_step(
@@ -400,13 +766,25 @@ class ActionFlowV22Policy(SmolVLAPolicy):
     config_class = ActionFlowV22Config
     name = "action_flow_v2_2"
 
-    def __init__(self, config: ActionFlowV22Config, **kwargs):
+    def __init__(
+        self,
+        config: ActionFlowV22Config,
+        *,
+        initialize_from_smolvla: bool = True,
+        **kwargs,
+    ):
         require_package("transformers", extra="smolvla")
         PreTrainedPolicy.__init__(self, config)
         config.validate_features()
         self.config = config
         self.init_rtc_processor()
         self.model = ActionFlowV22Model(config, rtc_processor=self.rtc_processor)
+        self.smolvla_initialization_report = None
+        if initialize_from_smolvla and config.smolvla_pretrained_path is not None:
+            self.smolvla_initialization_report = initialize_from_smolvla_pretrained(
+                self,
+                config.smolvla_pretrained_path,
+            )
         if config.temporal_ensemble_coeff is not None:
             self.temporal_ensembler = ACTTemporalEnsembler(
                 config.temporal_ensemble_coeff,
@@ -439,6 +817,10 @@ class ActionFlowV22Policy(SmolVLAPolicy):
                 **{key: kwargs[key] for key in config_load_keys if key in kwargs},
             )
         config.pretrained_path = Path(pretrained_name_or_path)
+        # The complete Action Flow V2.2 checkpoint is loaded immediately after
+        # construction, so its original SmolVLA warm start is neither needed nor
+        # required to remain available on the inference machine.
+        kwargs["initialize_from_smolvla"] = False
         return super().from_pretrained(
             pretrained_name_or_path,
             config=config,
@@ -547,7 +929,10 @@ __all__ = [
     "ActionFlowV22Model",
     "ActionFlowV22Policy",
     "PackedAutoregressiveTargets",
+    "SmolVLAInitializationReport",
+    "build_branched_attention_mask",
     "build_joint_attention_mask",
+    "initialize_from_smolvla_pretrained",
     "pack_autoregressive_targets",
     "slice_prefix_key_values",
     "weighted_token_cross_entropy",

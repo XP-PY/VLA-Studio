@@ -8,6 +8,15 @@
 # EVAL_POLICY_PATH may instead point directly to a pretrained_model directory.
 set -eo pipefail
 
+unset http_proxy
+unset https_proxy
+unset no_proxy
+unset NO_PROXY
+unset all_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+unset ALL_PROXY
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 set -u
@@ -86,18 +95,17 @@ if [[ "$EVAL_INFERENCE_TYPE" == "rtc" ]]; then
 fi
 
 HEATMAP_ARGS=()
-if [[ "$DETECTED_POLICY_TYPE" == "action_flow_v2" && "${EVAL_SAVE_HEATMAP_VIDEOS:-true}" == "true" ]]; then
+if [[ "$DETECTED_POLICY_TYPE" =~ ^action_flow_v2(_1)?$ && "${EVAL_SAVE_HEATMAP_VIDEOS:-true}" == "true" ]]; then
     HEATMAP_ARGS+=(
         "--save-heatmap-videos"
         "--heatmap-overlay-alpha=${EVAL_HEATMAP_OVERLAY_ALPHA:-0.45}"
     )
 fi
 
-# SESSION_TIME="$(date +%Y%m%d_%H%M%S)"
-# EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt_${SESSION_TIME}"
-EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt"
+SESSION_TIME="$(date +%Y%m%d_%H%M%S)"
+EVAL_ID="rollout_rm65_action_flow_v22_multi_prompt_${SESSION_TIME}"
+# EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt"
 EVAL_DIR="$STORAGE_ROOT/runs/rollout_dataset/$EVAL_ID"
-# LOG_PATH="$STORAGE_ROOT/logs/evaluate_${SELECTED_POLICY_ID}_${SESSION_TIME}.log"
 LOG_PATH="$STORAGE_ROOT/logs/evaluate_${SELECTED_POLICY_ID}.log"
 mkdir -p "$STORAGE_ROOT/runs/rollout_dataset" "$STORAGE_ROOT/logs"
 
@@ -110,7 +118,7 @@ if [[ -e "$EVAL_DIR" ]]; then
     EVAL_RESUME=true
 fi
 
-EVAL_EPISODE_TIME_S="${EVAL_EPISODE_TIME_S:-${PI0_EVAL_EPISODE_TIME_S:-30}}"
+EVAL_EPISODE_TIME_S="${EVAL_EPISODE_TIME_S:-${PI0_EVAL_EPISODE_TIME_S:-300}}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 COMMAND=(
