@@ -312,12 +312,12 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     AFV22_TOKENIZER_ARTIFACT="${AFV22_TOKENIZER_ARTIFACT:-${PROJECT_ROOT}/artifacts/tokenizers/action_flow_v2_2_smolvlm_fast}"
     SMOLVLA_PRETRAINED_PATH="${SMOLVLA_PRETRAINED_PATH:-}"
     AFV22_SMOLVLA_INIT_ARGS=()
-    SMOLVLA_INIT_TAG=""
+    SMOLVLA_INIT_TAG="_smolvla_uninit"
     if [ -n "$SMOLVLA_PRETRAINED_PATH" ]; then
         AFV22_SMOLVLA_INIT_ARGS+=(--policy.smolvla_pretrained_path="$SMOLVLA_PRETRAINED_PATH")
         SMOLVLA_INIT_TAG="_smolvla_init"
     fi
-    TRAINING_ID=rm65_action_flow_v22_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_box_${BOX_LOSS_WEIGHT}_fast_${FAST_LOSS_WEIGHT}_flow_${FLOW_LOSS_WEIGHT}${SMOLVLA_INIT_TAG}
+    TRAINING_ID=rm65_action_flow_v22_${TASK_ID#rm65_}_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_${SMOLVLA_INIT_TAG}_unresize
     ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=$TRAIN_MIXED_PRECISION)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")

@@ -1,0 +1,41 @@
+<mujoco model="week 1 actuated pendulum">
+  <compiler angle="radian"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient"
+             rgb1="0.25 0.35 0.50" rgb2="0.02 0.03 0.05"
+             width="512" height="3072"/>
+    <material name="rod" rgba="0.20 0.55 0.90 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 -2 3" dir="0 1 -1"/>
+    <geom name="floor" type="plane" size="2 2 0.1" rgba="0.18 0.20 0.22 1"/>
+
+    <!-- The hinge is 1 m above the floor. q = 0 means the rod hangs down. -->
+    <body name="pendulum" pos="0 0 1">
+      <joint name="hinge" type="hinge" axis="0 1 0"
+             damping="0.05" armature="0.01"/>
+      <geom name="rod" type="capsule" fromto="0 0 0 0 0 -0.6"
+            size="0.04" mass="1" material="rod"/>
+      <geom name="bob" type="sphere" pos="0 0 -0.6"
+            size="0.075" mass="0.2" rgba="0.95 0.65 0.15 1"/>
+      <site name="tip" pos="0 0 -0.6" size="0.015" rgba="1 1 1 1"/>
+    </body>
+
+    <!-- The orange target corresponds approximately to q = +0.75 rad. -->
+    <site name="target" pos="-0.409 0 0.561" type="sphere"
+          size="0.035" rgba="1 0.25 0.15 0.75"/>
+  </worldbody>
+
+  <actuator>
+    <!-- With gear=1, ctrl is a direct generalized torque command in N m. -->
+    <motor name="hinge_motor" joint="hinge" gear="1"
+           ctrllimited="true" ctrlrange="-3 3"/>
+  </actuator>
+</mujoco>

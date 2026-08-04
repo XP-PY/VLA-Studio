@@ -35,7 +35,7 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 # export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation"
+export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes"
 export TASK_PROMPT=""
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
 export TASK_SUBSET_ID=""
@@ -43,11 +43,11 @@ export TASK_EPISODES=203
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v22_single_table_preparation_and_bussing_afv2_2_yoloe_boxes_episodes_203_steps_40000_batch_8_chunk_50_box_1.0_fast_1.0_flow_1.0"
+export POLICY_ID="rm65_action_flow_v22_single_table_preparation_and_bussing_afv2_2_yoloe_boxes_episodes_203_steps_40000_batch_8_chunk_50__smolvla_init"
 export POLICY_TYPE="action_flow_v2_2"
-export STEPS=40000
+export STEPS=80000
 export PER_DEVICE_BATCH_SIZE=8
-export SAVE_FREQ=10000
+export SAVE_FREQ=20000
 export LOG_FREQ=100
 export CHUNK_SIZES=(50)
 export GPU_IDS=0

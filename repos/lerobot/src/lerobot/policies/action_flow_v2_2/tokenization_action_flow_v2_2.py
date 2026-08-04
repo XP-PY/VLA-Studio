@@ -143,7 +143,7 @@ def resize_vlm_token_embeddings(model: Any, config: ActionFlowV22Config) -> Any:
             f"{config.base_vlm_vocab_size} or {expected_size}."
         )
     if current_size != expected_size:
-        vlm.resize_token_embeddings(expected_size)
+        vlm.resize_token_embeddings(expected_size, mean_resizing=False)
     validate_vlm_token_embeddings(vlm, config)
     return model
 

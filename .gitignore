@@ -10,9 +10,14 @@ models
 dataset
 spaces
 logs
-repos/*
-!repos/lerobot/
-!repos/chassis_sdk/
 temp.sh
 temp.py
 annotations
+repos/*
+!repos/lerobot/
+!repos/mojoco_studio/
+!repos/chassis_sdk/
+repos/mojoco_studio/build
+repos/mojoco_studio/mujoco-*
+repos/mojoco_studio/MJDATA.TXT
+repos/mojoco_studio/MUJOCO_LOG.TXT

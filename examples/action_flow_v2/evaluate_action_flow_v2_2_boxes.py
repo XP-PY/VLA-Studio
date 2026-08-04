@@ -11,7 +11,8 @@ reports two different measurements:
    produce without label leakage.
 
 The output directory contains ``summary.json``, per-sample and per-target CSV
-files, generated token sequences, and optional box-overlay previews. Dataset
+files, structured predictions, every evaluated frame's complete free-running
+VLM output in ``vlm_outputs.jsonl``, and optional box-overlay previews. Dataset
 episode indices are zero-based.
 
 Example:
@@ -102,14 +103,13 @@ DEFAULT_POLICY_PATH = (
     / "runs"
     / "train"
     / (
-        "rm65_action_flow_v22_single_table_preparation_and_bussing_afv2_2_yoloe_boxes_"
-        "episodes_203_steps_40000_batch_8_chunk_50_box_1.0_fast_1.0_flow_1.0"
+        "rm65_action_flow_v22_single_table_preparation_and_bussing_afv2_2_yoloe_boxes_episodes_203_steps_80000_batch_8_chunk_50__smolvla_uninit_unresize"
     )
     / "checkpoints"
-    / "040000"
+    / "080000"
     / "pretrained_model"
 )
-DEFAULT_OUTPUT_DIR = WORKSPACE / "runs" / "evaluation" / "action_flow_v2_2_boxes"
+DEFAULT_OUTPUT_DIR = WORKSPACE / "runs" / "evaluation" / "action_flow_v2_2_boxes_uninit_smolvla_unresize_steps_80000"
 
 
 def parse_args() -> argparse.Namespace:
@@ -486,6 +486,20 @@ def decoded_box_dict(box: DecodedTargetBox) -> dict[str, Any]:
     }
 
 
+def token_sequence_payload(tokenizer: Any, token_ids: list[int]) -> dict[str, Any]:
+    """Return token IDs, token strings, and readable decoded text for one sequence."""
+
+    return {
+        "token_ids": token_ids,
+        "tokens": tokenizer.convert_ids_to_tokens(token_ids),
+        "text": tokenizer.decode(
+            token_ids,
+            skip_special_tokens=False,
+            clean_up_tokenization_spaces=False,
+        ),
+    }
+
+
 def match_targets(
     gt_boxes: list[DecodedTargetBox],
     predicted_boxes: list[DecodedTargetBox],
@@ -704,10 +718,13 @@ def draw_box(draw: ImageDraw.ImageDraw, box: DecodedTargetBox, color: str, prefi
     if box.visibility is not TargetVisibility.VISIBLE or box.coordinate_bins is None:
         return
     scale = (size - 1) / 255.0
-    coordinates = tuple(round(value * scale) for value in box.coordinate_bins)
+    x1, y1, x2, y2 = (round(value * scale) for value in box.coordinate_bins)
+    invalid_order = x2 < x1 or y2 < y1
+    coordinates = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
     draw.rectangle(coordinates, outline=color, width=3)
     x, y = coordinates[:2]
-    draw.text((x + 2, max(0, y - 12)), f"{prefix}:{box.entity_name}", fill=color)
+    status = " INVALID" if invalid_order else ""
+    draw.text((x + 2, max(0, y - 12)), f"{prefix}{status}:{box.entity_name}", fill=color)
 
 
 def save_preview(
@@ -721,27 +738,39 @@ def save_preview(
     camera_names: Iterable[str],
 ) -> None:
     size = 512
-    panels = []
+    camera_names = list(camera_names)
+    panel_rows: list[tuple[Image.Image, Image.Image]] = []
     for camera in camera_names:
         image_key = f"observation.images.{camera}"
-        panel = padded_image(raw_batch[image_key][batch_index], size=size)
-        draw = ImageDraw.Draw(panel)
-        draw.text((6, 6), camera, fill="white")
+        image = padded_image(raw_batch[image_key][batch_index], size=size)
+        ground_truth_panel = image.copy()
+        prediction_panel = image.copy()
+        ground_truth_draw = ImageDraw.Draw(ground_truth_panel)
+        prediction_draw = ImageDraw.Draw(prediction_panel)
+        ground_truth_draw.text((6, 6), f"{camera} | Ground truth", fill="white")
+        prediction_draw.text((6, 6), f"{camera} | Prediction", fill="white")
         for box in gt_boxes:
             if box.camera == camera:
-                draw_box(draw, box, "#00ff66", "GT", size)
+                draw_box(ground_truth_draw, box, "#00ff66", "GT", size)
         for box in predicted_boxes:
             if box.camera == camera:
-                draw_box(draw, box, "#ff4050", "P", size)
-        panels.append(panel)
+                draw_box(prediction_draw, box, "#ff4050", "P", size)
+        panel_rows.append((ground_truth_panel, prediction_panel))
+
     heading_height = 46
-    output = Image.new("RGB", (size * len(panels), size + heading_height), "#111111")
+    output = Image.new(
+        "RGB",
+        (size * 2, size * len(panel_rows) + heading_height),
+        "#111111",
+    )
     draw = ImageDraw.Draw(output)
     draw.text((6, 5), task[:160], fill="white")
     if parse_error:
         draw.text((6, 23), f"Parse error: {parse_error[:150]}", fill="#ff6060")
-    for index, panel in enumerate(panels):
-        output.paste(panel, (index * size, heading_height))
+    for row_index, (ground_truth_panel, prediction_panel) in enumerate(panel_rows):
+        y = heading_height + row_index * size
+        output.paste(ground_truth_panel, (0, y))
+        output.paste(prediction_panel, (size, y))
     output.save(path, quality=92)
 
 
@@ -820,6 +849,7 @@ def evaluate(args: argparse.Namespace) -> None:
     sample_rows: list[dict[str, Any]] = []
     target_rows: list[dict[str, Any]] = []
     prediction_records: list[dict[str, Any]] = []
+    vlm_output_handle = (args.output_dir / "vlm_outputs.jsonl").open("w", encoding="utf-8")
     start_time = time.perf_counter()
     processed = 0
     for raw_batch in dataloader:
@@ -875,6 +905,13 @@ def evaluate(args: argparse.Namespace) -> None:
 
             matched_rows, box_metrics = match_targets(gt_boxes, predicted_boxes, metadata)
             target_rows.extend(matched_rows)
+            decoder_prompt = generated[:1]
+            model_generated = generated[1:]
+            ground_truth_payload = token_sequence_payload(
+                tokenizer.vlm_tokenizer,
+                gt_sequences[batch_index],
+            )
+            generated_payload = token_sequence_payload(tokenizer.vlm_tokenizer, generated)
             sample_row = {
                 **metadata,
                 "termination": termination[batch_index],
@@ -907,9 +944,33 @@ def evaluate(args: argparse.Namespace) -> None:
                     "ground_truth_token_ids": gt_sequences[batch_index],
                     "generated_token_ids": generated,
                     "generated_tokens": tokenizer.vlm_tokenizer.convert_ids_to_tokens(generated),
+                    "generated_text": generated_payload["text"],
                     "ground_truth_boxes": [decoded_box_dict(box) for box in gt_boxes],
                     "predicted_boxes": [decoded_box_dict(box) for box in predicted_boxes],
                 }
+            )
+            vlm_output_handle.write(
+                json.dumps(
+                    {
+                        **metadata,
+                        "decoder_prompt": token_sequence_payload(
+                            tokenizer.vlm_tokenizer,
+                            decoder_prompt,
+                        ),
+                        "model_output": token_sequence_payload(
+                            tokenizer.vlm_tokenizer,
+                            model_generated,
+                        ),
+                        "full_grounding_sequence": generated_payload,
+                        "ground_truth_sequence": ground_truth_payload,
+                        "termination": termination[batch_index],
+                        "parse_success": bool(parse_success),
+                        "parse_error": parse_error,
+                        "predicted_boxes": [decoded_box_dict(box) for box in predicted_boxes],
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
             )
             if ordinal in preview_ordinals:
                 save_preview(
@@ -930,9 +991,12 @@ def evaluate(args: argparse.Namespace) -> None:
             f"({processed / max(elapsed, 1e-6):.2f} frames/s)",
             flush=True,
         )
+        vlm_output_handle.flush()
         del prefix, packed_targets, model_batch
         if device.type == "cuda":
             torch.cuda.empty_cache()
+
+    vlm_output_handle.close()
 
     overall = aggregate_metrics(sample_rows, target_rows)
     summary = {
@@ -978,6 +1042,7 @@ def evaluate(args: argparse.Namespace) -> None:
         formatted = f"{value:.4f}" if isinstance(value, float) else str(value)
         print(f"  {name}: {formatted}", flush=True)
     print(f"Saved evaluation to: {args.output_dir}", flush=True)
+    print(f"Saved complete VLM outputs to: {args.output_dir / 'vlm_outputs.jsonl'}", flush=True)
 
 
 def main() -> None:
