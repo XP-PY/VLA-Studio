@@ -1822,28 +1822,257 @@ Box and FAST losses update the shared VLM, token embeddings, and LM head. Flow l
 the action expert and its action/timestep projections. The grounding and FAST losses are normalized
 independently.
 
-#### Implementation and Training Plan
+#### Implementation and Training Configuration
 
 The existing box dataset and tokenizer artifact remain valid because their serialized sequences
-already contain `<grounding>` and `<action>` markers. Target packing now removes these markers from
-the labels and supplies them as branch inputs. The grounding evaluator likewise seeds decoding with
-`<grounding>` before generating the first `<camera>` token.
+already contain `<grounding>` and `<action>` markers. Target packing removes these markers from the
+labels and supplies them as fixed branch inputs. The grounding evaluator likewise seeds decoding
+with `<grounding>` before generating the first `<camera>` token.
 
-The parameter shapes are unchanged, so the Training Log 3 checkpoint can still be loaded for
-rollout or diagnostic comparison. However, it should not be resumed for Training Log 4 because the
-FAST branch previously attended to teacher-forced grounding tokens. The corrected policy should be
-trained as a new run, preferably warm-started from a compatible complete SmolVLA checkpoint so the
-action expert and shared VLM begin from learned robot-control representations.
+Training Log 4 starts a new policy rather than resuming Training Log 3 because the old FAST branch
+attended to teacher-forced grounding tokens. It loads the pretrained SmolVLM weights but does not
+warm-start from a complete SmolVLA policy.
 
-Before robot rollout, each saved checkpoint should pass an offline grounding gate covering:
+| Parameter | Value |
+|---|---:|
+| Training steps | `80,000` |
+| Batch size | `8` |
+| `policy.chunk_size` | `50` |
+| `policy.n_action_steps` | `1` |
+| `policy.optimizer_lr` | `3e-5` |
+| `policy.scheduler_warmup_steps` | `2,000` |
+| `policy.scheduler_decay_steps` | `80,000` |
+| `policy.scheduler_decay_lr` | `2.5e-6` |
+| `policy.box_loss_weight` | `1.0` |
+| `policy.fast_loss_weight` | `1.0` |
+| `policy.flow_loss_weight` | `1.0` |
+| `policy.freeze_vision_encoder` | `false` |
+| `policy.train_expert_only` | `false` |
+| `policy.use_relative_actions` | `true` |
+| Relative-action exclusion | `gripper` |
+| Complete SmolVLA warm start | Disabled |
+| VLM vocabulary expansion | `mean_resizing=False` |
 
-1. First-token accuracy after the fixed `<grounding>` seed.
-2. Free-running parse-success and exact-sequence rates.
-3. Structural-, entity-text-, and coordinate-token accuracy.
-4. Visibility accuracy, target recall, coordinate error, and box IoU.
+`mean_resizing=False` applies only when the structural, coordinate, and FAST token rows are added
+to the VLM embedding and LM-head matrices. It does not disable camera-image resizing. With mean
+resizing enabled, the new rows are initialized from the existing vocabulary's embedding
+distribution. Disabling it uses the model's standard initialization for the new rows. The new token
+families need to become sharply distinguishable, and the empirical result shows that standard
+initialization is substantially easier to optimize in this experiment.
 
-Robot evaluation should begin only after the VLM produces valid prompt-conditioned boxes
-consistently. This separates grounding quality from later grasp, gripper, trajectory, and RTC
-failures.
+#### Training Loss
+
+The loss figures compare three policies over the first 40,000 displayed steps:
+
+1. Old autoregressive prefix with mean resizing.
+2. New independent grounding/FAST prefixes with mean resizing.
+3. New independent prefixes without mean resizing.
+
+| Total loss | Box cross-entropy loss |
+|---|---|
+| <img src="assets/action_flow/v2_ob_1_log_4_loss.png" alt="Action Flow V2.2 total training loss" width="100%"> | <img src="assets/action_flow/v2_ob_1_log_4_box_ce_loss.png" alt="Action Flow V2.2 box cross-entropy loss" width="100%"> |
+
+| FAST cross-entropy loss | Flow-matching loss |
+|---|---|
+| <img src="assets/action_flow/v2_ob_1_log_4_fast_ce_loss.png" alt="Action Flow V2.2 FAST cross-entropy loss" width="100%"> | <img src="assets/action_flow/v2_ob_1_log_4_flow_loss.png" alt="Action Flow V2.2 flow-matching loss" width="100%"> |
+
+Approximate plateau values read from the displayed curves are:
+
+| Loss | Old prefix, mean resizing | New prefix, mean resizing | New prefix, no mean resizing | Result |
+|---|---:|---:|---:|---|
+| Total | `~12.4` | `~12.6` | `~6.9` | About 44% lower without mean resizing. |
+| Box CE | `~4.2` | `~4.3` | `~1.4` | About 67% lower without mean resizing. |
+| FAST CE | `~8.0` | `~8.1` | `~5.3` | About 34% lower without mean resizing. |
+| Flow matching | `~0.1` | `~0.1` | `~0.1` | No clear separation among the three runs. |
+
+The old and new prefixes have nearly identical losses while mean resizing remains enabled. The
+prefix redesign is nevertheless necessary because it supplies the correct decoder task marker and
+separates grounding from FAST teacher forcing. The large optimization gain comes from disabling
+mean resizing. The unchanged flow loss also shows that this gain is concentrated in the VLM's
+autoregressive branches; it is not evidence that grasp control has improved by the same amount.
+
+#### Offline Box Evaluation
+
+The 80,000-step policy was evaluated on 512 frames sampled from all 203 episodes with a frame
+stride of 30 and a maximum of 512 samples. This covers only `512 / 92,545` frames, approximately
+`0.55%` of the dataset. It is therefore a distributed partial evaluation, not an all-frame or
+complete-episode evaluation.
+
+| Metric | Training Log 3 | Training Log 4 |
+|---|---:|---:|
+| Evaluated frames | `92,545` | `512` |
+| Parsed grounding sequences | `0%` | `86.13%` (`441 / 512`) |
+| First generated token | `<box>` without a task seed | `<camera>` after the fixed `<grounding>` seed (`512 / 512`) |
+| Exact free-running sequences | `0%` | `0.78%` (`4 / 512`) |
+| Strict complete-box success at IoU 0.50 | `0%` | `7.03%` (`36 / 512`) |
+| Target precision | Not measurable; no parsed targets | `99.97%` |
+| Target recall | `0%` | `84.35%` |
+| Matched-target visibility accuracy | Not measurable; no matched targets | `99.88%` |
+| Mean IoU when prediction and target are visible | Not measurable | `0.5803` |
+| Mean IoU over all visible targets | `0`, because no boxes were produced | `0.4891` |
+| Visible-box recall at IoU 0.25 | `0%` | `59.40%` |
+| Visible-box recall at IoU 0.50 | `0%` | `47.73%` |
+| Coordinate MAE | Not learned | `14.55 / 255` bins |
+| Teacher-forced token accuracy | `33.77%` | `80.24%` |
+| Teacher-forced structural-token accuracy | `28.13%` | `99.94%` |
+| Teacher-forced text-token accuracy | `99.999%` | `100%` |
+| Teacher-forced coordinate-token accuracy | `0%` | `51.87%` |
+| Teacher-forced weighted NLL | `4.295` | `1.256` |
+
+Free-running generation reached `</grounding>` normally in 444 samples, reached the 192-token
+limit in 67 samples, and entered the action branch before closing grounding in one sample. Three of
+the normally terminated outputs were still structurally invalid, leaving 441 parsable sequences.
+
+The camera-specific localization result is strongly imbalanced:
+
+| Camera | Ground-truth targets | Target recall | Mean IoU when both visible | Visible-box recall at IoU 0.50 |
+|---|---:|---:|---:|---:|
+| Top | `1,917` | `84.35%` | `0.7105` | `59.85%` |
+| Wrist | `1,917` | `84.35%` | `0.3753` | `28.67%` |
+
+The fixed `<grounding>` input solves the original first-token collapse and makes free-running
+grounding structurally usable. Disabling mean resizing also improves coordinate learning. However,
+only 7.03% of samples predict every required visible box at IoU 0.50, and wrist localization is
+much weaker than top localization. These values are also measured against generated labels, so
+incorrect ground-truth masks or boxes can penalize a visually correct prediction or reward a
+prediction that reproduces annotation noise.
+
+#### Segmentation and Box-Label Quality
+
+The box dataset is derived from independently tracked per-entity SAM2 masks. Each box is the
+enclosing rectangle of one object mask, so segmentation errors directly become box errors. If a
+track includes a second object, background pixels, or a fused source-object/destination-plate
+region, the enclosing box can expand or shift substantially even when most of the intended object
+is segmented correctly.
+
+Manual inspection found this behavior in the top-camera labels of episode 7 and the wrist-camera
+labels of episodes 52 and 60. Common failure patterns include:
+
+- A source-object mask also containing a nearby vegetable.
+- A manipulated object and destination plate being tracked as one region after contact.
+- Wrist-camera identity loss during occlusion, grasping, or transfer.
+- Sparse tracking results being propagated into inaccurate boxes for intermediate frames.
+
+You can inspect inaccurate boxes caused by wrong sam2 segmentation through these images:
+
+<table>
+  <tr>
+    <td><img src="assets/action_flow/v2_ob_1_log_4_episode_07.jpg"></td>
+    <td><img src="assets/action_flow/v2_ob_1_log_4_episode_52.jpg"></td>
+    <td><img src="assets/action_flow/v2_ob_1_log_4_episode_60.jpg"></td>
+  </tr>
+</table>
+
+    Green box means generated target through sam2 segmentation result. Red box means predicted box by trained vlm.
+
+The large top-versus-wrist IoU gap in the partial evaluation is consistent with these observations.
+Adding more training steps cannot correct contradictory supervision, and adding more episodes with
+the same annotation failure can strengthen the wrong association.
+
+SAM3.1 is being evaluated as a replacement for SAM2. It combines the reviewed target point with a
+semantic object query, which can better preserve entity identity when several objects are close.
+Initial tests on known problematic episodes show potential, but propagation can still become sparse
+or fail under occlusion. Therefore, SAM3.1 output is not accepted automatically: uncertain frames
+must remain invalid or receive zero grounding-loss weight, and the converted dataset must be
+reviewed before it replaces the SAM2 labels.
+
+#### Analysis
+
+1. The new decoder prefixes fix a structural modeling error. Grounding now begins from an explicit
+   `<grounding>` input and every sampled generation selects `<camera>` first, instead of collapsing
+   to `<box>`.
+2. Disabling mean resizing is the dominant optimization improvement. It lowers box and FAST losses
+   sharply and raises coordinate-token accuracy from zero to 51.87%.
+3. The grounding task is learned only partially. Parse success and target identity are strong, but
+   exact sequences, complete-box success, and wrist-camera localization remain weak.
+4. Annotation quality limits the meaning of the offline metrics. The policy cannot learn a stable
+   target representation from masks that merge entities or switch identity over time.
+5. Better grounding is necessary but not sufficient for manipulation. Even trials with accurate
+   segmentation or boxes can fail through approach misalignment, unstable gripper commands, object
+   loss during transfer, or failure to transition from transfer to placement.
+6. The current 203 demonstrations cover 52 prompts, averaging fewer than four episodes per prompt.
+   Adjacent frames are highly correlated, so 92,545 frames do not provide the behavioral diversity
+   implied by the raw frame count.
+
+#### Conclusion
+
+Training Log 4 changes Action Flow V2.2 from a nonfunctional grounding decoder into a partially
+usable one. The corrected prefixes eliminate first-token collapse, and disabling mean resizing
+substantially improves both optimization and sampled box prediction. The remaining bottlenecks are
+now clearer: noisy SAM2-derived labels, weak wrist-camera localization, insufficient demonstration
+diversity, and action-quality failures after target recognition. The next experiment should improve
+both annotation quality and robot demonstrations rather than increasing training steps alone.
+
+---
+
+### Training Log 5 of Objective 1
+
+#### Motivation
+
+Training Log 4 separates two independent data limitations:
+
+1. Segmentation and box labels are unstable in some frames, especially in the wrist camera. This
+   limits prompt-conditioned grounding and can teach incorrect object extents or identities.
+2. Correct grounding does not guarantee successful manipulation. Some trials with accurate target
+   predictions still fail because the gripper is misaligned, closes inconsistently, loses the object
+   during transfer, or continues the demonstrated trajectory after a failed grasp.
+
+The next experiment therefore adds a newly recorded demonstration set while rebuilding relevance
+annotations with stricter validity checks. New subsets should remain separate by task during
+recording and inspection, then be combined only after both robot trajectories and annotations pass
+quality review.
+
+#### Dataset Expansion Plan
+
+The current dataset contains 203 episodes. The target is approximately 480 episodes, adding 280
+demonstrations with emphasis on prompt coverage, precise grasp phases, stable transfer, and recovery.
+
+| Demonstration group | Current episodes | Additional episodes | Planned total | Allocation purpose |
+|---|---:|---:|---:|---|
+| Place one vegetable | `48` | `72` | `120` | Increase each of the 12 vegetable/plate combinations from 4 to about 10 demonstrations. |
+| Arrange two vegetables | `36` | `108` | `144` | Increase each recorded ordered combination from 1 to about 4 demonstrations. |
+| Clear a specified plate | `72` | `36` | `108` | Add approach, object-width, box-location, and distractor variation. |
+| Bus the table | `47` | `24` | `71` | Add object-count, grasp-order, and layout variation. |
+| Successful recovery behavior | `0` | `40` | `40` | Demonstrate realignment or re-grasping after an intentional miss or slip; reuse existing task prompts. |
+| **Total** | **203** | **280** | **483** |  |
+
+The collection should be staged. The first stage adds approximately 120 basic single-object
+grasp-and-place demonstrations and evaluates alignment, closure, and holding before the remaining
+multi-step and recovery episodes are recorded. This avoids spending the complete recording budget
+before confirming that the action-quality changes are effective.
+
+#### Recording Requirements
+
+- Vary object position, orientation, distractors, and approach direction instead of repeating the
+  same trajectory.
+- Balance narrow and wide grasp widths across the four vegetables.
+- Make the grasp phase explicit with a short pause before closure, after stable closure, and before
+  lifting. Avoid long idle periods that only duplicate correlated frames.
+- Hold a stable gripper command throughout transfer and release only after the object is supported
+  by the destination.
+- Save only task-complete demonstrations. A recovery demonstration may include a miss or slip, but
+  it must show observation of the failure, corrective alignment, a successful re-grasp, and final
+  task completion.
+- Keep task prompts unchanged so the new episodes can be concatenated with the existing task
+  definitions.
+
+#### Annotation and Evaluation Gates
+
+Before merging a new subset, independently review representative top and wrist tracks, exclude
+identity switches and fused-object masks, and assign zero grounding-loss weight to uncertain
+frames. SAM3.1 annotations should replace SAM2 labels only after this review shows a measurable
+quality improvement.
+
+The next policy evaluation should report the stages separately:
+
+1. Prompt-target selection and box IoU for each camera.
+2. Gripper alignment at the pre-grasp pose.
+3. Initial grasp success.
+4. Object retention through transfer.
+5. Placement and release success.
+6. Recovery success after a miss or slip.
+
+This separation will show whether additional demonstrations improve continuous control without
+hiding remaining grounding-label errors.
 
 ---

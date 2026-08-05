@@ -35,11 +35,13 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 # export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes"
-export TASK_PROMPT=""
+export TASK_ID="rm65_single_table_preparation_and_bussing"
+
+export TASK_PROMPT="Place the corn on the pink plate, then place the tomato on the yellow plate."
+
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
-export TASK_SUBSET_ID=""
-export TASK_EPISODES=203
+export TASK_SUBSET_ID="arrange_two_vegetables"
+export TASK_EPISODES=3
 export TASK_FPS=30
 
 # ===== Training common settings =====
