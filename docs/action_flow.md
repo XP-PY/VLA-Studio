@@ -2022,57 +2022,126 @@ annotations with stricter validity checks. New subsets should remain separate by
 recording and inspection, then be combined only after both robot trajectories and annotations pass
 quality review.
 
-#### Dataset Expansion Plan
+#### Recorded Demonstration Dataset
 
-The current dataset contains 203 episodes. The target is approximately 480 episodes, adding 280
-demonstrations with emphasis on prompt coverage, precise grasp phases, stable transfer, and recovery.
+The expanded dataset contains 443 episodes and 240,408 frames recorded at 30 FPS. The original 203
+episodes were retained, and 240 additional demonstrations were added. The final task distribution
+is:
 
-| Demonstration group | Current episodes | Additional episodes | Planned total | Allocation purpose |
+| Demonstration group | Original episodes | Added episodes | Final episodes | Purpose |
 |---|---:|---:|---:|---|
-| Place one vegetable | `48` | `72` | `120` | Increase each of the 12 vegetable/plate combinations from 4 to about 10 demonstrations. |
-| Arrange two vegetables | `36` | `108` | `144` | Increase each recorded ordered combination from 1 to about 4 demonstrations. |
-| Clear a specified plate | `72` | `36` | `108` | Add approach, object-width, box-location, and distractor variation. |
-| Bus the table | `47` | `24` | `71` | Add object-count, grasp-order, and layout variation. |
-| Successful recovery behavior | `0` | `40` | `40` | Demonstrate realignment or re-grasping after an intentional miss or slip; reuse existing task prompts. |
-| **Total** | **203** | **280** | **483** |  |
+| Place one vegetable | `48` | `72` | `120` | Increase coverage of vegetable/plate combinations and single-cycle grasp-and-place behavior. |
+| Arrange two vegetables | `36` | `108` | `144` | Increase ordered two-object demonstrations and task-transition coverage. |
+| Clear a specified plate | `72` | `36` | `108` | Add source-plate, object-width, collection-box, and distractor variation. |
+| Bus the table | `47` | `24` | `71` | Add variation in object count, grasp order, and scene layout. |
+| **Total** | **203** | **240** | **443** |  |
 
-The collection should be staged. The first stage adds approximately 120 basic single-object
-grasp-and-place demonstrations and evaluates alignment, closure, and holding before the remaining
-multi-step and recovery episodes are recorded. This avoids spending the complete recording budget
-before confirming that the action-quality changes are effective.
+The four subsets were inspected separately and then rebuilt as one multitask LeRobot dataset. Each
+frame contains the wrist and top camera observations, the seven-dimensional RM65 state, the
+seven-dimensional action, and one task prompt. This robot dataset remains unchanged by the planning
+annotation process described below.
 
-#### Recording Requirements
+#### Next-Step Planning Annotation
 
-- Vary object position, orientation, distractors, and approach direction instead of repeating the
-  same trajectory.
-- Balance narrow and wide grasp widths across the four vegetables.
-- Make the grasp phase explicit with a short pause before closure, after stable closure, and before
-  lifting. Avoid long idle periods that only duplicate correlated frames.
-- Hold a stable gripper command throughout transfer and release only after the object is supported
-  by the destination.
-- Save only task-complete demonstrations. A recovery demonstration may include a miss or slip, but
-  it must show observation of the failure, corrective alignment, a successful re-grasp, and final
-  task completion.
-- Keep task prompts unchanged so the new episodes can be concatenated with the existing task
-  definitions.
+The task prompt describes the complete objective but does not identify the manipulation stage at a
+particular frame. A sidecar planning dataset was therefore generated to divide every demonstration
+into the following macro stages:
 
-#### Annotation and Evaluation Gates
+- `grasp`: approach the current source and close the gripper around it.
+- `put`: hold and transport the source, then release it at the destination.
+- `complete`: no manipulation step remains in the episode.
 
-Before merging a new subset, independently review representative top and wrist tracks, exclude
-identity switches and fused-object masks, and assign zero grounding-loss weight to uncertain
-frames. SAM3.1 annotations should replace SAM2 labels only after this review shows a measurable
-quality improvement.
+The sidecar stores one row per temporal segment instead of duplicating the camera videos or robot
+frames. It will be expanded to frame-level supervision only when the verified bounding-box labels
+are merged into the final training dataset.
 
-The next policy evaluation should report the stages separately:
+##### Automatic Temporal Segmentation
 
-1. Prompt-target selection and box IoU for each camera.
-2. Gripper alignment at the pre-grasp pose.
-3. Initial grasp success.
-4. Object retention through transfer.
-5. Placement and release success.
-6. Recovery success after a miss or slip.
+The seventh element of `observation.state`, `gripper.pos`, is used only to estimate stage
+boundaries. The automatic procedure is:
 
-This separation will show whether additional demonstrations improve continuous control without
-hiding remaining grounding-label errors.
+1. Smooth the gripper trajectory with a seven-frame centered median filter.
+2. Compute the signed frame-to-frame change. Changes with magnitude below `2` are treated as
+   stationary noise.
+3. Group active changes separated by at most 12 frames into one transition.
+4. Reject transitions whose total gripper displacement is below `100`.
+5. Merge same-direction transitions separated by at most 30 frames.
+6. Pair a decreasing transition, which closes the RM65 gripper, with the following increasing
+   transition, which opens it. A valid pair must contain at least ten holding frames.
+7. Label the interval from the previous release, or episode start, through the closing transition
+   as `grasp`. Label the following closed-gripper interval through the opening transition as `put`.
+   The interval after the final release is labeled `complete`.
 
----
+All intervals use half-open frame ranges: `start_frame` is included and `end_frame` is excluded.
+The generated segments are contiguous, nonempty, begin at frame zero, and end at the episode
+length. Initial opening transitions without a preceding close are ignored because some episodes
+start with the gripper partially closed.
+
+The empirically selected thresholds detect one cycle for each place/clear episode and two cycles
+for every arrange episode. Bussing remains variable and contains two to five detected cycles.
+
+##### Plan and Entity Generation
+
+For fixed-prompt tasks, entities are parsed from the task prompt and assigned to cycles in prompt
+order:
+
+- `Place the tomato on the pink plate.` becomes `Grasp the tomato.` followed by
+  `Put the tomato on the pink plate.`
+- Two-object arrange prompts produce two ordered grasp/put cycles.
+- Clear prompts produce `Grasp the vegetable on the <color> plate.` followed by
+  `Put the vegetable in the collection box.`
+
+The bussing prompt does not identify the object order. Its automatic plans are therefore initialized
+as `Grasp {target}.` and `Put {target} in the collection box.` for every detected cycle. The object
+name is filled during manual video review. `Task complete.` is appended after the final cycle.
+
+Each segment contains the following fields:
+
+| Field | Meaning |
+|---|---|
+| `episode_index` | Source demonstration index. |
+| `segment_index` | Zero-based segment order within the episode. |
+| `cycle_index` | Grasp/put cycle shared by the two manipulation stages; `-1` for completion. |
+| `start_frame`, `end_frame` | Half-open episode-local frame range. |
+| `stage` | `grasp`, `put`, or `complete`. |
+| `source_entity` | Object manipulated in the current cycle. |
+| `destination_entity` | Placement destination; empty during grasp and completion. |
+| `next_step` | Natural-language description of the current stage. |
+| `segment_uid` | Stable episode/segment identifier used during review. |
+
+##### Review
+
+The review interface displays synchronized wrist/top images, the raw and smoothed gripper traces,
+and the proposed ranges and plans. It supports correcting boundaries and text, splitting a segment
+when one range contains two stages, deleting a false segment, and applying one bussing object name
+to both the grasp and put rows of a cycle. Corrections are saved separately from the automatic
+proposal.
+
+All 144 arrange episodes and all 71 bussing episodes were reviewed manually because their cycle
+order directly determines the next-step labels. One initial clear episode was also checked manually.
+The remaining 227 clear/place episodes were accepted automatically after their cycle counts and
+prompt-derived plans matched the expected structure. The only automatically flagged episode was a
+bussing demonstration with five cycles; it was inspected and accepted. No `{target}` placeholders
+remain, and all 443 episodes are marked reviewed.
+
+##### Annotation Result
+
+| Task group | Episodes | Manipulation cycles | Planning segments |
+|---|---:|---:|---:|
+| Place one vegetable | `120` | `120` | `360` |
+| Arrange two vegetables | `144` | `288` | `720` |
+| Clear a specified plate | `108` | `108` | `324` |
+| Bus the table | `71` | `211` | `493` |
+| **Total** | **443** | **727** | **1,897** |
+
+| Stage | Segments | Covered frames |
+|---|---:|---:|
+| `grasp` | `727` | `105,376` |
+| `put` | `727` | `102,344` |
+| `complete` | `443` | `32,688` |
+| **Total** | **1,897** | **240,408** |
+
+The next annotation pass will use these stages to define one unambiguous grounding objective:
+`grasp` frames target the source object, `put` frames target only the destination, and `complete`
+frames contain no target box. Bounding boxes will be verified before the segment labels and box
+labels are materialized together as a new LeRobot training dataset.
