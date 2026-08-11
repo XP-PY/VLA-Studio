@@ -175,6 +175,28 @@ class AddBatchDimensionComplementaryDataStep(ComplementaryDataProcessorStep):
             if isinstance(task_index_value, Tensor) and task_index_value.dim() == 0:
                 complementary_data["task_index"] = task_index_value.unsqueeze(0)
 
+        for key in (
+            "planning.stage",
+            "planning.source_entity",
+            "planning.destination_entity",
+            "planning.target_entity",
+            "planning.next_step",
+            "planning.segment_uid",
+        ):
+            value = complementary_data.get(key)
+            if isinstance(value, str):
+                complementary_data[key] = [value]
+
+        for key in (
+            "planning.cycle_index",
+            "planning.segment_index",
+            "planning.box_keyframe",
+            "planning.frames_remaining",
+        ):
+            value = complementary_data.get(key)
+            if isinstance(value, Tensor) and value.dim() == 0:
+                complementary_data[key] = value.unsqueeze(0)
+
         complementary_data.pop("language_persistent", None)
         complementary_data.pop("language_events", None)
 

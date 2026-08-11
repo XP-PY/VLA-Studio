@@ -2017,24 +2017,24 @@ Training Log 4 separates two independent data limitations:
    predictions still fail because the gripper is misaligned, closes inconsistently, loses the object
    during transfer, or continues the demonstrated trajectory after a failed grasp.
 
-The next experiment therefore adds a newly recorded demonstration set while rebuilding relevance
+This experiment therefore adds a newly recorded demonstration set while rebuilding spatial
 annotations with stricter validity checks. New subsets should remain separate by task during
 recording and inspection, then be combined only after both robot trajectories and annotations pass
 quality review.
 
 #### Recorded Demonstration Dataset
 
-The expanded dataset contains 443 episodes and 240,408 frames recorded at 30 FPS. The original 203
-episodes were retained, and 240 additional demonstrations were added. The final task distribution
-is:
+The expanded dataset contains 442 episodes and 239,641 frames recorded at 30 FPS. A faulty arrange
+demonstration was removed before the final merge, leaving 239 accepted additions to the original
+203 episodes. The final task distribution is:
 
 | Demonstration group | Original episodes | Added episodes | Final episodes | Purpose |
 |---|---:|---:|---:|---|
 | Place one vegetable | `48` | `72` | `120` | Increase coverage of vegetable/plate combinations and single-cycle grasp-and-place behavior. |
-| Arrange two vegetables | `36` | `108` | `144` | Increase ordered two-object demonstrations and task-transition coverage. |
+| Arrange two vegetables | `36` | `107` | `143` | Increase ordered two-object demonstrations and task-transition coverage. |
 | Clear a specified plate | `72` | `36` | `108` | Add source-plate, object-width, collection-box, and distractor variation. |
 | Bus the table | `47` | `24` | `71` | Add variation in object count, grasp order, and scene layout. |
-| **Total** | **203** | **240** | **443** |  |
+| **Total** | **203** | **239** | **442** |  |
 
 The four subsets were inspected separately and then rebuilt as one multitask LeRobot dataset. Each
 frame contains the wrist and top camera observations, the seven-dimensional RM65 state, the
@@ -2117,31 +2117,219 @@ when one range contains two stages, deleting a false segment, and applying one b
 to both the grasp and put rows of a cycle. Corrections are saved separately from the automatic
 proposal.
 
-All 144 arrange episodes and all 71 bussing episodes were reviewed manually because their cycle
+All 143 arrange episodes and all 71 bussing episodes were reviewed manually because their cycle
 order directly determines the next-step labels. One initial clear episode was also checked manually.
-The remaining 227 clear/place episodes were accepted automatically after their cycle counts and
+The remaining clear/place episodes were accepted automatically after their cycle counts and
 prompt-derived plans matched the expected structure. The only automatically flagged episode was a
 bussing demonstration with five cycles; it was inspected and accepted. No `{target}` placeholders
-remain, and all 443 episodes are marked reviewed.
+remain, and all 442 episodes are marked reviewed.
 
 ##### Annotation Result
 
 | Task group | Episodes | Manipulation cycles | Planning segments |
 |---|---:|---:|---:|
 | Place one vegetable | `120` | `120` | `360` |
-| Arrange two vegetables | `144` | `288` | `720` |
+| Arrange two vegetables | `143` | `286` | `715` |
 | Clear a specified plate | `108` | `108` | `324` |
 | Bus the table | `71` | `211` | `493` |
-| **Total** | **443** | **727** | **1,897** |
+| **Total** | **442** | **725** | **1,892** |
 
 | Stage | Segments | Covered frames |
 |---|---:|---:|
-| `grasp` | `727` | `105,376` |
-| `put` | `727` | `102,344` |
-| `complete` | `443` | `32,688` |
-| **Total** | **1,897** | **240,408** |
+| `grasp` | `725` | `105,027` |
+| `put` | `725` | `102,010` |
+| `complete` | `442` | `32,604` |
+| **Total** | **1,892** | **239,641** |
 
-The next annotation pass will use these stages to define one unambiguous grounding objective:
-`grasp` frames target the source object, `put` frames target only the destination, and `complete`
-frames contain no target box. Bounding boxes will be verified before the segment labels and box
-labels are materialized together as a new LeRobot training dataset.
+#### Stage-Keyframe Grounding Annotation
+
+Every `grasp` and `put` segment receives one manually verified, synchronized wrist/top keyframe.
+The annotation target is phase-specific:
+
+- A `grasp` keyframe contains only the source-object box.
+- A `put` keyframe contains only the destination box.
+- A `complete` segment has no grounding target.
+
+The same episode-local frame index is used for both cameras. A visible target stores one reviewed
+box; a target outside a camera's view stores an explicit `not visible` label. Uncertain proposals
+are not accepted as supervision. This produced 1,450 stage keyframes and 2,900 camera labels:
+2,895 visible boxes and five reviewed not-visible labels.
+
+Sparse stage keyframes are used deliberately. They provide high-confidence target identity and
+location without treating automatically propagated masks as ground truth on every frame. The
+planning label still covers every robot frame, while box loss is enabled only on these reviewed
+keyframes.
+
+#### Combined Training Dataset
+
+The robot, planning, and grounding sources are joined without changing the original camera,
+state, action, task, episode, or video data. The combined dataset adds:
+
+| Feature group | Content | Supervision density |
+|---|---|---|
+| `planning.stage` | `grasp`, `put`, or `complete` | Every frame |
+| `planning.target_entity` | Source during grasp, destination during put, empty after completion | Every frame |
+| `planning.frames_remaining` | Number of frames from the current frame through the end of its planning segment | Every frame |
+| Planning metadata | Cycle, segment, source, destination, next-step text, and stable segment ID | Every frame |
+| `planning.box_keyframe` | Whether the row is a reviewed grounding keyframe | Every frame |
+| Structured box tensors | Ordered wrist/top boxes, coordinate bins, visibility, entity ID, role, validity, and loss weight | Reviewed keyframes only |
+
+The entity vocabulary contains the eleven object/container names used by the task prompts and
+reviewed planning labels. Box coordinates are transformed into the same padded 512 x 512 policy
+image coordinate system used by SmolVLM and quantized into 256 bins. Six joint actions are
+converted to offsets from the current state, while the gripper remains absolute. Relative-action
+statistics were recomputed from the final 442-episode dataset rather than copied from an older
+dataset.
+
+#### Action Flow V2.3 Policy
+
+Action Flow V2.3 is implemented as a separate policy so the Action Flow V2.2 architecture and
+checkpoints remain reproducible. It retains SmolVLM, the FAST tokenizer, structured box tokens,
+and the continuous flow-matching expert, then adds an explicit next-step planning branch.
+
+##### Token Contract
+
+Five planning tokens are appended after the existing Action Flow V2.2 vocabulary:
+
+```text
+<plan> </plan> <grasp> <put> <complete>
+```
+
+All previous structural, coordinate, and FAST token IDs remain unchanged. The planning targets are:
+
+```text
+<plan> <grasp> tomato </plan>
+<plan> <put> pink plate </plan>
+<plan> <complete> </plan>
+```
+
+`<plan>`, `<grounding>`, and `<action>` are fixed decoder inputs rather than prediction targets.
+This gives each autoregressive task a stable start condition and avoids relying on the first output
+token to identify the branch.
+
+##### Attention and Knowledge Insulation
+
+The teacher-forced token layout is:
+
+```text
+[wrist image, top image, task prompt, robot state]
+                    -> planning branch
+                    -> grounding branch
+                    -> FAST branch
+```
+
+The actual masked VLM pass uses the following dependencies:
+
+1. Plan tokens attend the shared image/language/state prefix and causal plan history.
+2. Grounding tokens attend the shared prefix, the complete plan, and causal grounding history.
+3. FAST tokens attend the shared prefix, the complete plan, and causal FAST history.
+4. Grounding and FAST tokens cannot attend one another.
+5. The continuous expert receives detached K/V tensors for only the shared prefix plus the plan.
+
+The flow loss therefore trains the action expert and action-side projections but cannot update the
+VLM or prefix projections through cached context. Plan, grounding, and FAST cross-entropy losses
+train the VLM and prefix projections. This
+is the implemented knowledge-insulation boundary: VLM knowledge guides control, while continuous
+action regression cannot overwrite that knowledge through backpropagation.
+
+##### Losses and Segment Boundaries
+
+The joint objective is:
+
+$$
+L = 1.0L_{plan} + 1.0L_{box} + 0.5L_{FAST} + 1.0L_{flow}.
+$$
+
+- `L_plan` is computed on every frame.
+- `L_box` is computed only on reviewed stage keyframes; all non-keyframe grounding-token weights
+  are zero.
+- `L_flow` is applied only to action timesteps that remain inside the current planning segment and
+  are not dataset padding.
+- `L_FAST` is disabled for a sample when the 50-frame action chunk crosses a stage boundary. FAST
+  compresses a whole action chunk into one token sequence, so its tokens cannot be reliably masked
+  by individual action timestep.
+
+For example, a frame with `planning.frames_remaining=12` supervises the first 12 continuous action
+steps, but contributes no FAST loss. This prevents the current plan from being paired with actions
+from the next plan.
+
+##### Keyframe-Aware Sampling
+
+Only about 0.6% of dataset rows are reviewed box keyframes, so uniform frame sampling would make
+grounding updates too rare. Each deterministic training epoch therefore contains:
+
+- 75% uniformly shuffled eligible frames without replacement.
+- 25% reviewed keyframes sampled with replacement.
+
+The epoch length remains equal to the number of robot frames. The sampler derives its order from
+the training seed and epoch, supports checkpoint resume offsets, and gives every distributed rank
+the same global sequence before Accelerate shards it. A compact keyframe sidecar avoids scanning
+the full frame table at training startup.
+
+##### Inference
+
+At rollout, the VLM greedily predicts one plan from the current images, task prompt, and robot
+state. Decoding is constrained to the three stage forms and the dataset entity vocabulary, so every
+result is structurally parseable. The shared prefix and predicted plan are cached once, and
+iterative flow denoising uses that detached context to produce the action chunk. Grounding
+generation can be enabled for diagnostics,
+but is disabled by default because it is not required to execute actions and adds autoregressive
+latency.
+
+#### Training Configuration
+
+| Parameter | Configured value | Action Flow V2.3 default |
+|---|---:|---:|
+| `dataset.return_uint8` | `true` | `false` |
+| `dataset.use_imagenet_stats` | `false` | `true` |
+| `policy.type` | `action_flow_v2_3` | Not set |
+| `policy.input_features` | `null` (infer from dataset) | `{}` |
+| `policy.output_features` | `null` (infer from dataset) | `{}` |
+| `policy.device` | `cuda` | Automatically selected |
+| `policy.chunk_size` | `50` and `30` in separate runs | `50` |
+| `policy.n_action_steps` | `1` | `10` |
+| `policy.optimizer_lr` | `3e-5` | `1e-4` |
+| `policy.scheduler_warmup_steps` | `2,000` | `1,000` |
+| `policy.scheduler_decay_steps` | `100,000` | `30,000` |
+| `policy.push_to_hub` | `false` | `true` |
+| `batch_size` | `16` per process (`16` global) | `8` |
+| `steps` | `100,000` per run | `100,000` |
+| `eval_freq` | `0` | `20,000` |
+| `log_freq` | `100` | `200` |
+| `wandb.enable` | `true` | `false` |
+| `wandb.project` | `lerobot_action_flow_v2_rm65` | `lerobot` |
+| `wandb.disable_artifact` | `true` | `false` |
+
+> **Note:** Unlisted parameters retain their Action Flow V2.3 defaults. Important retained values
+> are `policy.plan_loss_weight=1.0`, `policy.box_loss_weight=1.0`,
+> `policy.fast_loss_weight=0.5`,
+> `policy.flow_loss_weight=1.0`, `policy.keyframe_sampling_fraction=0.25`,
+> `policy.segment_aware_action_loss=true`, and `policy.generate_grounding_during_rollout=false`.
+> Each chunk-size experiment uses one GPU process with BF16 mixed precision and no gradient
+> accumulation. Therefore, the per-process and global batch sizes are both 16. At 100,000 steps,
+> each run processes 1.6 million sampled frames, approximately 6.7 dataset-equivalent passes before
+> accounting for the keyframe-aware sampling distribution. A SmolVLA policy checkpoint can
+> optionally initialize the shared architecture; the current configuration instead uses pretrained
+> SmolVLM weights and a newly initialized action expert.
+
+#### Implementation Validation
+
+The implemented pipeline passed the following checks before training:
+
+1. The V2.3 tokenizer extends the 51,596-token V2.2 vocabulary to 51,601 tokens without moving any
+   existing token ID, and its saved artifact reloads exactly.
+2. Every dataset frame has a valid planning stage and positive `planning.frames_remaining`; exactly
+   1,450 rows are marked as box keyframes.
+3. A near-boundary sample with two stage frames remaining produced a two-step flow mask and zero
+   FAST-token loss weight.
+4. A reviewed keyframe produced nonzero plan, grounding, FAST, and flow supervision.
+5. The keyframe-aware sampler reproduced the same order for the same seed and resume state.
+6. A complete CUDA forward and constrained-plan rollout pass succeeded on real RM65 observations.
+7. A one-step `lerobot_train` run completed data loading, keyframe sampling, backward propagation,
+   optimizer update, and checkpoint saving with 4.39 GB peak allocated GPU memory at batch size 1.
+   The saved policy, tokenizer, and processor bundle then reloaded through the normal pretrained
+   policy path.
+
+The pipeline is therefore ready for the first Action Flow V2.3 training run. Rollout evaluation is
+still required to determine whether explicit stage prediction improves target alignment, grasp
+retention, and transition from transport to placement.

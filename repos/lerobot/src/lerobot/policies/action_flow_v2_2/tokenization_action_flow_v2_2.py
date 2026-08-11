@@ -310,11 +310,23 @@ class ActionFlowV22TargetTokenizer:
                     f"`{name}` has shape {actual_shapes[name]}, expected {expected_shape}."
                 )
 
+        has_supervision = bool(np.any(valid[None, :] & (loss_weight > 0)))
+        structural_weight = 1.0 if has_supervision else 0.0
         tokens = [self.config.structural_token_id("<grounding>")]
-        weights = [1.0]
+        weights = [structural_weight]
         for camera_index, camera_name in enumerate(self.config.camera_names):
-            self._append(tokens, weights, [self.config.structural_token_id("<camera>")])
-            self._append(tokens, weights, self._encode_text(camera_name))
+            self._append(
+                tokens,
+                weights,
+                [self.config.structural_token_id("<camera>")],
+                weight=structural_weight,
+            )
+            self._append(
+                tokens,
+                weights,
+                self._encode_text(camera_name),
+                weight=structural_weight,
+            )
             for entity_index in range(entity_count):
                 if not valid[entity_index] or loss_weight[camera_index, entity_index] <= 0:
                     continue
@@ -353,8 +365,18 @@ class ActionFlowV22TargetTokenizer:
                 else:
                     segment.append(self.config.structural_token_id("<not_visible>"))
                 self._append(tokens, weights, segment, weight=entity_weight)
-            self._append(tokens, weights, [self.config.structural_token_id("</camera>")])
-        self._append(tokens, weights, [self.config.structural_token_id("</grounding>")])
+            self._append(
+                tokens,
+                weights,
+                [self.config.structural_token_id("</camera>")],
+                weight=structural_weight,
+            )
+        self._append(
+            tokens,
+            weights,
+            [self.config.structural_token_id("</grounding>")],
+            weight=structural_weight,
+        )
         if len(tokens) > self.config.max_grounding_tokens:
             raise ValueError(
                 f"Grounding target uses {len(tokens)} tokens, exceeding "

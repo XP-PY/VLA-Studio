@@ -16,6 +16,7 @@
 import logging
 import math
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -152,6 +153,103 @@ class EpisodeAwareSampler:
 
     def __len__(self) -> int:
         return self._num_frames
+
+
+class KeyframeAwareSampler(EpisodeAwareSampler):
+    """Mix uniform episode frames with oversampled supervised keyframes.
+
+    Every epoch still contains ``num_frames`` samples. ``keyframe_fraction`` of
+    those samples are drawn from the supplied keyframes with replacement; the
+    remainder are uniformly shuffled eligible frames without replacement.
+    The sequence remains a pure function of ``(seed, epoch)`` and therefore
+    retains the resume/distributed behavior of :class:`EpisodeAwareSampler`.
+    """
+
+    def __init__(
+        self,
+        dataset_from_indices: list[int],
+        dataset_to_indices: list[int],
+        keyframe_indices: list[int] | np.ndarray,
+        *,
+        keyframe_fraction: float,
+        episode_indices_to_use: list | None = None,
+        drop_n_first_frames: int = 0,
+        drop_n_last_frames: int = 0,
+        seed: int = 0,
+    ) -> None:
+        if not 0.0 < keyframe_fraction < 1.0:
+            raise ValueError("keyframe_fraction must be in (0, 1).")
+        super().__init__(
+            dataset_from_indices,
+            dataset_to_indices,
+            episode_indices_to_use=episode_indices_to_use,
+            drop_n_first_frames=drop_n_first_frames,
+            drop_n_last_frames=drop_n_last_frames,
+            shuffle=True,
+            seed=seed,
+        )
+        lengths = np.diff(np.concatenate(([0], self._cum_lengths))).astype(np.int64)
+        self._uniform_indices = np.concatenate(
+            [np.arange(start, start + length, dtype=np.int64) for start, length in zip(self._starts, lengths)]
+        )
+        candidate_keyframes = np.asarray(keyframe_indices, dtype=np.int64).reshape(-1)
+        if candidate_keyframes.size == 0:
+            raise ValueError("At least one keyframe index is required for keyframe-aware sampling.")
+        positions = np.searchsorted(self._starts, candidate_keyframes, side="right") - 1
+        valid_position = positions >= 0
+        clipped = positions.clip(min=0)
+        valid = valid_position & (
+            candidate_keyframes < self._starts[clipped] + lengths[clipped]
+        )
+        self._keyframe_indices = np.unique(candidate_keyframes[valid])
+        if self._keyframe_indices.size == 0:
+            raise ValueError("No supplied keyframes remain after episode/frame filtering.")
+        self.keyframe_fraction = float(keyframe_fraction)
+
+    def _iter_epoch(self, epoch: int, start: int) -> Iterator[int]:
+        generator = self._epoch_generator(epoch)
+        keyframe_count = min(
+            self._num_frames,
+            max(1, round(self._num_frames * self.keyframe_fraction)),
+        )
+        uniform_count = self._num_frames - keyframe_count
+        uniform_positions = torch.randperm(self._num_frames, generator=generator)[:uniform_count]
+        uniform_indices = torch.from_numpy(self._uniform_indices)[uniform_positions]
+        sampled_keyframe_positions = torch.randint(
+            len(self._keyframe_indices),
+            (keyframe_count,),
+            generator=generator,
+        )
+        sampled_keyframes = torch.from_numpy(self._keyframe_indices)[sampled_keyframe_positions]
+        mixed = torch.cat([uniform_indices, sampled_keyframes])
+        mixed = mixed[torch.randperm(self._num_frames, generator=generator)]
+        for position in range(start, self._num_frames):
+            yield int(mixed[position])
+
+
+def get_feature_indices(dataset, feature_name: str) -> np.ndarray:
+    """Return global row indices where a scalar dataset feature is truthy."""
+
+    if feature_name not in dataset.features:
+        raise KeyError(f"Dataset does not contain keyframe feature {feature_name!r}.")
+    if feature_name == "planning.box_keyframe":
+        sidecar = Path(dataset.root) / "annotations/stage_keyframes/keyframes.parquet"
+        if sidecar.is_file():
+            import pyarrow.parquet as pq
+
+            indices = np.asarray(
+                pq.read_table(sidecar, columns=["dataset_index"])["dataset_index"].to_numpy(),
+                dtype=np.int64,
+            )
+            if indices.size and (indices.min() < 0 or indices.max() >= dataset.num_frames):
+                raise ValueError(f"Keyframe sidecar contains indices outside the dataset: {sidecar}.")
+            return np.unique(indices)
+    values = np.asarray(dataset.hf_dataset[feature_name], dtype=np.uint8).reshape(-1)
+    if values.shape[0] != dataset.num_frames:
+        raise ValueError(
+            f"Feature {feature_name!r} has {values.shape[0]} rows; expected {dataset.num_frames}."
+        )
+    return np.flatnonzero(values)
 
 
 def compute_sampler_state(step: int, num_frames: int, batch_size: int, num_processes: int) -> dict:

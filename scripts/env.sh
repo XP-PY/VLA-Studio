@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+unset http_proxy
+unset https_proxy
+unset no_proxy
+unset NO_PROXY
+unset all_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+unset ALL_PROXY
+
 # ===== Project paths =====
 export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -35,23 +44,22 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 # export ROBOT_CONFIG_PATH="configs/rm65_left_right_wrist_front_top.yaml"
 
 # ===== Dataset =====
-export TASK_ID="rm65_single_table_preparation_and_bussing"
+export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes"
 
 export TASK_PROMPT="Put all vegetables into the collection box."
-
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
 export TASK_SUBSET_ID="bus_the_table"
-export TASK_EPISODES=24
+export TASK_EPISODES=442
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v22_single_table_preparation_and_bussing_afv2_2_yoloe_boxes_episodes_203_steps_40000_batch_8_chunk_50__smolvla_init"
-export POLICY_TYPE="action_flow_v2_2"
-export STEPS=80000
-export PER_DEVICE_BATCH_SIZE=8
+export POLICY_ID=""
+export POLICY_TYPE="action_flow_v2_3"
+export STEPS=100000
+export PER_DEVICE_BATCH_SIZE=16
 export SAVE_FREQ=20000
 export LOG_FREQ=100
-export CHUNK_SIZES=(50)
+export CHUNK_SIZES=(50 30)
 export GPU_IDS=0
 export NUM_GPUS=1
 # Optional Action Flow V2.2 warm start. Leave empty to use the original

@@ -47,7 +47,13 @@ from lerobot.common.train_utils import (
 from lerobot.common.wandb_utils import WandBLogger
 from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
-from lerobot.datasets import EpisodeAwareSampler, compute_sampler_state, make_dataset
+from lerobot.datasets import (
+    EpisodeAwareSampler,
+    KeyframeAwareSampler,
+    compute_sampler_state,
+    get_feature_indices,
+    make_dataset,
+)
 from lerobot.envs import close_envs, make_env, make_env_pre_post_processors
 from lerobot.optim.factory import make_optimizer_and_scheduler
 from lerobot.policies import PreTrainedPolicy, make_policy, make_pre_post_processors
@@ -415,14 +421,38 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
         # same permutation. accelerate then shards it disjointly across ranks via BatchSamplerShard
         # without needing a `generator` attribute to synchronize an RNG, and resume is sample-exact.
         shuffle = False     # Turn off DataLoader shuffle
-        sampler = EpisodeAwareSampler(
-            dataset.meta.episodes["dataset_from_index"],
-            dataset.meta.episodes["dataset_to_index"],
-            episode_indices_to_use=dataset.episodes,
-            drop_n_last_frames=getattr(active_cfg, "drop_n_last_frames", 0),
-            shuffle=True,   # Sampler internally uses deterministic out-of-order delivery
-            seed=cfg.seed if cfg.seed is not None else 0,
-        )
+        keyframe_fraction = getattr(active_cfg, "keyframe_sampling_fraction", 0.0)
+        sampler_kwargs = {
+            "episode_indices_to_use": dataset.episodes,
+            "drop_n_last_frames": getattr(active_cfg, "drop_n_last_frames", 0),
+            "seed": cfg.seed if cfg.seed is not None else 0,
+        }
+        if keyframe_fraction > 0:
+            keyframe_feature = getattr(
+                active_cfg, "keyframe_feature_name", "planning.box_keyframe"
+            )
+            keyframe_indices = get_feature_indices(dataset, keyframe_feature)
+            sampler = KeyframeAwareSampler(
+                dataset.meta.episodes["dataset_from_index"],
+                dataset.meta.episodes["dataset_to_index"],
+                keyframe_indices,
+                keyframe_fraction=keyframe_fraction,
+                **sampler_kwargs,
+            )
+            if is_main_process:
+                logging.info(
+                    "Using keyframe-aware sampling: feature=%s keyframes=%d fraction=%.3f",
+                    keyframe_feature,
+                    len(keyframe_indices),
+                    keyframe_fraction,
+                )
+        else:
+            sampler = EpisodeAwareSampler(
+                dataset.meta.episodes["dataset_from_index"],
+                dataset.meta.episodes["dataset_to_index"],
+                shuffle=True,
+                **sampler_kwargs,
+            )
         if cfg.resume and step > 0:
             # The resume offset depends on the (num_processes, batch_size) that produced `step`, so
             # use the values recorded in the checkpoint (falling back to the current ones for older

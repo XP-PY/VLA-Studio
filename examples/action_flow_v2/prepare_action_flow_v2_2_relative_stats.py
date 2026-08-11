@@ -171,7 +171,7 @@ def main() -> None:
         shutil.copy2(stats_path, backup_path)
         logging.info("Backed up absolute-action statistics to %s", backup_path)
 
-    previous_action_stats = metadata.stats[ACTION]
+    previous_action_stats = metadata.stats.get(ACTION, {})
     updated_stats = dict(metadata.stats)
     updated_stats[ACTION] = relative_stats
     write_stats(updated_stats, args.dataset_root)

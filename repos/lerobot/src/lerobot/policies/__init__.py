@@ -19,6 +19,7 @@ from .action_flow_v1.configuration_action_flow_v1 import ActionFlowV1Config as A
 from .action_flow_v2.configuration_action_flow_v2 import ActionFlowV2Config as ActionFlowV2Config
 from .action_flow_v2_1.configuration_action_flow_v2_1 import ActionFlowV21Config as ActionFlowV21Config
 from .action_flow_v2_2.configuration_action_flow_v2_2 import ActionFlowV22Config as ActionFlowV22Config
+from .action_flow_v2_3.configuration_action_flow_v2_3 import ActionFlowV23Config as ActionFlowV23Config
 from .diffusion.configuration_diffusion import DiffusionConfig as DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config as EO1Config
 from .factory import get_policy_class, make_policy, make_policy_config, make_pre_post_processors
@@ -48,6 +49,7 @@ __all__ = [
     "ActionFlowV2Config",
     "ActionFlowV21Config",
     "ActionFlowV22Config",
+    "ActionFlowV23Config",
     "DiffusionConfig",
     "EO1Config",
     "GaussianActorConfig",

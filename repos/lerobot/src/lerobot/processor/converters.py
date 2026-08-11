@@ -164,6 +164,16 @@ _COMPLEMENTARY_KEYS = (
     "messages",
     "message_streams",
     "target_message_indices",
+    "planning.stage",
+    "planning.cycle_index",
+    "planning.segment_index",
+    "planning.source_entity",
+    "planning.destination_entity",
+    "planning.target_entity",
+    "planning.next_step",
+    "planning.segment_uid",
+    "planning.box_keyframe",
+    "planning.frames_remaining",
 )
 
 

@@ -10,6 +10,7 @@ models
 dataset
 spaces
 logs
+artifacts/huggingface/
 temp.sh
 temp.py
 annotations

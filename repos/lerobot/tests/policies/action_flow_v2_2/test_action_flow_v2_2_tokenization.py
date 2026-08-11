@@ -207,6 +207,18 @@ def test_grounding_boxes_round_trip_visible_and_not_visible_targets():
     assert decoded[3].coordinate_bins == (50, 60, 70, 80)
 
 
+def test_grounding_without_supervised_boxes_has_zero_loss_weight():
+    tokenizer = make_target_tokenizer()
+    labels = make_box_labels()
+    labels["target_box_loss_weight"][:] = 0
+
+    tokens, weights = tokenizer.serialize_grounding(**labels)
+
+    assert len(tokens) == len(weights)
+    assert all(weight == 0 for weight in weights)
+    assert tokenizer.deserialize_grounding(tokens) == []
+
+
 def test_fast_symbol_mapping_and_fixed_size_sample_serialization_round_trip():
     tokenizer = make_target_tokenizer()
     labels = make_box_labels()
