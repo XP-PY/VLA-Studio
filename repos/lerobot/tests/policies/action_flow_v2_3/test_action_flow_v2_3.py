@@ -10,7 +10,7 @@ import torch
 from lerobot.policies.action_flow_v2_2.configuration_action_flow_v2_2 import ActionFlowV22Config
 from lerobot.policies.action_flow_v2_3.configuration_action_flow_v2_3 import ActionFlowV23Config
 from lerobot.policies.action_flow_v2_3.modeling_action_flow_v2_3 import (
-    build_hierarchical_attention_mask,
+    build_multitask_attention_mask,
     pack_autoregressive_targets_v2_3,
 )
 from lerobot.policies.action_flow_v2_3.tokenization_action_flow_v2_3 import (
@@ -28,8 +28,8 @@ def test_planning_tokens_append_without_moving_v2_2_ids():
     assert v2_3.required_vlm_vocab_size == v2_2.required_vlm_vocab_size + 5
 
 
-def test_hierarchical_attention_conditions_branches_on_plan_only():
-    attention, positions = build_hierarchical_attention_mask(
+def test_multitask_attention_keeps_autoregressive_branches_independent():
+    attention, positions = build_multitask_attention_mask(
         prefix_pad_mask=torch.tensor([[True, True, True]]),
         prefix_attention_groups=torch.tensor([[False, False, True]]),
         plan_mask=torch.tensor([[True, True, True]]),
@@ -42,12 +42,15 @@ def test_hierarchical_attention_conditions_branches_on_plan_only():
     assert not attention[0, :3, 3:].any()
     assert attention[0, 3, :4].all()
     assert not attention[0, 3, 4]
-    assert attention[0, 6:8, :6].all()
-    assert attention[0, 8:10, :6].all()
+    assert not attention[0, 3:6, 6:10].any()
+    assert attention[0, 6:8, :3].all()
+    assert not attention[0, 6:8, 3:6].any()
+    assert attention[0, 8:10, :3].all()
+    assert not attention[0, 8:10, 3:6].any()
     assert not attention[0, 6:8, 8:10].any()
     assert not attention[0, 8:10, 6:8].any()
     torch.testing.assert_close(
-        positions, torch.tensor([[0, 1, 2, 3, 4, 5, 6, 7, 6, 7]])
+        positions, torch.tensor([[0, 1, 2, 3, 4, 5, 3, 4, 3, 4]])
     )
 
 
@@ -75,7 +78,7 @@ def test_three_autoregressive_branches_remove_fixed_starts():
     torch.testing.assert_close(packed.action_loss_weight, torch.tensor([[0.5, 0.5]]))
 
 
-def test_plan_roundtrip_and_segment_masks_use_local_artifact():
+def test_plan_roundtrip_and_all_fast_tokens_are_supervised():
     artifact = (
         Path(__file__).resolve().parents[5]
         / "artifacts/tokenizers/action_flow_v2_3_smolvlm_fast"
@@ -111,8 +114,7 @@ def test_plan_roundtrip_and_segment_masks_use_local_artifact():
         target_entity_valid=valid,
         planning_stage="grasp",
         planning_target_entity="tomato",
-        planning_frames_remaining=2,
     )
-    assert sample.segment_action_mask.tolist() == [True, True, False, False]
-    assert sample.action_token_loss_weight.sum() == 0
+    assert sample.action_token_loss_weight.sum() == sample.action_token_mask.sum()
+    assert sample.action_token_loss_weight.sum() > 0
     assert sample.grounding_token_loss_weight.sum() == 0

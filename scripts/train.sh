@@ -386,9 +386,9 @@ elif [ "$POLICY_TYPE" = "action_flow_v2_3" ]; then
 for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     PLAN_LOSS_WEIGHT="${PLAN_LOSS_WEIGHT:-1.0}"
     BOX_LOSS_WEIGHT="${BOX_LOSS_WEIGHT:-1.0}"
-    FAST_LOSS_WEIGHT="${FAST_LOSS_WEIGHT:-0.5}"
+    FAST_LOSS_WEIGHT="${FAST_LOSS_WEIGHT:-1.0}"
     FLOW_LOSS_WEIGHT="${FLOW_LOSS_WEIGHT:-1.0}"
-    KEYFRAME_SAMPLING_FRACTION="${KEYFRAME_SAMPLING_FRACTION:-0.25}"
+    KEYFRAME_SAMPLING_FRACTION="${KEYFRAME_SAMPLING_FRACTION:-0.05}"
     OPTIMIZER_LR="${OPTIMIZER_LR:-3e-5}"
     TRAIN_MIXED_PRECISION="${TRAIN_MIXED_PRECISION:-bf16}"
     AFV23_DATASET_ID="${AFV23_DATASET_ID:-rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes}"
@@ -401,7 +401,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
         AFV23_SMOLVLA_INIT_ARGS+=(--policy.smolvla_pretrained_path="$SMOLVLA_PRETRAINED_PATH")
         SMOLVLA_INIT_TAG="smolvla_init"
     fi
-    TRAINING_ID="rm65_action_flow_v23_planning_boxes_episodes_442_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_${SMOLVLA_INIT_TAG}"
+    TRAINING_ID="rm65_action_flow_v23_independent_branches_planning_boxes_episodes_442_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_${KEYFRAME_SAMPLING_FRACTION}"
     ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=$TRAIN_MIXED_PRECISION)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
@@ -439,7 +439,6 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
       --policy.load_vlm_weights=true \
       --policy.knowledge_insulation=true \
       --policy.detach_expert_prefix_kv=true \
-      --policy.segment_aware_action_loss=true \
       --policy.keyframe_sampling_fraction="$KEYFRAME_SAMPLING_FRACTION" \
       --policy.plan_loss_weight="$PLAN_LOSS_WEIGHT" \
       --policy.box_loss_weight="$BOX_LOSS_WEIGHT" \

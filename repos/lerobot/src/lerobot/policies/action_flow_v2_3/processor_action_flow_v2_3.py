@@ -58,10 +58,8 @@ from .data_contracts_action_flow_v2_3 import (
     PLAN_TOKEN_LOSS_WEIGHT,
     PLAN_TOKEN_MASK,
     PLAN_TOKENS,
-    PLANNING_FRAMES_REMAINING,
     PLANNING_STAGE,
     PLANNING_TARGET_ENTITY,
-    SEGMENT_ACTION_MASK,
 )
 from .tokenization_action_flow_v2_3 import ActionFlowV23TargetTokenizer, VLM_TOKENIZER_DIR
 
@@ -128,7 +126,6 @@ def _target_tokenizer_config_kwargs(config: ActionFlowV23Config) -> dict[str, An
         "fast_token_suffix": config.fast_token_suffix,
         "fast_token_width": config.fast_token_width,
         "extended_vlm_vocab_size": config.extended_vlm_vocab_size,
-        "segment_aware_action_loss": config.segment_aware_action_loss,
     }
 
 
@@ -144,19 +141,10 @@ def _string_batch(value: Any, *, name: str, batch_size: int) -> list[str]:
     return values
 
 
-def _integer_batch(value: Any, *, name: str, batch_size: int) -> list[int]:
-    if not isinstance(value, torch.Tensor):
-        value = torch.as_tensor(value)
-    values = value.reshape(-1).detach().cpu().tolist()
-    if len(values) != batch_size:
-        raise ValueError(f"`{name}` has {len(values)} values for batch size {batch_size}.")
-    return [int(item) for item in values]
-
-
 @dataclass
 @ProcessorStepRegistry.register(name=TARGET_TOKENIZER_PROCESSOR_NAME)
 class ActionFlowV23TargetTokenizerProcessorStep(ProcessorStep):
-    """Serialize plans, sparse boxes, FAST actions, and segment masks."""
+    """Serialize independent plan, sparse-box, and FAST targets."""
 
     tokenizer_artifact_path: str
     config_kwargs: dict[str, Any]
@@ -193,7 +181,7 @@ class ActionFlowV23TargetTokenizerProcessorStep(ProcessorStep):
         missing = [key for key in box_keys if key not in observation]
         missing.extend(
             key
-            for key in (PLANNING_STAGE, PLANNING_TARGET_ENTITY, PLANNING_FRAMES_REMAINING)
+            for key in (PLANNING_STAGE, PLANNING_TARGET_ENTITY)
             if key not in complementary
         )
         if missing:
@@ -222,12 +210,6 @@ class ActionFlowV23TargetTokenizerProcessorStep(ProcessorStep):
             name=PLANNING_TARGET_ENTITY,
             batch_size=batch_size,
         )
-        remaining = _integer_batch(
-            complementary[PLANNING_FRAMES_REMAINING],
-            name=PLANNING_FRAMES_REMAINING,
-            batch_size=batch_size,
-        )
-
         serialized = [
             self.target_tokenizer.serialize_sample(
                 normalized_relative_actions=action[index],
@@ -239,7 +221,6 @@ class ActionFlowV23TargetTokenizerProcessorStep(ProcessorStep):
                 target_entity_valid=labels[TARGET_ENTITY_VALID][index],
                 planning_stage=stages[index],
                 planning_target_entity=targets[index],
-                planning_frames_remaining=remaining[index],
             )
             for index in range(batch_size)
         ]
@@ -263,9 +244,6 @@ class ActionFlowV23TargetTokenizerProcessorStep(ProcessorStep):
         )
         complementary[ACTION_TOKEN_LOSS_WEIGHT] = torch.stack(
             [item.action_token_loss_weight for item in serialized]
-        )
-        complementary[SEGMENT_ACTION_MASK] = torch.stack(
-            [item.segment_action_mask for item in serialized]
         )
         new_transition[TransitionKey.COMPLEMENTARY_DATA] = complementary
         return new_transition

@@ -47,7 +47,6 @@ class SerializedTargetsV23:
     action_tokens: torch.Tensor
     action_token_mask: torch.Tensor
     action_token_loss_weight: torch.Tensor
-    segment_action_mask: torch.Tensor
 
 
 def action_flow_v2_3_added_tokens(config: ActionFlowV23Config) -> list[str]:
@@ -219,9 +218,8 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
         target_entity_valid: torch.Tensor | np.ndarray,
         planning_stage: str,
         planning_target_entity: str,
-        planning_frames_remaining: int,
     ) -> SerializedTargetsV23:
-        """Serialize all V2.3 targets and construct segment-aware loss masks."""
+        """Serialize independent planning, grounding, and FAST targets."""
 
         plan_tokens = self.serialize_plan(
             stage=planning_stage,
@@ -252,15 +250,7 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
             grounding_weights, dtype=torch.float32
         )
 
-        remaining = max(0, int(planning_frames_remaining))
-        valid_steps = min(remaining, self.config.chunk_size)
-        segment_action_mask = torch.arange(self.config.chunk_size) < valid_steps
-        if not self.config.segment_aware_action_loss:
-            segment_action_mask.fill_(True)
-        fast_is_fully_within_segment = remaining >= self.config.chunk_size
         action_loss_weight = action_mask.float()
-        if self.config.segment_aware_action_loss and not fast_is_fully_within_segment:
-            action_loss_weight.zero_()
 
         return SerializedTargetsV23(
             plan_tokens=plan_ids,
@@ -272,7 +262,6 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
             action_tokens=action_ids,
             action_token_mask=action_mask,
             action_token_loss_weight=action_loss_weight,
-            segment_action_mask=segment_action_mask,
         )
 
     def save_pretrained(self, output_dir: str | Path) -> None:

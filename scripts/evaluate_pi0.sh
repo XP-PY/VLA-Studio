@@ -103,8 +103,8 @@ if [[ "$DETECTED_POLICY_TYPE" =~ ^action_flow_v2(_1)?$ && "${EVAL_SAVE_HEATMAP_V
 fi
 
 SESSION_TIME="$(date +%Y%m%d_%H%M%S)"
-EVAL_ID="rollout_rm65_action_flow_v22_smolvla_init_multi_prompt_${SESSION_TIME}"
-# EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt_${SESSION_TIME}"
+# EVAL_ID="rollout_rm65_action_flow_v22_smolvla_init_multi_prompt_${SESSION_TIME}"
+EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt_${SESSION_TIME}"
 EVAL_DIR="$STORAGE_ROOT/runs/rollout_dataset/$EVAL_ID"
 LOG_PATH="$STORAGE_ROOT/logs/evaluate_${SELECTED_POLICY_ID}.log"
 mkdir -p "$STORAGE_ROOT/runs/rollout_dataset" "$STORAGE_ROOT/logs"

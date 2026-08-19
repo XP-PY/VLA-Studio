@@ -49,7 +49,7 @@ Main topics:
 - Feedback control
 - Grasping and manipulation
 
-My note book link:
+My book learning note link:
 
 <https://github.com/XP-PY/llm-prep-2026/blob/main/docs/Books/Robotics/Modern_Robotics.md>
 
@@ -75,7 +75,7 @@ Main topics:
 - Policy gradients
 - Actor-critic methods
 
-My note book link:
+My book learning note link:
 
 <https://github.com/XP-PY/llm-prep-2026/blob/main/docs/Books/Reinforcement_Learning/Reinforcement_Learning_An_Introduction.md>
 

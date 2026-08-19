@@ -5,14 +5,14 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
-ROLLOUT_DIR="runs/rollout_dataset/rollout_rm65_action_flow_v22_multi_prompt_20260802_142921"
+ROLLOUT_DIR="runs/rollout_dataset/rollout_rm65_action_flow_v23_planning_boxes_episodes_442_steps_100000_batch_16_chunk_50_smolvla_uninit_multi_prompt_20260818_103740"
 # ROLLOUT_DIR="runs/rollout_dataset/rollout_${POLICY_ID}_multi_prompt"
 VIDEO_DIR="${ROLLOUT_DIR}/videos"
 
 POLICY="action_flow"
 CHUNK_ID="chunk-000"
 # OUTPUT="runs/temp/${FILE_ID}.mp4"
-OUTPUT="docs/assets/${POLICY}/v2_ob_1_log_3_rollout_9.mp4"
+OUTPUT="docs/assets/${POLICY}/v2_ob_1_log_5_rollout_3.mp4"
 
 # Find all observation images folders
 CAM_DIRS=($(find "$VIDEO_DIR" -maxdepth 1 -type d -name "observation.images.*" | sort))

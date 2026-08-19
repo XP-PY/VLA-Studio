@@ -2333,3 +2333,166 @@ The implemented pipeline passed the following checks before training:
 The pipeline is therefore ready for the first Action Flow V2.3 training run. Rollout evaluation is
 still required to determine whether explicit stage prediction improves target alignment, grasp
 retention, and transition from transport to placement.
+
+### Training Log 6 of Objective 1
+
+#### Motivation
+
+The first Action Flow V2.3 implementation made the FAST and continuous-action branches conditional
+on the predicted plan and disabled action supervision when a chunk crossed a planning boundary.
+This introduced an architectural dependency that is not required by knowledge-insulation training
+and removed FAST supervision from a substantial fraction of frames. This experiment corrects the
+pipeline to use independent multitask objectives over one shared VLM representation.
+
+#### Policy Structure
+
+The VLM first encodes the shared observation prefix:
+
+```text
+wrist image + top image + task prompt + robot state
+                         |
+              shared VLM prefix features
+             /            |             \
+      <plan> branch  <grounding> branch  <action> branch
+```
+
+The three autoregressive branches are trained in one masked VLM forward pass:
+
+1. Plan tokens attend only to the shared prefix and previous plan tokens.
+2. Grounding tokens attend only to the shared prefix and previous grounding tokens.
+3. FAST tokens attend only to the shared prefix and previous FAST tokens.
+4. No autoregressive branch can attend to another branch.
+
+The losses remain separate even though they update the same VLM backbone:
+
+$$
+L = 1.0L_{plan} + 1.0L_{box} + 0.5L_{FAST} + 1.0L_{flow}.
+$$
+
+- `L_plan` is applied to every frame.
+- `L_box` is applied only to manually reviewed grounding keyframes.
+- `L_FAST` is applied to the complete non-padding action chunk for every frame.
+- `L_flow` is applied to the complete non-padding continuous action chunk for every frame.
+
+The continuous action expert receives only detached K/V features from the shared image, task, and
+state prefix. It does not receive Plan, Grounding, or FAST output tokens, and its flow-matching
+gradient cannot update the VLM. Plan and FAST therefore serve as independent next-token objectives
+that jointly adapt the shared VLM representation.
+
+At inference time, Plan and optional Grounding outputs are generated independently for diagnostics.
+Continuous actions are produced by flow denoising conditioned only on the detached shared prefix.
+
+#### Implementation Changes
+
+- Replaced hierarchical `Plan -> Grounding/FAST` attention with three independent causal branches.
+- Removed Plan tokens from the continuous action expert's K/V context.
+- Removed planning-segment masking from FAST and flow losses.
+- Retained `planning.frames_remaining` in the dataset only as analysis metadata.
+- Added `independent_branches` to the training identifier so corrected runs cannot be confused with
+  the previous Action Flow V2.3 checkpoints.
+
+#### Implementation Validation
+
+The corrected pipeline passed independent-branch attention and target-serialization tests. A
+one-step training smoke test on the complete 442-episode dataset completed preprocessing, forward
+propagation, backward propagation, optimization, and checkpoint saving. Reloading that checkpoint
+produced a finite action tensor with shape `(1, 50, 7)` and independently decoded a valid Plan.
+
+##### Rollout Videos
+
+**Place the tomato on the pink plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_5_rollout_0.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: wrong placed plate and unstable gripper opening and closing degree.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_5_rollout_1.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: inaccurate grasping and placement.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the cucumber on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_5_rollout_2.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: selected the wrong initial target and did not recover.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_5_rollout_3.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: motion was not directed toward a clear task objective.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the blue plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_4.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: approached the correct source, but insufficient gripper closure caused the grasp to fail.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_5.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: confused the collection box with the source and failed to recover.</em></p>
+    </td>
+</tr>
+</table>
+
+**Put the vegetable from the yellow plate into the collection box**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_6.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: closed the gripper in empty space.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_7.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: transferred a tomato to the collection box, but the action was unrelated to the requested source plate.</em></p>
+    </td>
+</tr>
+</table>
+
+**Place the tomato on the pink plate, then place the garlic on the blue plate**
+
+<table>
+<tr>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_8.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 1: selected the wrong target for the first subtask.</em></p>
+    </td>
+    <td align="center">
+    <video controls width="100%">
+        <source src="assets/action_flow/v2_ob_1_log_3_rollout_9.mp4" type="video/mp4">
+    </video>
+    <p><em>Trial 2: again selected the wrong target for the first subtask.</em></p>
+    </td>
+</tr>
+</table>
+
+##### Analysis

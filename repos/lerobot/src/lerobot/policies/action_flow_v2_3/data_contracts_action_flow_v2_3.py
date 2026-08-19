@@ -10,7 +10,6 @@ PLAN_TOKENS = "observation.plan_tokens"
 PLAN_TOKEN_MASK = "observation.plan_token_mask"
 PLAN_TOKEN_LOSS_WEIGHT = "observation.plan_token_loss_weight"
 ACTION_TOKEN_LOSS_WEIGHT = "action_token_loss_weight"
-SEGMENT_ACTION_MASK = "segment_action_mask"
 
 PLANNING_STAGE = "planning.stage"
 PLANNING_TARGET_ENTITY = "planning.target_entity"
@@ -20,7 +19,6 @@ PLANNING_BOX_KEYFRAME = "planning.box_keyframe"
 PLANNING_FEATURE_KEYS = (
     PLANNING_STAGE,
     PLANNING_TARGET_ENTITY,
-    PLANNING_FRAMES_REMAINING,
     PLANNING_BOX_KEYFRAME,
 )
 
@@ -44,5 +42,4 @@ __all__ = [
     "PLANNING_STAGE",
     "PLANNING_TARGET_ENTITY",
     "PlanningStage",
-    "SEGMENT_ACTION_MASK",
 ]

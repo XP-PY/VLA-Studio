@@ -45,7 +45,6 @@ export ROBOT_CONFIG_PATH="configs/rm65_wrist_top.yaml"
 
 # ===== Dataset =====
 export TASK_ID="rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes"
-
 export TASK_PROMPT="Put all vegetables into the collection box."
 export TASK_ROOT="$STORAGE_ROOT/runs/dataset/$TASK_ID"
 export TASK_SUBSET_ID="bus_the_table"
@@ -53,35 +52,36 @@ export TASK_EPISODES=442
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID=""
+export POLICY_ID="rm65_action_flow_v23_planning_boxes_episodes_442_steps_100000_batch_16_chunk_50_smolvla_uninit"
 export POLICY_TYPE="action_flow_v2_3"
-export STEPS=100000
+export STEPS=40000
 export PER_DEVICE_BATCH_SIZE=16
 export SAVE_FREQ=20000
 export LOG_FREQ=100
-export CHUNK_SIZES=(50 30)
+export CHUNK_SIZES=(30 50 10 20 40)
 export GPU_IDS=0
 export NUM_GPUS=1
 # Optional Action Flow V2.2 warm start. Leave empty to use the original
 # pretrained-SmolVLM plus randomly initialized action-expert path.
-export SMOLVLA_PRETRAINED_PATH="${SMOLVLA_PRETRAINED_PATH:-}"
-# export SMOLVLA_PRETRAINED_PATH="lerobot/smolvla_base"
+# export SMOLVLA_PRETRAINED_PATH="${SMOLVLA_PRETRAINED_PATH:-}"
+export SMOLVLA_PRETRAINED_PATH="lerobot/smolvla_base"
 
 # ===== Rollout common settings =====
+# 0948 09455
 export N_ACTION_STEPS=1
 export NUM_INFERENCE_STEP=8
-export ROLLOUT_FPS=20
+export ROLLOUT_FPS=10
 export ROLLOUT_DURATION=360
 export ROLLOUT_CANFD_FOLLOW=false
 export ROLLOUT_STRATEGY_TYPE=highlight
 export ROLLOUT_DIR="$STORAGE_ROOT/runs/rollout_dataset/rollout_${POLICY_ID}"
 export ROLLOUT_INFERENCE_TYPE=rtc
-export RTC_EXECUTION_HORIZON=15
-export RTC_QUEUE_THRESHOLD=25
-export RTC_MAX_GUIDANCE_WEIGHT=15
-# export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
-export RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"
-export EVAL_NUM_STEPS=5
+export RTC_EXECUTION_HORIZON=20         # 20
+export RTC_QUEUE_THRESHOLD=30           # 25
+export RTC_MAX_GUIDANCE_WEIGHT=10       # 10
+export RTC_PREFIX_ATTENTION_SCHEDULE="EXP"
+# export RTC_PREFIX_ATTENTION_SCHEDULE="LINEAR"
+export EVAL_NUM_STEPS=4
 
 # ===== W&B =====
 export WANDB_ENABLE=true
