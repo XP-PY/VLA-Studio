@@ -102,6 +102,14 @@ if [[ "$DETECTED_POLICY_TYPE" =~ ^action_flow_v2(_1)?$ && "${EVAL_SAVE_HEATMAP_V
     )
 fi
 
+OUTPUT_ARGS=()
+if [[ "${EVAL_PRINT_POLICY_OUTPUTS:-true}" == "true" ]]; then
+    OUTPUT_ARGS+=(
+        "--print-policy-outputs"
+        "--print-action-every=${EVAL_PRINT_ACTION_EVERY:-1}"
+    )
+fi
+
 SESSION_TIME="$(date +%Y%m%d_%H%M%S)"
 # EVAL_ID="rollout_rm65_action_flow_v22_smolvla_init_multi_prompt_${SESSION_TIME}"
 EVAL_ID="rollout_${SELECTED_POLICY_ID}_multi_prompt_${SESSION_TIME}"
@@ -127,6 +135,7 @@ COMMAND=(
     "$PROJECT_ROOT/examples/evaluate_pi0_prompts.py"
     "--eval-prompt=$TASK_PROMPT"
     "${HEATMAP_ARGS[@]}"
+    "${OUTPUT_ARGS[@]}"
     "--config_path=$ROBOT_CONFIG_PATH"
     "--strategy.type=episodic"
     "--strategy.reset_to_initial_position=${EVAL_RESET_TO_INITIAL_POSITION:-true}"
@@ -152,6 +161,7 @@ COMMAND=(
 echo "Policy type: $DETECTED_POLICY_TYPE"
 echo "Checkpoint: $CHECKPOINT_NAME ($POLICY_PATH)"
 echo "Inference: $EVAL_INFERENCE_TYPE; policy step override: $STEP_OVERRIDE"
+echo "Policy output logging: ${EVAL_PRINT_POLICY_OUTPUTS:-true}; action interval: ${EVAL_PRINT_ACTION_EVERY:-1} frame(s)"
 echo "Evaluation dataset: $EVAL_DIR"
 echo "Dataset mode: $([[ "$EVAL_RESUME" == "true" ]] && echo "resume" || echo "create")"
 echo "Log: $LOG_PATH"

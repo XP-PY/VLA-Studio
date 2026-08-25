@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Multitask, knowledge-insulated Action Flow V2.3 policy."""
+"""Planning-conditioned, knowledge-insulated Action Flow V2.3 policy."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ from .data_contracts_action_flow_v2_3 import (
     PLAN_TOKEN_LOSS_WEIGHT,
     PLAN_TOKEN_MASK,
     PLAN_TOKENS,
+    SEGMENT_ACTION_MASK,
 )
 from .processor_action_flow_v2_3 import resolve_tokenizer_artifact_path
 from .tokenization_action_flow_v2_3 import ActionFlowV23TargetTokenizer
@@ -72,6 +73,9 @@ class ActionFlowV23ForwardOutput:
     plan_loss: Tensor
     box_loss: Tensor
     fast_loss: Tensor
+    fast_token_top1_accuracy: Tensor
+    fast_token_top5_accuracy: Tensor
+    fast_sequence_exact_accuracy: Tensor
 
 
 def _compact_branch(
@@ -130,7 +134,7 @@ def pack_autoregressive_targets_v2_3(
     grounding_start_token_id: int,
     action_start_token_id: int,
 ) -> PackedAutoregressiveTargetsV23:
-    """Remove fixed branch seeds and compact three independent target sequences."""
+    """Remove fixed branch seeds and compact the three target sequences."""
 
     plan_ids, plan_valid, plan_weights = _compact_branch(
         plan_tokens,
@@ -166,17 +170,110 @@ def pack_autoregressive_targets_v2_3(
     )
 
 
-def build_multitask_attention_mask(
+def compute_fast_token_accuracies(
+    logits: Tensor,
+    targets: Tensor,
+    weights: Tensor,
+    *,
+    action_end_token_id: int,
+    fast_token_start_id: int,
+    fast_token_stop_id: int,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Measure FAST-symbol top-k and exact-sequence accuracy.
+
+    Structural targets such as ``<action_end>`` are excluded so the metrics
+    describe only the learned FAST action symbols.
+    """
+
+    restricted_logits, restricted_targets = restrict_fast_token_vocabulary(
+        logits,
+        targets,
+        weights,
+        action_end_token_id=action_end_token_id,
+        fast_token_start_id=fast_token_start_id,
+        fast_token_stop_id=fast_token_stop_id,
+    )
+
+    with torch.no_grad():
+        # Restricted class 0 is <action_end>; classes 1..N are FAST symbols.
+        valid = (weights > 0) & (restricted_targets > 0)
+        topk = restricted_logits.detach().topk(
+            min(5, restricted_logits.shape[-1]), dim=-1
+        ).indices
+        top1_correct = topk[..., 0].eq(restricted_targets)
+        top5_correct = topk.eq(restricted_targets.unsqueeze(-1)).any(dim=-1)
+        valid_count = valid.sum().clamp_min(1)
+        top1 = (top1_correct & valid).sum().float() / valid_count
+        top5 = (top5_correct & valid).sum().float() / valid_count
+
+        valid_sequences = valid.any(dim=1)
+        sequence_exact = (top1_correct | ~valid).all(dim=1)
+        exact = (sequence_exact & valid_sequences).sum().float() / valid_sequences.sum().clamp_min(1)
+        return top1, top5, exact
+
+
+def restrict_fast_token_vocabulary(
+    logits: Tensor,
+    targets: Tensor,
+    weights: Tensor,
+    *,
+    action_end_token_id: int,
+    fast_token_start_id: int,
+    fast_token_stop_id: int,
+) -> tuple[Tensor, Tensor]:
+    """Select legal FAST classes and remap their targets to a compact vocabulary.
+
+    The action branch may emit ``<action_end>`` or a FAST action symbol. Text,
+    grounding, and planning tokens are impossible in this branch and therefore
+    should not compete in its softmax.
+    """
+
+    if logits.ndim != 3:
+        raise ValueError("FAST logits must be shaped (batch_size, sequence_length, vocab_size).")
+    if targets.shape != logits.shape[:2] or weights.shape != targets.shape:
+        raise ValueError("FAST targets and weights must match the first two logit dimensions.")
+    vocab_size = logits.shape[-1]
+    if not 0 <= action_end_token_id < vocab_size:
+        raise ValueError("The <action_end> token ID is outside the logit vocabulary.")
+    if not 0 <= fast_token_start_id < fast_token_stop_id <= vocab_size:
+        raise ValueError("The FAST token range is outside the logit vocabulary.")
+    if fast_token_start_id <= action_end_token_id < fast_token_stop_id:
+        raise ValueError("The <action_end> token must be outside the FAST token range.")
+
+    is_fast = (targets >= fast_token_start_id) & (targets < fast_token_stop_id)
+    is_action_end = targets == action_end_token_id
+    invalid_supervised = (weights > 0) & ~(is_fast | is_action_end)
+    if invalid_supervised.any():
+        invalid_ids = torch.unique(targets[invalid_supervised]).detach().cpu().tolist()
+        raise ValueError(f"FAST loss received illegal supervised token IDs: {invalid_ids}.")
+
+    restricted_logits = torch.cat(
+        [
+            logits[..., action_end_token_id : action_end_token_id + 1],
+            logits[..., fast_token_start_id:fast_token_stop_id],
+        ],
+        dim=-1,
+    )
+    restricted_targets = torch.where(
+        is_fast,
+        targets - fast_token_start_id + 1,
+        torch.zeros_like(targets),
+    )
+    return restricted_logits, restricted_targets
+
+
+def build_hierarchical_attention_mask(
     prefix_pad_mask: Tensor,
     prefix_attention_groups: Tensor,
     plan_mask: Tensor,
     grounding_mask: Tensor,
     action_mask: Tensor,
 ) -> tuple[Tensor, Tensor]:
-    """Build three independent causal branches over one shared VLM prefix.
+    """Build prefix -> plan -> parallel grounding/FAST branch attention.
 
-    Plan, grounding, and FAST tokens each attend the image/language/state prefix
-    and their own causal history. No autoregressive branch attends another.
+    Plan tokens attend the shared prefix and causal plan history. Grounding and
+    FAST tokens attend the shared prefix, the complete teacher-forced plan, and
+    their own causal history, but never attend one another.
     """
 
     if prefix_pad_mask.shape != prefix_attention_groups.shape:
@@ -212,6 +309,7 @@ def build_multitask_attention_mask(
     action_start = grounding_stop
     action_stop = action_start + lengths[3]
     prefix_keys = prefix_pad_mask[:, None, :]
+    plan_keys = plan_mask[:, None, :]
 
     attention[:, plan_start:plan_stop, :prefix_length] = plan_mask[:, :, None] & prefix_keys
     attention[:, grounding_start:grounding_stop, :prefix_length] = (
@@ -219,6 +317,12 @@ def build_multitask_attention_mask(
     )
     attention[:, action_start:action_stop, :prefix_length] = (
         action_mask[:, :, None] & prefix_keys
+    )
+    attention[:, grounding_start:grounding_stop, plan_start:plan_stop] = (
+        grounding_mask[:, :, None] & plan_keys
+    )
+    attention[:, action_start:action_stop, plan_start:plan_stop] = (
+        action_mask[:, :, None] & plan_keys
     )
     for start, stop, mask in (
         (plan_start, plan_stop, plan_mask),
@@ -232,8 +336,8 @@ def build_multitask_attention_mask(
         )
 
     prefix_positions = torch.cumsum(prefix_pad_mask, dim=1) - 1
-    branch_start = prefix_pad_mask.sum(dim=1, keepdim=True)
-    plan_positions = branch_start + torch.cumsum(plan_mask, dim=1) - 1
+    plan_positions = prefix_pad_mask.sum(dim=1, keepdim=True) + torch.cumsum(plan_mask, dim=1) - 1
+    branch_start = prefix_pad_mask.sum(dim=1, keepdim=True) + plan_mask.sum(dim=1, keepdim=True)
     grounding_positions = branch_start + torch.cumsum(grounding_mask, dim=1) - 1
     action_positions = branch_start + torch.cumsum(action_mask, dim=1) - 1
     positions = torch.cat(
@@ -278,7 +382,7 @@ def _build_context_continuation_attention(
 
 
 class ActionFlowV23Model(VLAFlowMatching):
-    """Three independent VLM objectives plus an insulated flow expert."""
+    """Three VLM objectives plus a detached plan-conditioned flow expert."""
 
     def __init__(self, config: ActionFlowV23Config, rtc_processor=None):
         compile_model = config.compile_model
@@ -365,7 +469,7 @@ class ActionFlowV23Model(VLAFlowMatching):
             [prefix_embeddings, *(embeddings * scale for embeddings in decoder_embeddings)],
             dim=1,
         )
-        attention, positions = build_multitask_attention_mask(
+        attention, positions = build_hierarchical_attention_mask(
             prefix_pad_mask,
             prefix_attention_groups,
             decoder_masks[0],
@@ -409,17 +513,19 @@ class ActionFlowV23Model(VLAFlowMatching):
         grounding_logits = all_logits[:, plan_stop:grounding_stop]
         action_logits = all_logits[:, grounding_stop:]
 
-        prefix_cache = slice_prefix_key_values(
+        plan_context_length = prefix_length + decoder_masks[0].shape[1]
+        plan_context_mask = torch.cat([prefix_pad_mask.bool(), decoder_masks[0]], dim=1)
+        plan_context_cache = slice_prefix_key_values(
             full_cache,
-            prefix_length=prefix_length,
+            prefix_length=plan_context_length,
             detach=self.config.detach_expert_prefix_kv,
         )
         return (
             plan_logits,
             grounding_logits,
             action_logits,
-            prefix_pad_mask.bool(),
-            prefix_cache,
+            plan_context_mask,
+            plan_context_cache,
         )
 
     def forward_joint(
@@ -483,8 +589,29 @@ class ActionFlowV23Model(VLAFlowMatching):
             packed.grounding_token_ids,
             packed.grounding_loss_weight,
         )
+        action_end_token_id = self.config.structural_token_id("<action_end>")
+        if self.config.restrict_fast_vocabulary:
+            fast_loss_logits, fast_loss_targets = restrict_fast_token_vocabulary(
+                action_logits,
+                packed.action_token_ids,
+                packed.action_loss_weight,
+                action_end_token_id=action_end_token_id,
+                fast_token_start_id=self.config.fast_token_start_id,
+                fast_token_stop_id=self.config.action_flow_v2_2_vocab_size,
+            )
+        else:
+            fast_loss_logits = action_logits
+            fast_loss_targets = packed.action_token_ids
         fast_loss = weighted_token_cross_entropy(
-            action_logits, packed.action_token_ids, packed.action_loss_weight
+            fast_loss_logits, fast_loss_targets, packed.action_loss_weight
+        )
+        fast_top1, fast_top5, fast_exact = compute_fast_token_accuracies(
+            action_logits,
+            packed.action_token_ids,
+            packed.action_loss_weight,
+            action_end_token_id=action_end_token_id,
+            fast_token_start_id=self.config.fast_token_start_id,
+            fast_token_stop_id=self.config.action_flow_v2_2_vocab_size,
         )
         predicted_velocity = self.denoise_step(
             prefix_pad_masks=context_mask,
@@ -497,6 +624,9 @@ class ActionFlowV23Model(VLAFlowMatching):
             plan_loss=plan_loss,
             box_loss=box_loss,
             fast_loss=fast_loss,
+            fast_token_top1_accuracy=fast_top1,
+            fast_token_top5_accuracy=fast_top5,
+            fast_sequence_exact_accuracy=fast_exact,
         )
 
     def _greedy_decode_plan(
@@ -569,7 +699,7 @@ class ActionFlowV23Model(VLAFlowMatching):
         decoder_mask: Tensor,
     ) -> tuple[Tensor, Tensor]:
         empty = decoder_mask.new_zeros((decoder_mask.shape[0], 0))
-        return build_multitask_attention_mask(
+        return build_hierarchical_attention_mask(
             prefix_pad_mask,
             prefix_attention_groups,
             decoder_mask,
@@ -577,29 +707,32 @@ class ActionFlowV23Model(VLAFlowMatching):
             empty,
         )
 
-    def _cache_prefix_context(
+    def _cache_plan_context(
         self,
         prefix_embeddings: Tensor,
         prefix_pad_mask: Tensor,
         prefix_attention_groups: Tensor,
+        plan_ids: Tensor,
+        plan_mask: Tensor,
     ) -> tuple[Tensor, Tensor, Tensor, dict[int, dict[str, Tensor]]]:
-        """Cache only shared image, language, and state prefix features."""
+        """Cache shared prefix plus a predicted plan for insulated control."""
 
-        attention = make_att_2d_masks(prefix_pad_mask, prefix_attention_groups)
-        positions = (torch.cumsum(prefix_pad_mask, dim=1) - 1).clamp_min(0)
+        scale = math.sqrt(prefix_embeddings.shape[-1])
+        plan_embeddings = self.vlm_with_expert.embed_language_tokens(plan_ids) * scale
+        context_embeddings = torch.cat([prefix_embeddings, plan_embeddings], dim=1)
+        attention, positions = self._prefix_decoder_attention(
+            prefix_pad_mask, prefix_attention_groups, plan_mask
+        )
         (_, _), cache = self.vlm_with_expert.forward(
             attention_mask=attention,
             position_ids=positions,
             past_key_values=None,
-            inputs_embeds=[prefix_embeddings, None],
+            inputs_embeds=[context_embeddings, None],
             use_cache=self.config.use_cache,
             fill_kv_cache=True,
         )
-        cache = {
-            layer: {name: value.detach() for name, value in values.items()}
-            for layer, values in cache.items()
-        }
-        return prefix_embeddings, attention, prefix_pad_mask.bool(), cache
+        context_mask = torch.cat([prefix_pad_mask.bool(), plan_mask.bool()], dim=1)
+        return context_embeddings, attention, context_mask, cache
 
     def _greedy_decode_grounding(
         self,
@@ -656,7 +789,7 @@ class ActionFlowV23Model(VLAFlowMatching):
         noise=None,
         **kwargs,
     ) -> Tensor:
-        """Predict diagnostics independently and denoise from the shared prefix."""
+        """Predict a plan, then condition flow denoising on its detached K/V."""
 
         batch_size = state.shape[0]
         device = state.device
@@ -667,13 +800,15 @@ class ActionFlowV23Model(VLAFlowMatching):
         prefix_embeddings, prefix_pad_mask, prefix_attention_groups = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks, state=state
         )
-        plan_ids, _ = self._greedy_decode_plan(
+        plan_ids, plan_mask = self._greedy_decode_plan(
             prefix_embeddings, prefix_pad_mask, prefix_attention_groups
         )
-        context_embeddings, context_attention, context_mask, cache = self._cache_prefix_context(
+        context_embeddings, context_attention, context_mask, cache = self._cache_plan_context(
             prefix_embeddings,
             prefix_pad_mask,
             prefix_attention_groups,
+            plan_ids,
+            plan_mask,
         )
         self.last_plan_token_ids = plan_ids.detach().cpu()
         self.last_grounding_token_ids = None
@@ -681,6 +816,11 @@ class ActionFlowV23Model(VLAFlowMatching):
             self.last_grounding_token_ids = self._greedy_decode_grounding(
                 context_embeddings, context_attention, context_mask
             ).detach().cpu()
+
+        cache = {
+            layer: {name: value.detach() for name, value in values.items()}
+            for layer, values in cache.items()
+        }
 
         num_steps = self.config.num_steps
         dt = -1.0 / num_steps
@@ -793,7 +933,7 @@ class ActionFlowV23Policy(SmolVLAPolicy):
         time: Tensor | None = None,
         reduction: str = "mean",
     ) -> tuple[Tensor, dict[str, float]]:
-        """Train independent planning, box, FAST, and flow objectives jointly."""
+        """Train plan-conditioned, stage-aware FAST and flow objectives jointly."""
 
         if reduction not in {"mean", "none"}:
             raise ValueError(f"Unsupported reduction {reduction!r}.")
@@ -807,6 +947,7 @@ class ActionFlowV23Policy(SmolVLAPolicy):
             ACTION_TOKENS,
             ACTION_TOKEN_MASK,
             ACTION_TOKEN_LOSS_WEIGHT,
+            SEGMENT_ACTION_MASK,
         )
         missing = [key for key in required if key not in batch]
         if missing:
@@ -840,9 +981,7 @@ class ActionFlowV23Policy(SmolVLAPolicy):
 
         action_dim = self.config.action_feature.shape[0]
         flow_losses = outputs.flow_losses[:, :, :action_dim]
-        valid = torch.ones(
-            flow_losses.shape[:2], dtype=torch.bool, device=flow_losses.device
-        )
+        valid = batch[SEGMENT_ACTION_MASK].bool()
         action_is_pad = batch.get("action_is_pad")
         if action_is_pad is not None:
             valid = valid & ~action_is_pad.bool()
@@ -861,8 +1000,11 @@ class ActionFlowV23Policy(SmolVLAPolicy):
             "plan_ce_loss": outputs.plan_loss.detach().mean().item(),
             "box_ce_loss": outputs.box_loss.detach().mean().item(),
             "fast_ce_loss": outputs.fast_loss.detach().mean().item(),
+            "fast_token_top1_accuracy": outputs.fast_token_top1_accuracy.item(),
+            "fast_token_top5_accuracy": outputs.fast_token_top5_accuracy.item(),
+            "fast_sequence_exact_accuracy": outputs.fast_sequence_exact_accuracy.item(),
             "flow_loss": flow_loss.detach().mean().item(),
-            "action_valid_fraction": valid.float().mean().item(),
+            "segment_valid_fraction": valid.float().mean().item(),
         }
         return (total_loss, metrics) if reduction == "none" else (total_loss.mean(), metrics)
 
@@ -885,6 +1027,8 @@ __all__ = [
     "ActionFlowV23Model",
     "ActionFlowV23Policy",
     "PackedAutoregressiveTargetsV23",
-    "build_multitask_attention_mask",
+    "build_hierarchical_attention_mask",
+    "compute_fast_token_accuracies",
     "pack_autoregressive_targets_v2_3",
+    "restrict_fast_token_vocabulary",
 ]

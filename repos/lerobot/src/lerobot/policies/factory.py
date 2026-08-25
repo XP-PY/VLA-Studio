@@ -50,6 +50,7 @@ from .action_flow_v2.configuration_action_flow_v2 import ActionFlowV2Config
 from .action_flow_v2_1.configuration_action_flow_v2_1 import ActionFlowV21Config
 from .action_flow_v2_2.configuration_action_flow_v2_2 import ActionFlowV22Config
 from .action_flow_v2_3.configuration_action_flow_v2_3 import ActionFlowV23Config
+from .action_flow_v2_4.configuration_action_flow_v2_4 import ActionFlowV24Config
 from .diffusion.configuration_diffusion import DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config
 from .gaussian_actor.configuration_gaussian_actor import GaussianActorConfig
@@ -96,7 +97,7 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
     Args:
         name: The name of the policy. Supported names include "tdmpc", "diffusion", "act",
             "action_flow_v1", "action_flow_v2", "action_flow_v2_1", "action_flow_v2_2",
-            "action_flow_v2_3",
+            "action_flow_v2_3", "action_flow_v2_4",
             "multi_task_dit", "vqbet", "pi0", "pi05",
             "gaussian_actor", "smolvla", "wall_x", and "molmoact2".
     Returns:
@@ -129,6 +130,10 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
         from .action_flow_v2_3.modeling_action_flow_v2_3 import ActionFlowV23Policy
 
         return ActionFlowV23Policy
+    elif name == "action_flow_v2_4":
+        from .action_flow_v2_4.modeling_action_flow_v2_4 import ActionFlowV24Policy
+
+        return ActionFlowV24Policy
     elif name == "diffusion":
         from .diffusion.modeling_diffusion import DiffusionPolicy
 
@@ -229,6 +234,8 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
         return ActionFlowV22Config(**kwargs)
     elif policy_type == "action_flow_v2_3":
         return ActionFlowV23Config(**kwargs)
+    elif policy_type == "action_flow_v2_4":
+        return ActionFlowV24Config(**kwargs)
     elif policy_type == "diffusion":
         return DiffusionConfig(**kwargs)
     elif policy_type == "act":
@@ -320,7 +327,12 @@ def make_pre_post_processors(
             policy configuration type.
     """
     if pretrained_path:
-        if isinstance(policy_cfg, ActionFlowV23Config):
+        if isinstance(policy_cfg, ActionFlowV24Config):
+            # Importing registers the custom target-tokenizer processor before
+            # the saved pipeline JSON is deserialized.
+            from .action_flow_v2_4 import processor_action_flow_v2_4  # noqa: F401
+
+        elif isinstance(policy_cfg, ActionFlowV23Config):
             from .action_flow_v2_3.processor_action_flow_v2_3 import (
                 TARGET_TOKENIZER_PROCESSOR_NAME,
                 resolve_tokenizer_artifact_path,
@@ -415,6 +427,16 @@ def make_pre_post_processors(
         from .action_flow_v1.processor_action_flow_v1 import make_action_flow_v1_pre_post_processors
 
         processors = make_action_flow_v1_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
+    elif isinstance(policy_cfg, ActionFlowV24Config):
+        from .action_flow_v2_4.processor_action_flow_v2_4 import (
+            make_action_flow_v2_4_pre_post_processors,
+        )
+
+        processors = make_action_flow_v2_4_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )

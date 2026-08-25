@@ -1,0 +1,26 @@
+{
+  "source_artifact_format": "action_flow_v2_2_tokenizer",
+  "extended_vocabulary_size": 51601,
+  "action_flow_v2_2_vocab_size": 51596,
+  "planning_token_ids": {
+    "<plan>": 51596,
+    "</plan>": 51597,
+    "<grasp>": 51598,
+    "<put>": 51599,
+    "<complete>": 51600
+  },
+  "entity_names": [
+    "blue plate",
+    "collection box",
+    "corn",
+    "cucumber",
+    "garlic",
+    "pink plate",
+    "tomato",
+    "vegetable on blue plate",
+    "vegetable on pink plate",
+    "vegetable on yellow plate",
+    "yellow plate"
+  ],
+  "checkpoint_reload_exact": true
+}

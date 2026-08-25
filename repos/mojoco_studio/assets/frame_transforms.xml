@@ -1,0 +1,57 @@
+<mujoco model="week 3 coordinate frames">
+  <!-- Preserve the fixed base as a named body whose world pose can be read. -->
+  <compiler angle="radian" fusestatic="false"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient"
+             rgb1="0.25 0.35 0.50" rgb2="0.02 0.03 0.05"
+             width="512" height="3072"/>
+    <material name="link_material" rgba="0.18 0.55 0.92 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 -2 3" dir="0 1 -1"/>
+    <geom name="floor" type="plane" size="2 2 0.1"
+          rgba="0.18 0.20 0.22 1"/>
+
+    <!--
+      {B}: the fixed robot base is translated and yawed relative to world {W}.
+      The nontrivial pose makes world-frame and base-frame values different.
+    -->
+    <body name="base" pos="0.25 -0.15 0.75" euler="0 0 0.4">
+      <geom name="pedestal" type="cylinder" pos="0 0 -0.375"
+            size="0.12 0.375" rgba="0.30 0.34 0.40 1"
+            contype="0" conaffinity="0"/>
+
+      <!-- {L}: the link rotates about z_B and begins 0.08 m above {B}. -->
+      <body name="link" pos="0 0 0.08">
+        <joint name="shoulder" type="hinge" axis="0 0 1"
+               limited="true" range="-1.5708 1.5708"
+               damping="0.05" armature="0.01"/>
+        <geom name="link_geom" type="capsule"
+              fromto="0 0 0 0.55 0 0" size="0.04"
+              mass="0.8" material="link_material"/>
+
+        <!--
+          {E}: the end-effector has both a local translation and rotation.
+          This ensures site_xmat is not simply equal to the link rotation.
+        -->
+        <site name="end_effector" type="box" pos="0.55 0 0"
+              euler="0.2 -0.15 0.3" size="0.04 0.025 0.015"
+              rgba="1 0.35 0.15 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="shoulder_position" joint="shoulder"
+              kp="25" dampratio="1"
+              ctrllimited="true" ctrlrange="-1.2 1.2"
+              forcelimited="true" forcerange="-8 8"/>
+  </actuator>
+</mujoco>

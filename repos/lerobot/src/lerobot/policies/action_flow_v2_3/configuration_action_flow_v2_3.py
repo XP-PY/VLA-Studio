@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Configuration for the multitask Action Flow V2.3 policy."""
+"""Configuration for the planning-conditioned Action Flow V2.3 policy."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ DEFAULT_PLANNING_TOKENS = (
 @PreTrainedConfig.register_subclass("action_flow_v2_3")
 @dataclass
 class ActionFlowV23Config(ActionFlowV22Config):
-    """AFV2.2 plus an independent next-step planning objective.
+    """AFV2.2 plus explicit next-step planning and plan-conditioned control.
 
     AFV2.2 token IDs remain unchanged. Planning tokens are appended after the
     FAST range, which allows an existing AFV2.2 tokenizer artifact to be
@@ -40,10 +40,9 @@ class ActionFlowV23Config(ActionFlowV22Config):
     box_loss_weight: float = 1.0
     fast_loss_weight: float = 0.5
     flow_loss_weight: float = 1.0
+    restrict_fast_vocabulary: bool = True
 
-    # Retained so older checkpoint configs still deserialize. V2.3 multitask
-    # training always supervises complete FAST and continuous action chunks.
-    segment_aware_action_loss: bool = False
+    segment_aware_action_loss: bool = True
     keyframe_sampling_fraction: float = 0.25
     keyframe_feature_name: str = "planning.box_keyframe"
     generate_grounding_during_rollout: bool = False
@@ -128,9 +127,10 @@ class ActionFlowV23Config(ActionFlowV22Config):
         contract.update(
             {
                 "autoregressive_targets": ["next_step_plan", "target_boxes", "fast_actions"],
-                "autoregressive_attention": "independent_branches_over_shared_prefix",
-                "expert_context": "detached_shared_prefix_kv",
-                "segment_aware_action_loss": False,
+                "autoregressive_attention": "plan_then_parallel_grounding_and_fast_branches",
+                "expert_context": "detached_prefix_and_plan_kv",
+                "segment_aware_action_loss": self.segment_aware_action_loss,
+                "restrict_fast_vocabulary": self.restrict_fast_vocabulary,
             }
         )
         return contract

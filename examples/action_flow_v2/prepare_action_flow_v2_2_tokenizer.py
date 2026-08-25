@@ -27,6 +27,7 @@ from lerobot.policies.action_flow_v2_2.data_contracts_action_flow_v2_2 import (
     TARGET_ENTITY_VALID,
 )
 from lerobot.policies.factory import make_pre_post_processors
+from lerobot.processor import NormalizerProcessorStep, TransitionKey
 from lerobot.utils.constants import ACTION, OBS_STATE
 from lerobot.utils.feature_utils import dataset_to_policy_features
 
@@ -96,7 +97,16 @@ def get_validation_sample(
     state = rows[OBS_STATE][0].float().unsqueeze(0)
     actions = torch.stack([value.float() for value in rows[ACTION]]).unsqueeze(0)
     preprocessor, _ = make_pre_post_processors(config, dataset_stats=metadata.stats)
-    processed = preprocessor({OBS_STATE: state, ACTION: actions})
+    transitions = preprocessor.step_through({OBS_STATE: state, ACTION: actions})
+    next(transitions)  # Initial transition before any processor step.
+    normalized_actions = None
+    for step in preprocessor.steps:
+        transition = next(transitions)
+        if isinstance(step, NormalizerProcessorStep):
+            normalized_actions = transition[TransitionKey.ACTION]
+            break
+    if normalized_actions is None:
+        raise RuntimeError("Action Flow V2.2 preprocessor has no normalization step.")
     labels = {
         key: rows[key][0]
         for key in (
@@ -108,7 +118,7 @@ def get_validation_sample(
             TARGET_ENTITY_VALID,
         )
     }
-    return labels, processed[ACTION][0].cpu()
+    return labels, normalized_actions[0].cpu()
 
 
 def scan_grounding_lengths(

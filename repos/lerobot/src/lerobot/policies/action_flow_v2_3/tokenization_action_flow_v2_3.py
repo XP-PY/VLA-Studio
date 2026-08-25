@@ -47,6 +47,7 @@ class SerializedTargetsV23:
     action_tokens: torch.Tensor
     action_token_mask: torch.Tensor
     action_token_loss_weight: torch.Tensor
+    segment_action_mask: torch.Tensor
 
 
 def action_flow_v2_3_added_tokens(config: ActionFlowV23Config) -> list[str]:
@@ -218,8 +219,9 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
         target_entity_valid: torch.Tensor | np.ndarray,
         planning_stage: str,
         planning_target_entity: str,
+        planning_frames_remaining: int,
     ) -> SerializedTargetsV23:
-        """Serialize independent planning, grounding, and FAST targets."""
+        """Serialize plan-conditioned targets and construct stage-boundary masks."""
 
         plan_tokens = self.serialize_plan(
             stage=planning_stage,
@@ -233,7 +235,14 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
             target_entity_roles=target_entity_roles,
             target_entity_valid=target_entity_valid,
         )
-        action_tokens, _ = self.serialize_fast_actions(normalized_relative_actions)
+        remaining = max(0, int(planning_frames_remaining))
+        valid_steps = min(remaining, self.config.chunk_size)
+        if self.config.segment_aware_action_loss and valid_steps == 0:
+            raise ValueError("Segment-aware action supervision requires at least one remaining frame.")
+        fast_actions = normalized_relative_actions
+        if self.config.segment_aware_action_loss:
+            fast_actions = normalized_relative_actions[:valid_steps]
+        action_tokens, _ = self.serialize_fast_actions(fast_actions)
 
         plan_ids, plan_mask = self._pad(plan_tokens, self.config.max_plan_tokens)
         grounding_ids, grounding_mask = self._pad(
@@ -250,6 +259,10 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
             grounding_weights, dtype=torch.float32
         )
 
+        segment_action_mask = torch.arange(self.config.chunk_size) < valid_steps
+        if not self.config.segment_aware_action_loss:
+            segment_action_mask.fill_(True)
+
         action_loss_weight = action_mask.float()
 
         return SerializedTargetsV23(
@@ -262,6 +275,7 @@ class ActionFlowV23TargetTokenizer(ActionFlowV22TargetTokenizer):
             action_tokens=action_ids,
             action_token_mask=action_mask,
             action_token_loss_weight=action_loss_weight,
+            segment_action_mask=segment_action_mask,
         )
 
     def save_pretrained(self, output_dir: str | Path) -> None:

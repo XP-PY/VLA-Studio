@@ -1,5 +1,18 @@
 # MoJoCo Studio
 
+## Week 3 coordinate frames
+
+Build the frame-transform experiment and run all $SO(3)$/$SE(3)$ checks:
+
+```bash
+./build.sh frame_transforms
+./build/frame_transforms
+./simulate.sh frame_transforms  # optional interactive viewer
+```
+
+See [`docs/week3_frame_transforms.md`](docs/week3_frame_transforms.md) for the
+frame convention, complete deliverable checklist, and MDP connection.
+
 ## Week 2 one-link arm
 
 Build and inspect a one-link arm while reading body and site poses:

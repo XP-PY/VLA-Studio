@@ -2496,3 +2496,334 @@ produced a finite action tensor with shape `(1, 50, 7)` and independently decode
 </table>
 
 ##### Analysis
+
+The independent-branch experiment is retained as a historical result, but it does not enforce the
+hierarchical behavior required here: the action predictors can ignore the predicted subtask because
+they never receive it. The next revision restores explicit subtask-conditioned control.
+
+### Training Log 7 of Objective 1
+
+#### Motivation
+
+Action Flow V2.3 should first identify the current subtask and then predict only the actions needed
+to finish that subtask. Training Plan and actions as unrelated branches does not establish this
+dependency, while supervising a fixed action chunk across a stage boundary can pair one subtask
+with actions belonging to the next subtask.
+
+This revision combines the hierarchical subtask conditioning of $\pi_{0.5}$ with the gradient
+separation used by the knowledge-insulation design. It is an Action Flow V2.3 adaptation rather
+than an exact reproduction of either policy.
+
+#### Policy Structure
+
+The training data flow is:
+
+```text
+images + task prompt + robot state
+                |
+                v
+      predict current Plan tokens
+                |
+       ground-truth Plan tokens
+        /          |           \
+Grounding       FAST action    detached K/V -> Flow expert
+```
+
+Training uses teacher forcing:
+
+1. The Plan branch predicts the ground-truth current stage and target entity.
+2. Grounding and FAST tokens attend the shared prefix, the complete ground-truth Plan, and their
+   own causal histories. They do not attend one another.
+3. The flow expert receives detached K/V features from the shared prefix plus the ground-truth
+   Plan. Flow gradients therefore cannot update the VLM through this context.
+4. Plan, Grounding, and FAST cross-entropy losses update the VLM, while the flow loss trains the
+   continuous action expert.
+
+Inference removes teacher forcing:
+
+```text
+images + task prompt + robot state
+                |
+        predicted Plan tokens
+                |
+       detached prefix + Plan K/V
+                |
+        Flow action generation
+```
+
+The Plan decoder is constrained to valid stage/entity sequences. Its predicted tokens, rather than
+dataset labels, condition flow denoising. FAST remains an auxiliary VLM training objective and is
+not used to execute rollout actions. Grounding decoding remains optional for diagnostics.
+
+#### Stage-Bounded Actions
+
+`planning.frames_remaining` defines how much of the dataset action chunk belongs to the current
+stage. For a chunk length $H$ and $R$ frames remaining, the supervised horizon is
+$H_s=\min(H,R)$.
+
+- Flow loss is computed only over the first $H_s$ non-padding action steps.
+- FAST tokenization receives only those first $H_s$ actions before DCT and BPE encoding. The VLM
+  therefore predicts a variable-length, current-stage FAST sequence instead of tokens that include
+  the next stage.
+- The next training frame supplies the following stage after the current one ends; no action target
+  is relabeled with a future Plan.
+
+At rollout, the model still produces a fixed-size continuous chunk, but control should replan
+frequently through `n_action_steps` or RTC because timesteps beyond the predicted stage transition
+are intentionally not supervised under the current Plan.
+
+#### Implementation Validation
+
+The revised implementation passed checks for hierarchical attention, teacher-forced Plan context,
+variable-length stage-local FAST encoding, stage-local flow masks, and predicted-Plan rollout
+conditioning. A real-data CUDA smoke run completed preprocessing, forward and backward passes,
+optimization, checkpoint saving, checkpoint reload, constrained Plan decoding, and finite action
+generation. Existing independent-branch checkpoints do not implement this dependency and must not
+be used to evaluate the revised pipeline; a new policy must be trained.
+
+#### Training Configuration
+
+| Parameter | Value |
+|---|---:|
+| `policy.type` | `action_flow_v2_3` |
+| `policy.vlm_model_name` | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` |
+| `policy.num_vlm_layers` | `16` |
+| `policy.smolvla_pretrained_path` | `lerobot/smolvla_base` |
+| `policy.chunk_size` | `30` |
+| `policy.n_action_steps` | `1` |
+| `policy.plan_loss_weight` | `1.0` |
+| `policy.box_loss_weight` | `1.0` |
+| `policy.fast_loss_weight` | `1.0` |
+| `policy.flow_loss_weight` | `1.0` |
+| `policy.keyframe_sampling_fraction` | `0.05` |
+| `policy.restrict_fast_vocabulary` | `true` |
+| `policy.optimizer_lr` | `3e-5` |
+| `policy.scheduler_warmup_steps` | `2,000` |
+| `policy.scheduler_decay_lr` | `3e-5` (constant after warmup) |
+| `batch_size` | `16` |
+| `steps` | `100,000` |
+| Mixed precision | BF16 |
+
+> Unlisted parameters retain their Action Flow V2.3 defaults. Training first produced a 20,000-step
+> checkpoint and was then resumed to 100,000 steps in the same run. The fixed post-warmup learning
+> rate made the resumed training independent of a newly selected decay horizon.
+
+#### Training Result
+
+| Metric | Mean over the final 10,000 steps | Final logged value at 100,000 steps |
+|---|---:|---:|
+| Total loss | `4.886` | `4.692` |
+| Plan CE | `0.006` | `0.041` |
+| Box CE | `0.108` | `0.000` |
+| FAST CE | `4.643` | `4.504` |
+| FAST token top-1 accuracy | `8.66%` | `8.40%` |
+| FAST token top-5 accuracy | `23.58%` | `21.63%` |
+| FAST sequence exact accuracy | `0.63%` | `0.00%` |
+| Flow loss | `0.128` | `0.146` |
+| Segment-valid action fraction | - | `81.88%` |
+| Peak allocated GPU memory | - | `18.33 GB` |
+
+The final Box CE value is zero because the last batch contained no grounding keyframe; the final
+10,000-step mean is the meaningful box metric. Plan prediction converged, and the continuous flow
+loss reached a useful range, but FAST remained the dominant loss. Its low exact-sequence accuracy
+and slowly improving token accuracy indicate that increasing the training duration did not make
+the 500M VLM a reliable discrete action predictor.
+
+#### Evaluation
+
+Two short real-robot tests used the 100,000-step checkpoint. Predicted subtasks and postprocessed
+joint/gripper commands were logged at every control frame.
+
+| Prompt | Observed Plan sequence | Result |
+|---|---|---|
+| `Place the cucumber on the blue plate.` | `complete` -> `grasp cucumber` -> `put blue plate` -> `grasp cucumber` | The policy approached the requested object, but the grasp failed and the cucumber dropped. It continued predicting the put stage for about 25 seconds before returning to grasp. |
+| `Place the tomato on the blue plate.` | `grasp tomato` -> `put blue plate` -> `grasp corn` -> `grasp garlic` -> `grasp corn` -> `grasp cucumber` -> `grasp corn` -> `put blue plate` | After the first grasp failed, subtask prediction lost prompt consistency and repeatedly selected unrelated vegetables. |
+
+RTC reported an inference delay of approximately two control frames per prediction. This adds
+latency, but it does not explain the roughly 25-second incorrect stage: several consecutive model
+inferences independently predicted the wrong put stage.
+
+##### Analysis
+
+1. **Plan syntax was learned, but stage state was not reliably grounded.** The policy can emit valid
+   `grasp`, `put`, and `complete` sequences, yet it treats gripper closure as evidence of a successful
+   grasp even when the object is no longer held.
+2. **The dataset contains successful demonstrations but little explicit recovery supervision.** A
+   dropped object is outside the demonstrated state-transition distribution, so teacher-forced Plan
+   training does not teach how to return from `put` to `grasp`.
+3. **Teacher forcing creates an inference gap.** During training, action branches always receive the
+   correct Plan. During rollout, one wrong Plan changes the action context and can push the next
+   observation farther away from the training distribution.
+4. **The Plan grammar is structurally constrained but not prompt constrained.** It permits every
+   entity in the dataset, allowing a tomato prompt to produce corn, garlic, or cucumber after a
+   failure.
+5. **FAST is not providing a strong auxiliary action representation.** Even after 100,000 steps,
+   FAST CE remains near `4.6`, top-1 token accuracy remains below `10%`, and complete action-token
+   sequences are almost never correct.
+6. **More AFV2.3 steps alone are unlikely to fix these failures.** The remaining problems concern
+   backbone capacity, state verification, prompt-conditioned decoding, and recovery data rather
+   than simple undertraining of the continuous expert.
+
+#### Conclusion
+
+AFV2.3 verifies that explicit Plan tokens can be learned and used to condition continuous robot
+actions, but its 500M SmolVLM backbone does not provide sufficiently robust target grounding or
+failure-state reasoning. The next experiment therefore replaces the SmolVLM backbone with the
+released pretrained $\pi_{0.5}$ PaliGemma and action-expert weights. It retains Plan, bounding-box,
+and FAST supervision so the larger VLM directly tests whether discrete-action learning improves,
+while the pretrained $\pi_{0.5}$ flow expert remains the executed continuous-action path.
+
+### Training Log 8 of Objective 1
+
+#### Motivation
+
+AFV2.3 showed that the 500M SmolVLM can learn the Plan output format, but target selection remains
+fragile and FAST action-token prediction does not converge sufficiently. AFV2.4 directly tests
+whether a larger, robot-pretrained VLM can learn the same discrete action objective more reliably.
+It starts from the released $\pi_{0.5}$ PaliGemma and action-expert weights, then jointly trains
+Plan, bounding-box, FAST, and continuous robot-action objectives.
+
+This experiment is not an exact implementation of $\pi_{0.5}$-KI. It retains the standard
+$\pi_{0.5}$ continuous flow path and allows flow gradients to update the visual-language prefix.
+The controlled comparison asks whether stronger pretrained visual-language and robot-action
+representations are more useful than AFV2.3's smaller SmolVLM plus auxiliary FAST objective.
+
+#### Dataset
+
+The same 442-episode combined robot/planning/grounding dataset is used so that the backbone is the
+main experimental change:
+
+| Supervision | Coverage | Purpose |
+|---|---|---|
+| Images, state, and relative robot actions | Every frame | Train the $\pi_{0.5}$ flow-matching action expert. |
+| Current Plan (`grasp`, `put`, or `complete`) | Every frame | Teach explicit stage and target-entity prediction. |
+| Stage-local FAST actions | Every frame | Train a discrete action representation conditioned on the current Plan. |
+| Stage-bounded action mask | Every frame | Prevent FAST and flow targets from crossing into the next stage. |
+| Reviewed wrist/top target boxes | 1,450 keyframes | Train prompt- and stage-conditioned visual grounding. |
+
+The six arm joints are represented as offsets from the current state, while the gripper remains
+absolute. Grounding keyframes continue to be oversampled at 5% of training samples.
+
+#### Policy Structure
+
+AFV2.4 reuses the LeRobot $\pi_{0.5}$ image preprocessing, PaliGemma 2B prefix, Gemma 300M action
+expert, state discretization, quantile normalization, and flow-matching action generation.
+
+```text
+wrist/top images + task prompt + discretized robot state
+                         |
+                 shared PaliGemma prefix
+                         |
+              ground-truth/predicted Plan
+           /             |              \
+ target-box tokens   FAST tokens    Gemma flow expert
+```
+
+Training uses ground-truth Plan tokens as teacher forcing. Box tokens, FAST tokens, and continuous
+actions all attend the complete Plan, but these three branches cannot attend one another. FAST only
+encodes actions before the current stage boundary. During rollout, the Plan is decoded first with a
+constrained stage/entity grammar and the predicted Plan conditions iterative flow denoising. FAST
+remains an auxiliary VLM objective; the robot executes continuous actions from the flow expert.
+
+#### Plan, Box, and FAST Format
+
+Plan labels use ordinary PaliGemma text tokens:
+
+```text
+Plan:
+grasp tomato
+
+Plan:
+put blue plate
+
+Plan:
+complete
+```
+
+Box labels use PaliGemma's pretrained 1,024 location tokens rather than adding a new vocabulary.
+Normalized dataset coordinates are converted from `xyxy` into PaliGemma's `yxyx` order:
+
+```text
+Boxes:
+wrist source <loc_y1><loc_x1><loc_y2><loc_x2> tomato
+top source <loc_y1><loc_x1><loc_y2><loc_x2> tomato
+```
+
+A reviewed absent target is serialized as `not visible`. Unreviewed frame/entity/camera entries
+receive zero box-token loss. This preserves the base PaliGemma LM head and its pretrained grounding
+token semantics.
+
+Stage-local normalized relative actions are encoded by the RM65 horizon-30 FAST tokenizer. Its
+2,048 symbols are mapped in reverse order onto PaliGemma IDs `254976..257023`, following the
+PI0-FAST mapping and without extending the PI0.5 embedding or LM head. The FAST branch uses:
+
+```text
+<bos> Action: <mapped FAST tokens> |
+```
+
+FAST token cross-entropy is restricted to this 2,048-token range at action-symbol positions. Text
+prefix and terminator positions retain the normal PaliGemma vocabulary.
+
+#### Loss and Gradient Flow
+
+The joint loss is:
+
+$$
+L = 1.0L_{plan} + 1.0L_{box} + 1.0L_{fast} + 1.0L_{flow}.
+$$
+
+- `L_plan` is token cross-entropy over the current stage and target entity.
+- `L_box` is token cross-entropy over reviewed camera/entity box descriptions.
+- `L_fast` is token cross-entropy over stage-local discrete action tokens.
+- `L_flow` is the standard $\pi_{0.5}$ flow-matching loss, masked at the current planning-stage end.
+
+Plan, box, and FAST losses update PaliGemma. Flow loss updates the action expert and, through its
+prefix attention, the PaliGemma representation. This deliberately preserves $\pi_{0.5}$ joint
+fine-tuning instead of applying AFV2.3 knowledge insulation.
+
+#### Training Configuration
+
+| Parameter | Value |
+|---|---:|
+| `policy.type` | `action_flow_v2_4` |
+| `policy.pi05_pretrained_path` | `lerobot/pi05_base` |
+| `policy.fast_tokenizer_name` | RM65 FAST tokenizer, horizon 30 |
+| `policy.paligemma_variant` | `gemma_2b` |
+| `policy.action_expert_variant` | `gemma_300m` |
+| `policy.dtype` | `bfloat16` |
+| `policy.chunk_size` | `30` |
+| `policy.n_action_steps` | `1` |
+| `policy.use_relative_actions` | `true` |
+| `policy.relative_exclude_joints` | `["gripper"]` |
+| `policy.plan_loss_weight` | `1.0` |
+| `policy.box_loss_weight` | `1.0` |
+| `policy.fast_loss_weight` | `1.0` |
+| `policy.flow_loss_weight` | `1.0` |
+| `policy.restrict_fast_vocabulary` | `true` |
+| `policy.keyframe_sampling_fraction` | `0.05` |
+| `policy.gradient_checkpointing` | `true` |
+| `policy.freeze_vision_encoder` | `false` |
+| `policy.train_expert_only` | `false` |
+| `policy.optimizer_lr` | `2.5e-5` |
+| `policy.scheduler_warmup_steps` | `1,000` |
+| `policy.scheduler_decay_steps` | `80,000` |
+| `policy.scheduler_decay_lr` | `2.5e-6` |
+| Per-device batch size | `4` |
+| GPU processes | `2` |
+| Global batch size | `8` |
+| Training steps | `80,000` |
+
+> Unlisted parameters retain the Action Flow V2.4/$\pi_{0.5}$ defaults. The starting profile assumes
+> two 80 GB-class GPUs using data parallel training. DDP stores a complete model replica on each
+> GPU; reducing per-device batch size is the first adjustment if memory is insufficient.
+
+#### Implementation Status
+
+The independent `action_flow_v2_4` policy, processor, configuration, factory registration, PI0.5
+weight initializer, constrained Plan decoder, PaliGemma box serializer, RM65 FAST serializer,
+stage-aware FAST/flow targets, and cloud-training branch are implemented. Unit checks cover branch
+attention, Plan serialization, PaliGemma `xyxy -> yxyx` location conversion, FAST symbol mapping,
+sparse token-loss masking, and policy registration.
+Full model initialization and a training smoke test require the downloaded $\pi_{0.5}$/PaliGemma
+artifacts and more GPU memory than the local 24 GB device, so those checks will be performed on the
+training server.

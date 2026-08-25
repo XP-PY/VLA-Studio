@@ -25,6 +25,8 @@ Brief User Manual
 6. Every saved episode has separate camera MP4s under
    ``videos/observation.images.<camera>``. AFV2 evaluations additionally save
    matching relevance overlays under ``videos/heatmap.images.<camera>``.
+7. With ``--print-policy-outputs``, each action line includes the current
+   AFV2.3 subtask plus the postprocessed joint/gripper commands.
 """
 
 import argparse
@@ -191,7 +193,98 @@ def parse_evaluator_args() -> tuple[argparse.Namespace, list[str]]:
         default=0.45,
         help="Heatmap opacity in saved camera overlays.",
     )
+    arg_parser.add_argument(
+        "--print-policy-outputs",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print available predicted subtasks and postprocessed robot actions.",
+    )
+    arg_parser.add_argument(
+        "--print-action-every",
+        type=int,
+        default=1,
+        help="Print one predicted robot action every N executed control frames.",
+    )
     return arg_parser.parse_known_args()
+
+
+class PolicyOutputPrinter:
+    """Log AFV2.3/AFV2.4 Plan updates and postprocessed robot commands."""
+
+    def __init__(self, policy, action_every: int) -> None:
+        if action_every < 1:
+            raise ValueError(f"`print_action_every` must be at least 1, got {action_every}.")
+        self.policy = policy
+        self.action_every = action_every
+        self.action_count = 0
+        self._last_plan_tensor = None
+        self._unsupported_plan_reported = False
+        self.latest_subtask = "pending"
+
+    def log_latest_plan(self) -> None:
+        model = getattr(self.policy, "model", None)
+        plan_ids = getattr(model, "last_plan_token_ids", None)
+        target_tokenizer = getattr(model, "target_tokenizer", None)
+        if plan_ids is None or target_tokenizer is None:
+            self.latest_subtask = "unavailable"
+            if not self._unsupported_plan_reported:
+                logger.info(
+                    "Predicted subtask output is unavailable for policy type %s",
+                    self.policy.config.type,
+                )
+                self._unsupported_plan_reported = True
+            return
+        if plan_ids is self._last_plan_tensor:
+            return
+
+        self._last_plan_tensor = plan_ids
+        sample_ids = plan_ids[0] if plan_ids.ndim == 2 else plan_ids
+        try:
+            plan = target_tokenizer.deserialize_plan(sample_ids)
+            self.latest_subtask = (
+                f"{plan.stage} {plan.target_entity}" if plan.target_entity else plan.stage
+            )
+        except Exception as exc:
+            raw = target_tokenizer.vlm_tokenizer.decode(
+                sample_ids.tolist(),
+                skip_special_tokens=False,
+            )
+            self.latest_subtask = f"unparsed: {raw}"
+            logger.warning("Could not parse predicted subtask %r: %s", raw, exc)
+
+    def log_action(self, action: dict[str, float]) -> None:
+        self.action_count += 1
+        if (self.action_count - 1) % self.action_every != 0:
+            return
+
+        joints = [
+            f"{key.removesuffix('.pos')}={float(value):.3f}"
+            for key, value in action.items()
+            if "joint_" in key and key.endswith(".pos")
+        ]
+        grippers = [
+            f"{key.removesuffix('.pos')}={float(value):.3f}"
+            for key, value in action.items()
+            if "gripper" in key and key.endswith(".pos")
+        ]
+        other = [
+            f"{key}={float(value):.3f}"
+            for key, value in action.items()
+            if not ("joint_" in key or "gripper" in key)
+        ]
+        fields = []
+        if joints:
+            fields.append(f"joints=[{', '.join(joints)}]")
+        if grippers:
+            fields.append(f"gripper=[{', '.join(grippers)}]")
+        if other:
+            fields.append(f"other=[{', '.join(other)}]")
+        logger.info(
+            "Predicted output frame=%d subtask=%r %s",
+            self.action_count,
+            self.latest_subtask,
+            " ".join(fields) if fields else action,
+        )
 
 
 class HeatmapVideoRecorder:
@@ -461,6 +554,11 @@ def run_trial(ctx, prompt: str) -> tuple[int, HeatmapVideoRecorder | None]:
     duration_s = cfg.dataset.episode_time_s
     heatmap_recorder = make_heatmap_recorder(ctx)
     heatmap_getter = getattr(ctx.policy.policy, "get_latest_relevance_heatmaps", None)
+    output_printer = (
+        PolicyOutputPrinter(ctx.policy.policy, EVALUATOR_ARGS.print_action_every)
+        if EVALUATOR_ARGS.print_policy_outputs
+        else None
+    )
 
     engine = make_prompt_engine(ctx, prompt)
     ctx.policy.inference = engine
@@ -497,6 +595,9 @@ def run_trial(ctx, prompt: str) -> tuple[int, HeatmapVideoRecorder | None]:
 
             action_dict = send_next_action(cached_obs_processed, obs_raw, ctx, interpolator)
             if action_dict is not None:
+                if output_printer is not None:
+                    output_printer.log_latest_plan()
+                    output_printer.log_action(action_dict)
                 if action_start is None:
                     action_start = time.perf_counter()
                     logger.info("First action ready; trial timer started")

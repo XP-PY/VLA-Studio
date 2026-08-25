@@ -1,0 +1,20 @@
+{
+  "extended_vocabulary_size": 51596,
+  "grounding_tokens": 8,
+  "fast_target_tokens": 23,
+  "fast_symbols": 21,
+  "decoded_boxes": 0,
+  "fast_decode_mae": 0.011915089562535286,
+  "checkpoint_reload_exact": true,
+  "frames_scanned": 239641,
+  "maximum_grounding_tokens": 28,
+  "maximum_grounding_dataset_index": 160060,
+  "grounding_length_histogram": {
+    "8": 238191,
+    "18": 1,
+    "20": 2,
+    "22": 616,
+    "24": 725,
+    "28": 106
+  }
+}
