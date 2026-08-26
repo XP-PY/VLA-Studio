@@ -174,19 +174,61 @@ Matrix4 site_world_transform(const mjData* data, int site_id) {
                                     data->site_xmat + 9 * site_id);
 }
 
-// Geodesic angle of R_a^T R_b, expressed in radians.
+// Compute the geodesic rotation angle between two rigid-body orientations.
+//
+// Given two homogeneous transforms (4x4 matrices), this function extracts
+// their rotation parts R1 and R2 and returns the minimal rotation angle
+// (in radians) needed to align R1 with R2. This angle lies in [0, pi]
+// and is the standard distance metric on the rotation group SO(3).
+//
+// The computation uses Rodrigues' rotation formula. For any rotation matrix
+// R, its trace and its skew-symmetric part satisfy:
+//
+//     trace(R)        = 1 + 2*cos(theta)
+//     (R - R^T)       = 2*sin(theta) * [omega]
+//
+// where omega is the unit rotation axis and [omega] is its skew-symmetric
+// matrix. Therefore we can recover theta from both sin(theta) and cos(theta).
+//
+// Steps:
+//  1. Build the relative rotation R_rel = R1^T * R2.
+//  2. Extract cos(theta) from the trace of R_rel.
+//  3. Extract |sin(theta)| from the norm of the skew-symmetric part of R_rel.
+//  4. Use atan2(|sin|, cos) to obtain theta robustly in [0, pi].
+//
+// Why atan2 instead of acos? When theta is near 0 or pi, cos(theta) changes
+// very slowly, making acos numerically ill-conditioned. atan2 uses both sine
+// and cosine, giving full accuracy over the whole range.
 double rotation_angle_error(const Matrix4& first, const Matrix4& second) {
-  const Matrix3 relative_rotation = transform_utils::multiply(
-      transform_utils::transpose(transform_utils::rotation_of(first)),
-      transform_utils::rotation_of(second));
-  const double trace =
-      relative_rotation[0] + relative_rotation[4] + relative_rotation[8];
-  const double skew_x = relative_rotation[7] - relative_rotation[5];
-  const double skew_y = relative_rotation[2] - relative_rotation[6];
-  const double skew_z = relative_rotation[3] - relative_rotation[1];
+  // Extract the 3x3 rotation matrices from the homogeneous transforms.
+  const Matrix3 R1 = transform_utils::rotation_of(first);
+  const Matrix3 R2 = transform_utils::rotation_of(second);
+
+  // Relative rotation that maps R1 to R2.
+  const Matrix3 R_rel = transform_utils::multiply(
+      transform_utils::transpose(R1), R2);
+
+  // Trace of R_rel: sum of diagonal entries.
+  // For a rotation matrix, trace = 1 + 2*cos(theta).
+  const double trace = R_rel[0] + R_rel[4] + R_rel[8];
+
+  // Skew-symmetric part of R_rel.
+  // The off-diagonal elements of (R_rel - R_rel^T) equal 2*sin(theta)*omega_i.
+  // Here we compute them directly using the row-major storage layout.
+  const double skew_x = R_rel[7] - R_rel[5];  // (R - R^T)_21 = 2 sinθ ω_x
+  const double skew_y = R_rel[2] - R_rel[6];  // (R - R^T)_02 = 2 sinθ ω_y
+  const double skew_z = R_rel[3] - R_rel[1];  // (R - R^T)_10 = 2 sinθ ω_z
+
+  // Norm of the skew-symmetric part divided by 2 gives |sin(theta)|.
+  // Because omega is a unit vector, sqrt(sum of squares) = 2*|sin(theta)|.
   const double sine = 0.5 *
-      std::sqrt(skew_x * skew_x + skew_y * skew_y + skew_z * skew_z);
+      std::sqrt(skew_x*skew_x + skew_y*skew_y + skew_z*skew_z);
+
+  // Cosine from the trace. Clamp to avoid numerical issues near ±1.
   const double cosine = std::clamp(0.5 * (trace - 1.0), -1.0, 1.0);
+
+  // atan2 returns the angle in [0, pi] because sine is non-negative.
+  // This is the minimal geodesic distance between the two orientations.
   return std::atan2(sine, cosine);
 }
 
@@ -348,18 +390,18 @@ int main() {
       data->qpos[elbow_qpos] = q2;
       mj_forward(model, data);
 
-      const Matrix4 world_base = body_world_transform(data, base_id);
-      const Matrix4 world_end_mujoco = site_world_transform(data, site_id);
+      const Matrix4 world_base = body_world_transform(data, base_id);       // T_WB
+      const Matrix4 world_end_mujoco = site_world_transform(data, site_id); // T_WE_mujoco
       const Matrix4 base_end_mujoco =
-          transform_utils::relative_pose(world_base, world_end_mujoco);
+          transform_utils::relative_pose(world_base, world_end_mujoco);     // T_BE_mujoco
 
       const Matrix4 base_end_analytical =
-          analytical_forward_kinematics(q1, q2);
+          analytical_forward_kinematics(q1, q2);    // T_BE_analytical
       const Matrix4 base_end_closed_form =
-          closed_form_forward_kinematics(q1, q2);
+          closed_form_forward_kinematics(q1, q2);   // T_BE_closed
       const Matrix4 world_end_analytical =
           transform_utils::multiply_transform(
-              world_base, base_end_analytical);
+              world_base, base_end_analytical);     // T_WE_analytical
 
       const Vector3 analytical_base_position =
           transform_utils::translation_of(base_end_analytical);

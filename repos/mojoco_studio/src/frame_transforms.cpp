@@ -241,10 +241,10 @@ int main() {
 
     // Record the rigid attachment T_LE once; it must remain constant while the
     // joint moves because the site is fixed to the link body.
-    const Matrix4 initial_world_link = body_world_transform(data, link_id);
-    const Matrix4 initial_world_end = site_world_transform(data, site_id);
+    const Matrix4 initial_world_link = body_world_transform(data, link_id);     // T_WL
+    const Matrix4 initial_world_end = site_world_transform(data, site_id);      // T_WE
     const Matrix4 initial_link_end =
-        transform_utils::relative_pose(initial_world_link, initial_world_end);
+        transform_utils::relative_pose(initial_world_link, initial_world_end);  // T_LE
 
     const int physics_steps_per_control = std::max(
         1, static_cast<int>(std::lround(

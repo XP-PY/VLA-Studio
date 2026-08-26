@@ -1,5 +1,5 @@
 <mujoco model="week 3 coordinate frames">
-  <!-- Preserve the fixed base as a named body whose world pose can be read. -->
+  <!-- fusestatic="false": Preserve the fixed base as a named body whose world pose can be read. -->
   <compiler angle="radian" fusestatic="false"/>
   <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
 
