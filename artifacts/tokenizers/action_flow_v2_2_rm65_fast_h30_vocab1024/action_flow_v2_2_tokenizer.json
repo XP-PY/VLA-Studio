@@ -1,0 +1,53 @@
+{
+  "format": "action_flow_v2_2_tokenizer",
+  "version": 1,
+  "camera_names": [
+    "wrist",
+    "top"
+  ],
+  "entity_names": [
+    "blue plate",
+    "collection box",
+    "corn",
+    "cucumber",
+    "garlic",
+    "pink plate",
+    "tomato",
+    "vegetable on blue plate",
+    "vegetable on pink plate",
+    "vegetable on yellow plate",
+    "yellow plate"
+  ],
+  "token_contract": {
+    "version": 1,
+    "base_vlm_vocab_size": 49280,
+    "extended_vlm_vocab_size": 50572,
+    "structural_token_ids": {
+      "<grounding>": 49280,
+      "</grounding>": 49281,
+      "<camera>": 49282,
+      "</camera>": 49283,
+      "<source>": 49284,
+      "<destination>": 49285,
+      "<source_container>": 49286,
+      "<destination_container>": 49287,
+      "<box>": 49288,
+      "<not_visible>": 49289,
+      "<action>": 49290,
+      "<action_end>": 49291
+    },
+    "location_token_range": [
+      49292,
+      49548
+    ],
+    "fast_token_range": [
+      49548,
+      50572
+    ]
+  },
+  "added_token_count": 1292,
+  "added_tokens_sha256": "05c8bab066831b223863728c002c5e5b365b92d776ba4e73fa9d6ab1a36b1b15",
+  "vlm_tokenizer_dir": "vlm_tokenizer",
+  "fast_action_tokenizer_dir": "fast_action_tokenizer",
+  "fast_action_vocab_size": 1024
+}

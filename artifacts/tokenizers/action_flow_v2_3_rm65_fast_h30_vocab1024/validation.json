@@ -1,0 +1,28 @@
+{
+  "fast_token_count": 1024,
+  "extended_vocabulary_size": 50577,
+  "fast_token_range": [
+    49548,
+    50572
+  ],
+  "planning_token_ids": {
+    "<plan>": 50572,
+    "</plan>": 50573,
+    "<grasp>": 50574,
+    "<put>": 50575,
+    "<complete>": 50576
+  },
+  "entity_names": [
+    "blue plate",
+    "collection box",
+    "corn",
+    "cucumber",
+    "garlic",
+    "pink plate",
+    "tomato",
+    "vegetable on blue plate",
+    "vegetable on pink plate",
+    "vegetable on yellow plate",
+    "yellow plate"
+  ]
+}

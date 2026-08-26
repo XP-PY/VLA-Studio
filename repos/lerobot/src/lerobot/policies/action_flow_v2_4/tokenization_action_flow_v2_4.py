@@ -98,15 +98,26 @@ class ActionFlowV24TargetTokenizer:
             candidates.append(self.serialize_plan_ids("put", entity_name))
         return sorted(set(candidates))
 
+    def _canonical_entity_name(self, target_entity: str) -> str:
+        """Map reviewed Plan labels to the canonical box-entity vocabulary."""
+
+        target_entity = " ".join(target_entity.strip().lower().split())
+        if target_entity in self.config.entity_names:
+            return target_entity
+        if target_entity.startswith("vegetable on the "):
+            canonical = "vegetable on " + target_entity.removeprefix("vegetable on the ")
+            if canonical in self.config.entity_names:
+                return canonical
+        raise ValueError(f"Unknown planning target entity: {target_entity!r}.")
+
     def serialize_plan_ids(self, stage: str, target_entity: str) -> tuple[int, ...]:
         stage = stage.strip().lower()
-        target_entity = target_entity.strip().lower()
         if stage not in {"grasp", "put", "complete"}:
             raise ValueError(f"Unsupported planning stage: {stage!r}.")
         if stage == "complete":
             target_entity = ""
-        elif target_entity not in self.config.entity_names:
-            raise ValueError(f"Unknown planning target entity: {target_entity!r}.")
+        else:
+            target_entity = self._canonical_entity_name(target_entity)
         content = stage if not target_entity else f"{stage} {target_entity}"
         return tuple([*self._plan_prefix_ids, *self._encode(content + "\n"), self.eos_token_id])
 
@@ -234,9 +245,7 @@ class ActionFlowV24TargetTokenizer:
         for stage in ("grasp", "put"):
             prefix = stage + " "
             if first_line.startswith(prefix):
-                entity = first_line[len(prefix) :].strip()
-                if entity not in self.config.entity_names:
-                    raise ValueError(f"Decoded Plan contains unknown entity {entity!r}.")
+                entity = self._canonical_entity_name(first_line[len(prefix) :])
                 return PlanPrediction(stage=stage, target_entity=entity)
         raise ValueError(f"Could not parse Plan target: {text!r}.")
 

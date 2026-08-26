@@ -83,6 +83,7 @@ export SCHEDULER_WARMUP_STEPS=2000
 # makes extending a resumed run independent of a newly chosen total step count.
 export SCHEDULER_DECAY_LR="$OPTIMIZER_LR"
 export RESTRICT_FAST_VOCABULARY=true
+export AFV23_FAST_TOKEN_COUNT=2048
 export TRAIN_MIXED_PRECISION=bf16
 
 # Controlled 500M experiment matching the FAST vocabulary A/B test.

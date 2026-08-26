@@ -1,0 +1,34 @@
+{
+  "repo_id": "local/rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes",
+  "vocab_size": 1024,
+  "scale": 10.0,
+  "encoded_dims": "0:7",
+  "encoded_dim_ranges": [
+    [
+      0,
+      7
+    ]
+  ],
+  "total_encoded_dims": 7,
+  "relative_dims": "0,1,2,3,4,5",
+  "relative_dim_list": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "use_relative_transform": true,
+  "state_key": "observation.state",
+  "normalization_mode": "MEAN_STD",
+  "action_horizon": 30,
+  "num_training_chunks": 56541,
+  "compression_stats": {
+    "compression_ratio": 5.953393434257527,
+    "mean_token_length": 35.274,
+    "p99_token_length": 53.0,
+    "min_token_length": 15.0,
+    "max_token_length": 61.0
+  }
+}

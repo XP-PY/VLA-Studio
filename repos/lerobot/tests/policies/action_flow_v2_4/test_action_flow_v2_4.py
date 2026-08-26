@@ -71,12 +71,12 @@ class FakePaliGemmaTokenizer:
 
 
 def make_config(**kwargs) -> ActionFlowV24Config:
+    kwargs.setdefault("entity_names", ("tomato", "blue plate"))
+    kwargs.setdefault("max_plan_tokens", 64)
+    kwargs.setdefault("max_box_tokens", 128)
     return ActionFlowV24Config(
         device="cpu",
         pi05_pretrained_path=None,
-        entity_names=("tomato", "blue plate"),
-        max_plan_tokens=64,
-        max_box_tokens=128,
         **kwargs,
     )
 
@@ -153,6 +153,19 @@ def test_target_tokenizer_roundtrips_plan_and_uses_paligemma_yxyx_locations():
     ]
     location_start = next(index for index, token_id in enumerate(valid_ids) if token_id >= 10_000)
     assert valid_ids[location_start : location_start + 4] == expected_yxyx
+
+
+def test_target_tokenizer_canonicalizes_reviewed_container_entity_alias():
+    config = make_config(
+        entity_names=("tomato", "blue plate", "vegetable on yellow plate")
+    )
+    codec = ActionFlowV24TargetTokenizer(config, tokenizer=FakePaliGemmaTokenizer())
+
+    plan = codec.serialize_plan("grasp", " vegetable  on  the yellow plate ")
+    decoded = codec.deserialize_plan(plan.token_ids)
+
+    assert decoded.stage == "grasp"
+    assert decoded.target_entity == "vegetable on yellow plate"
 
 
 def test_weighted_token_loss_ignores_zero_weight_targets():

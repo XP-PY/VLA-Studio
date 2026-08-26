@@ -1,0 +1,62 @@
+<mujoco model="week 4 two-link arm">
+  <compiler angle="radian" fusestatic="false"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient"
+             rgb1="0.25 0.35 0.50" rgb2="0.02 0.03 0.05"
+             width="512" height="3072"/>
+    <material name="link_1_material" rgba="0.18 0.55 0.92 1"/>
+    <material name="link_2_material" rgba="0.30 0.80 0.55 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 -2 3" dir="0 1 -1"/>
+    <geom name="floor" type="plane" size="2 2 0.1"
+          rgba="0.18 0.20 0.22 1"/>
+
+    <!-- {B}: nontrivial base pose tests correct world/base composition. -->
+    <body name="base" pos="0.20 -0.10 0.80" euler="0 0 0.30">
+      <geom name="pedestal" type="cylinder" pos="0 0 -0.40"
+            size="0.11 0.40" rgba="0.30 0.34 0.40 1"
+            contype="0" conaffinity="0"/>
+
+      <!-- Joint 1 is at the base origin; link 1 has length L1=0.45 m. -->
+      <body name="link_1">
+        <joint name="shoulder" type="hinge" axis="0 0 1"
+               limited="true" range="-1.5 1.5"
+               damping="0.05" armature="0.01"/>
+        <geom name="link_1_geom" type="capsule"
+              fromto="0 0 0 0.45 0 0" size="0.035"
+              mass="0.7" material="link_1_material"
+              contype="0" conaffinity="0"/>
+
+        <!-- Joint 2 is q=(L1,0,0); link 2 has length L2=0.35 m. -->
+        <body name="link_2" pos="0.45 0 0">
+          <joint name="elbow" type="hinge" axis="0 0 1"
+                 limited="true" range="-1.7 1.7"
+                 damping="0.04" armature="0.01"/>
+          <geom name="link_2_geom" type="capsule"
+                fromto="0 0 0 0.35 0 0" size="0.03"
+                mass="0.5" material="link_2_material"
+                contype="0" conaffinity="0"/>
+          <site name="end_effector" type="box" pos="0.35 0 0"
+                size="0.035 0.022 0.012" rgba="1 0.35 0.15 1"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- These servos are useful in the viewer; the comparison program sets
+       qpos directly because it evaluates kinematics rather than dynamics. -->
+  <actuator>
+    <position name="shoulder_position" joint="shoulder"
+              kp="20" dampratio="1" ctrlrange="-1.5 1.5"/>
+    <position name="elbow_position" joint="elbow"
+              kp="15" dampratio="1" ctrlrange="-1.7 1.7"/>
+  </actuator>
+</mujoco>

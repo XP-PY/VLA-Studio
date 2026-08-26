@@ -393,6 +393,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     SCHEDULER_WARMUP_STEPS="${SCHEDULER_WARMUP_STEPS:-2000}"
     SCHEDULER_DECAY_LR="${SCHEDULER_DECAY_LR:-$OPTIMIZER_LR}"
     RESTRICT_FAST_VOCABULARY="${RESTRICT_FAST_VOCABULARY:-true}"
+    AFV23_FAST_TOKEN_COUNT="${AFV23_FAST_TOKEN_COUNT:-2048}"
     TRAIN_MIXED_PRECISION="${TRAIN_MIXED_PRECISION:-bf16}"
     AFV23_DATASET_ID="${AFV23_DATASET_ID:-rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes}"
     AFV23_DATASET_ROOT="${AFV23_DATASET_ROOT:-${STORAGE_ROOT}/runs/dataset/${AFV23_DATASET_ID}}"
@@ -419,6 +420,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     echo "chunk_size: $CHUNK_SIZE"
     echo "loss weights: plan=$PLAN_LOSS_WEIGHT box=$BOX_LOSS_WEIGHT fast=$FAST_LOSS_WEIGHT flow=$FLOW_LOSS_WEIGHT"
     echo "restrict_fast_vocabulary: $RESTRICT_FAST_VOCABULARY"
+    echo "fast_token_count: $AFV23_FAST_TOKEN_COUNT"
     echo "keyframe_sampling_fraction: $KEYFRAME_SAMPLING_FRACTION"
     echo "learning rate: warmup_steps=$SCHEDULER_WARMUP_STEPS peak=$OPTIMIZER_LR constant=$SCHEDULER_DECAY_LR"
     echo "vlm_model_name: $AFV23_VLM_MODEL_NAME"
@@ -438,6 +440,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
       --policy.vlm_model_name="$AFV23_VLM_MODEL_NAME" \
       --policy.num_vlm_layers="$AFV23_NUM_VLM_LAYERS" \
       --policy.tokenizer_artifact_path="$AFV23_TOKENIZER_ARTIFACT" \
+      --policy.fast_token_count="$AFV23_FAST_TOKEN_COUNT" \
       "${AFV23_SMOLVLA_INIT_ARGS[@]}" \
       --policy.input_features=null \
       --policy.output_features=null \

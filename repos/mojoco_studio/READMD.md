@@ -1,5 +1,22 @@
 # MoJoCo Studio
 
+## Week 4 forward kinematics and finite MDP
+
+Run fixed-policy Bellman evaluation and compare analytical two-link forward
+kinematics against MuJoCo:
+
+```bash
+./build.sh finite_mdp
+./build/finite_mdp
+./build.sh forward_kinematics
+./build/forward_kinematics
+./simulate.sh two_link_arm  # optional interactive viewer
+```
+
+See
+[`docs/week4_forward_kinematics_and_mdp.md`](docs/week4_forward_kinematics_and_mdp.md)
+for the derivations, complete deliverable procedure, and error explanation.
+
 ## Week 3 coordinate frames
 
 Build the frame-transform experiment and run all $SO(3)$/$SE(3)$ checks:

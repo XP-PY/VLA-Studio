@@ -311,7 +311,7 @@ def build_episode_labels(
     for segment in segments.sort_values("segment_index").to_dict("records"):
         start = int(segment["start_frame"])
         end = int(segment["end_frame"])
-        target = stage_target(segment)
+        target = canonical_entity_name(stage_target(segment))
         labels[PLANNING_STAGE][start:end] = str(segment["stage"])
         labels[PLANNING_CYCLE_INDEX][start:end] = int(segment["cycle_index"])
         labels[PLANNING_SEGMENT_INDEX][start:end] = int(segment["segment_index"])

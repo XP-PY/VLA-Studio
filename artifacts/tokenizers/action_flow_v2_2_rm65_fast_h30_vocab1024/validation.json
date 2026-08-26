@@ -1,0 +1,17 @@
+{
+  "fast_token_count": 1024,
+  "extended_vocabulary_size": 50572,
+  "entity_names": [
+    "blue plate",
+    "collection box",
+    "corn",
+    "cucumber",
+    "garlic",
+    "pink plate",
+    "tomato",
+    "vegetable on blue plate",
+    "vegetable on pink plate",
+    "vegetable on yellow plate",
+    "yellow plate"
+  ]
+}

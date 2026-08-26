@@ -30,6 +30,7 @@ AFV23_TOKENIZER_ARTIFACT="${OVERFIT_TOKENIZER_ARTIFACT:-${AFV23_TOKENIZER_ARTIFA
 AFV23_VLM_MODEL_NAME="${OVERFIT_VLM_MODEL_NAME:-${AFV23_VLM_MODEL_NAME:-HuggingFaceTB/SmolVLM2-500M-Video-Instruct}}"
 AFV23_NUM_VLM_LAYERS="${OVERFIT_NUM_VLM_LAYERS:-${AFV23_NUM_VLM_LAYERS:-16}}"
 RESTRICT_FAST_VOCABULARY="${OVERFIT_RESTRICT_FAST_VOCABULARY:-true}"
+FAST_TOKEN_COUNT="${OVERFIT_FAST_TOKEN_COUNT:-${AFV23_FAST_TOKEN_COUNT:-2048}}"
 # Preserve an explicitly empty value from env.sh; 500M smolvla_base weights
 # cannot initialize a differently sized VLM backbone.
 SMOLVLA_PRETRAINED_PATH="${OVERFIT_SMOLVLA_PRETRAINED_PATH-${SMOLVLA_PRETRAINED_PATH-lerobot/smolvla_base}}"
@@ -62,6 +63,7 @@ echo "steps: $STEPS"
 echo "batch_size: $PER_DEVICE_BATCH_SIZE"
 echo "optimizer_lr: $OPTIMIZER_LR (constant after $WARMUP_STEPS warmup steps)"
 echo "restrict_fast_vocabulary: $RESTRICT_FAST_VOCABULARY"
+echo "fast_token_count: $FAST_TOKEN_COUNT"
 echo "vlm_model_name: $AFV23_VLM_MODEL_NAME"
 echo "num_vlm_layers: $AFV23_NUM_VLM_LAYERS"
 echo "output_dir: $OUTPUT_DIR"
@@ -81,6 +83,7 @@ CUDA_VISIBLE_DEVICES="$GPU_IDS" accelerate launch \
     --policy.vlm_model_name="$AFV23_VLM_MODEL_NAME" \
     --policy.num_vlm_layers="$AFV23_NUM_VLM_LAYERS" \
     --policy.tokenizer_artifact_path="$AFV23_TOKENIZER_ARTIFACT" \
+    --policy.fast_token_count="$FAST_TOKEN_COUNT" \
     "${SMOLVLA_INIT_ARGS[@]}" \
     --policy.input_features=null \
     --policy.output_features=null \
