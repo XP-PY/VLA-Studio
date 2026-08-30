@@ -2631,47 +2631,74 @@ the 500M VLM a reliable discrete action predictor.
 
 #### Evaluation
 
-Two short real-robot tests used the 100,000-step checkpoint. Predicted subtasks and postprocessed
-joint/gripper commands were logged at every control frame.
+The 100,000-step AFV2.3 checkpoint was compared with the 100,000-step SmolVLA baseline in `15`
+paired real-robot trials. Each policy used the same prompt and scene for each pair. Evaluation of
+`Put all vegetables into the collection box` stopped after the first unsuccessful grasp, so only
+that first object cycle is counted.
 
-| Prompt | Observed Plan sequence | Result |
-|---|---|---|
-| `Place the cucumber on the blue plate.` | `complete` -> `grasp cucumber` -> `put blue plate` -> `grasp cucumber` | The policy approached the requested object, but the grasp failed and the cucumber dropped. It continued predicting the put stage for about 25 seconds before returning to grasp. |
-| `Place the tomato on the blue plate.` | `grasp tomato` -> `put blue plate` -> `grasp corn` -> `grasp garlic` -> `grasp corn` -> `grasp cucumber` -> `grasp corn` -> `put blue plate` | After the first grasp failed, subtask prediction lost prompt consistency and repeatedly selected unrelated vegetables. |
+Success metrics are cumulative and task-conditioned: physically grasping or transporting the wrong
+object does not count as success. Each unsuccessful cycle is assigned only its earliest primary
+failure.
 
-RTC reported an inference delay of approximately two control frames per prediction. This adds
-latency, but it does not explain the roughly 25-second incorrect stage: several consecutive model
-inferences independently predicted the wrong put stage.
+| Type | Metric | SmolVLA baseline | AFV2.3 | Difference (pp) |
+|---|---|---:|---:|---:|
+| Success | Correct target selected | `2/15 (13.3%)` | `2/15 (13.3%)` | `0.0` |
+| Success | Correct object grasped | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` |
+| Success | Object transported without dropping | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` |
+| Success | Object placed at the requested destination | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` |
+| Success | Complete task | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` |
+| Primary failure | Wrong object or destination selected | `13/15 (86.7%)` | `6/15 (40.0%)` | `-46.7` |
+| Primary failure | Failed to align with or close on the object | `0/15 (0.0%)` | `2/15 (13.3%)` | `+13.3` |
+| Primary failure | Object dropped during transport | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` |
+| Primary failure | Failed to place or release the object | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` |
+| Primary failure | Incorrect stage transition, timeout, or no meaningful action | `1/15 (6.7%)` | `7/15 (46.7%)` | `+40.0` |
+
+The tested prompt set covered three task families:
+
+1. **Place one vegetable:** tomato to yellow/pink; garlic to blue/yellow; corn to pink/blue; and
+   cucumber to yellow/pink. SmolVLA repeatedly attempted garlic to the blue plate regardless of the
+   prompt. AFV2.3 showed the same fixed target-destination preference on most prompts.
+2. **Clear a specified plate:** move the vegetable from the pink, yellow, or blue plate into the
+   collection box. SmolVLA always attempted garlic. Every AFV2.3 trial began with the incorrect Plan
+   `put collection box`, skipping the required grasp stage.
+3. **Bus the table:** put all vegetables into the collection box. SmolVLA again attempted garlic,
+   while AFV2.3 changed its predicted Plan repeatedly during the first grasp attempt. Both rollouts
+   were stopped after that attempt failed.
 
 ##### Analysis
 
-1. **Plan syntax was learned, but stage state was not reliably grounded.** The policy can emit valid
-   `grasp`, `put`, and `complete` sequences, yet it treats gripper closure as evidence of a successful
-   grasp even when the object is no longer held.
-2. **The dataset contains successful demonstrations but little explicit recovery supervision.** A
-   dropped object is outside the demonstrated state-transition distribution, so teacher-forced Plan
-   training does not teach how to return from `put` to `grasp`.
-3. **Teacher forcing creates an inference gap.** During training, action branches always receive the
-   correct Plan. During rollout, one wrong Plan changes the action context and can push the next
-   observation farther away from the training distribution.
-4. **The Plan grammar is structurally constrained but not prompt constrained.** It permits every
-   entity in the dataset, allowing a tomato prompt to produce corn, garlic, or cucumber after a
-   failure.
-5. **FAST is not providing a strong auxiliary action representation.** Even after 100,000 steps,
-   FAST CE remains near `4.6`, top-1 token accuracy remains below `10%`, and complete action-token
-   sequences are almost never correct.
-6. **More AFV2.3 steps alone are unlikely to fix these failures.** The remaining problems concern
-   backbone capacity, state verification, prompt-conditioned decoding, and recovery data rather
-   than simple undertraining of the continuous expert.
+1. **Neither policy reliably follows the instruction.** Both selected the correct target in only
+   `2/15` cycles. The garlic/blue-plate preference is not explained by raw prompt frequency: blue,
+   pink, and yellow plates appear in `172`, `171`, and `171` training episodes, while garlic is
+   explicitly mentioned less often than tomato or corn. The behavior is more consistent with a
+   fixed visual-spatial or action prior.
+2. **AFV2.3's lower wrong-target count is not an overall improvement.** Wrong-target failures fell
+   from `13` to `6`, but were replaced by seven Plan-transition/ineffective-action failures and two
+   grasp-alignment failures. AFV2.3 completed no successful grasp or task.
+3. **Plan syntax was learned without reliable task-progress grounding.** Beginning a clearing task
+   with `put` before grasping and changing Plan repeatedly during grasping show that valid Plan
+   output is not equivalent to correct stage estimation.
+4. **Teacher forcing creates an inference gap.** The action branches receive the correct Plan during
+   training but depend on the predicted Plan during rollout. An incorrect Plan therefore changes the
+   action context and can move subsequent observations farther outside the demonstration
+   distribution.
+5. **The SmolVLA baseline retained better low-level execution.** It completed two correct grasps and
+   transports and one full task, while AFV2.3 completed none. Stage-bounded Plan conditioning did
+   not improve physical control in this experiment.
+6. **FAST did not become a useful auxiliary action representation.** At 100,000 steps, FAST CE stayed
+   near `4.6`, token top-1 accuracy remained below `10%`, and exact sequences were almost always
+   wrong. Additional AFV2.3 steps alone are therefore unlikely to address the observed grounding,
+   Plan-state, and execution failures.
 
 #### Conclusion
 
-AFV2.3 verifies that explicit Plan tokens can be learned and used to condition continuous robot
-actions, but its 500M SmolVLM backbone does not provide sufficiently robust target grounding or
-failure-state reasoning. The next experiment therefore replaces the SmolVLM backbone with the
-released pretrained $\pi_{0.5}$ PaliGemma and action-expert weights. It retains Plan, bounding-box,
-and FAST supervision so the larger VLM directly tests whether discrete-action learning improves,
-while the pretrained $\pi_{0.5}$ flow expert remains the executed continuous-action path.
+AFV2.3 verifies that explicit Plan tokens can condition continuous robot actions, but the complete
+policy underperforms the simpler SmolVLA baseline: `0/15` versus `1/15` complete tasks, with no
+successful AFV2.3 grasp. Its 500M SmolVLM does not provide sufficiently robust prompt grounding or
+task-progress estimation, and the weak FAST objective does not compensate for this limitation. The
+next experiment therefore replaces the backbone and action initialization with the released
+$\pi_{0.5}$ PaliGemma and action-expert weights while retaining Plan, bounding-box, FAST, and
+continuous-action supervision.
 
 ### Training Log 8 of Objective 1
 
@@ -2806,24 +2833,173 @@ fine-tuning instead of applying AFV2.3 knowledge insulation.
 | `policy.train_expert_only` | `false` |
 | `policy.optimizer_lr` | `2.5e-5` |
 | `policy.scheduler_warmup_steps` | `1,000` |
-| `policy.scheduler_decay_steps` | `80,000` |
+| `policy.scheduler_decay_steps` | `100,000` |
 | `policy.scheduler_decay_lr` | `2.5e-6` |
-| Per-device batch size | `4` |
-| GPU processes | `2` |
-| Global batch size | `8` |
-| Training steps | `80,000` |
+| `batch_size` | `16` |
+| Training steps | `100,000` |
 
-> Unlisted parameters retain the Action Flow V2.4/$\pi_{0.5}$ defaults. The starting profile assumes
-> two 80 GB-class GPUs using data parallel training. DDP stores a complete model replica on each
-> GPU; reducing per-device batch size is the first adjustment if memory is insufficient.
+> Unlisted parameters retain the Action Flow V2.4/$\pi_{0.5}$ defaults. Training was resumed from
+> the 60,000-step checkpoint and completed at 100,000 steps with a global batch size of 16.
 
-#### Implementation Status
+#### Training Status
 
 The independent `action_flow_v2_4` policy, processor, configuration, factory registration, PI0.5
 weight initializer, constrained Plan decoder, PaliGemma box serializer, RM65 FAST serializer,
 stage-aware FAST/flow targets, and cloud-training branch are implemented. Unit checks cover branch
 attention, Plan serialization, PaliGemma `xyxy -> yxyx` location conversion, FAST symbol mapping,
-sparse token-loss masking, and policy registration.
-Full model initialization and a training smoke test require the downloaded $\pi_{0.5}$/PaliGemma
-artifacts and more GPU memory than the local 24 GB device, so those checks will be performed on the
-training server.
+sparse token-loss masking, and policy registration. Cloud training completed successfully, and the
+100,000-step checkpoint was loaded for real-robot evaluation.
+
+#### Inference Configuration
+
+AFV2.4, AFV2.3, and the SmolVLA baseline were evaluated with the same effective inference and
+robot-control settings. Parameters unrelated to policy inference, such as output paths and logging,
+are omitted.
+
+| Parameter | Value |
+|---|---:|
+| `policy.n_action_steps` | `1` |
+| `policy.num_inference_steps` | `4` |
+| `fps` / `dataset.fps` | `10` |
+| `inference.type` | `rtc` |
+| `inference.rtc.execution_horizon` | `2` |
+| `inference.queue_threshold` | `10` |
+| `inference.rtc.max_guidance_weight` | `10` |
+| `inference.rtc.prefix_attention_schedule` | `LINEAR` |
+| `robot.single_arm.canfd_follow` | `false` |
+
+`EVAL_NUM_STEPS=4` overrides `NUM_INFERENCE_STEP=10`, so every evaluated policy used four effective
+flow-matching inference steps.
+
+#### Evaluation
+
+The SmolVLA and AFV2.3 evaluations contain `15` trials and `15` evaluated object cycles. AFV2.4 was
+evaluated for `18` trials and `18` cycles with the same prompt set, scene construction, camera
+placement, initial robot pose, inference settings, and stopping rule. Success rows are cumulative;
+each unsuccessful cycle is assigned only the earliest primary failure that prevents completion.
+
+| Type | Metric | SmolVLA baseline | AFV2.3 | AFV2.4 |
+|---|---|---:|---:|---:|
+| Sample size | Evaluated object cycles | `15` | `15` | `18` |
+| Success | Correct source object and destination selected | `2/15 (13.3%)` | `2/15 (13.3%)` | `18/18 (100.0%)` |
+| Success | Correct object grasped | `2/15 (13.3%)` | `0/15 (0.0%)` | `18/18 (100.0%)` |
+| Success | Object transported without dropping | `2/15 (13.3%)` | `0/15 (0.0%)` | `16/18 (88.9%)` |
+| Success | Object placed at the requested destination | `1/15 (6.7%)` | `0/15 (0.0%)` | `16/18 (88.9%)` |
+| Success | Complete task | `1/15 (6.7%)` | `0/15 (0.0%)` | `16/18 (88.9%)` |
+| Primary failure | Wrong object or destination selected | `13/15 (86.7%)` | `6/15 (40.0%)` | `0/18 (0.0%)` |
+| Primary failure | Failed to align with or close on the object | `0/15 (0.0%)` | `2/15 (13.3%)` | `0/18 (0.0%)` |
+| Primary failure | Object dropped during transport | `0/15 (0.0%)` | `0/15 (0.0%)` | `2/18 (11.1%)` |
+| Primary failure | Failed to place or release the object | `0/15 (0.0%)` | `0/15 (0.0%)` | `0/18 (0.0%)` |
+| Primary failure | Incorrect stage transition, timeout, or no meaningful action | `1/15 (6.7%)` | `7/15 (46.7%)` | `0/18 (0.0%)` |
+| Recovery | Plan returned to `grasp` after a detected drop | Not observed | Not observed | `2/2 (100.0%)` |
+| Recovery | Valid recovery completed after a drop | Not observed | Not observed | `0/2 (0.0%)` |
+
+Success and primary-failure rates use all evaluated object cycles as their denominator. Recovery
+rates are conditional on a transport drop.
+
+Across the place-one-vegetable, clear-a-specified-plate, and bus-the-table tasks, every AFV2.4 Plan
+prediction matched the observed stage. The policy also recognized the requested source object and
+destination in every evaluated cycle. When an object dropped during transport, it quickly changed
+the Plan from `put` back to `grasp` instead of continuing the demonstration trajectory.
+
+##### Failure Cases
+
+1. In one trial, the dropped object came into contact with the collection box. The recovery grasp
+   lifted the object and box together, producing an arrangement not represented by the successful
+   demonstrations.
+2. In the other trial, the Plan correctly returned to `grasp`, but the gripper retained its partially
+   closed transport width instead of reopening fully. As it approached the object, the policy
+   visually inferred grasp success too early and switched to `put`. It recognized the failed grasp
+   after lifting, returned to `grasp`, and repeated the same partially closed regrasp attempt.
+
+##### Analysis
+
+1. **AFV2.4 fixes the dominant semantic failure.** Correct source and destination selection rose
+   from `2/15` for both smaller policies to `18/18`. Correct Plan prediction across all observed
+   stages also shows that task progression is grounded in the current scene rather than only in the
+   nominal demonstration sequence.
+2. **Stronger semantic representations improve physical task completion.** AFV2.4 completed
+   `16/18` cycles (`88.9%`), compared with `1/15` for SmolVLA and `0/15` for AFV2.3. No AFV2.4 cycle
+   failed because of target selection, initial alignment, placement, or an incorrect Plan stage.
+3. **High-level recovery works, but recovery actions remain weak.** Both drops were detected and both
+   Plans returned to `grasp`, yet neither trial completed a valid recovery. The remaining failure is
+   therefore not primarily target recognition or stage classification.
+4. **Gripper reset and grasp confirmation are the main remaining control problems.** The repeated
+   partially closed regrasp indicates that entering `grasp` does not enforce the demonstrated open
+   gripper state. The premature switch to `put` also shows that visual proximity can be mistaken for
+   a secure grasp without enough confirmation from object motion and gripper state.
+5. **Additional data should target recovery states rather than ordinary successful trajectories.**
+   Useful demonstrations include reopening fully after a drop, regrasping an object near or touching
+   the collection box, and withholding the `put` transition until grasp success is observable.
+6. **The result validates the complete AFV2.4 recipe, not one isolated component.** The improvement
+   may come from PaliGemma scale, $\pi_{0.5}$ robot pretraining, its action expert, the revised
+   architecture, or their interaction. A larger paired evaluation and controlled ablations are
+   needed to separate these effects.
+
+#### Conclusion
+
+AFV2.4 is the first policy in these experiments to combine reliable language grounding, correct
+Plan tracking, and strong end-to-end execution. Its `88.9%` completion rate is a substantial
+improvement over both SmolVLA and AFV2.3. The next iteration should preserve the semantic pipeline
+and focus on gripper reopening, verified grasp-state transitions, and dropped-object recovery.
+
+### Training Log 9 of Objective 1
+
+#### Motivation
+
+The original AFV2.3 experiment uses knowledge insulation (KI): Plan, Box, and FAST losses train the
+SmolVLM branch, while the continuous Flow loss receives detached prefix/Plan K/V tensors and cannot
+update the VLM. AFV2.4 allows Flow gradients to update its PaliGemma prefix and performs much better,
+but that comparison also changes model scale, pretrained weights, and the action expert. It therefore
+does not isolate the effect of KI.
+
+This experiment retrains AFV2.3 without KI. It changes only the Flow-to-VLM gradient path and keeps
+the dataset, initialization, losses, optimizer, batch size, action horizon, and training duration
+identical to the 100,000-step AFV2.3 experiment.
+
+#### Gradient Ablation
+
+| Gradient path | AFV2.3 with KI | AFV2.3 without KI |
+|---|---:|---:|
+| Plan / Box / FAST loss $\rightarrow$ SmolVLM | Enabled | Enabled |
+| Flow loss $\rightarrow$ action expert | Enabled | Enabled |
+| Flow loss $\rightarrow$ SmolVLM prefix and Plan K/V | Blocked | Enabled |
+| `policy.knowledge_insulation` | `true` | `false` |
+| `policy.detach_expert_prefix_kv` | `true` | `false` |
+
+Both variants use the same autoregressive branch attention and the same predicted/teacher-forced
+Plan context. Disabling KI does not add a new loss or change the action target; it only permits the
+Flow gradient to propagate through the prefix and Plan K/V cache into SmolVLM.
+
+#### Training Configuration
+
+| Parameter | Value |
+|---|---:|
+| `policy.type` | `action_flow_v2_3` |
+| Initialization | `lerobot/smolvla_base` |
+| Dataset episodes | `442` |
+| `policy.chunk_size` | `30` |
+| `policy.n_action_steps` | `1` |
+| `policy.plan_loss_weight` | `1.0` |
+| `policy.box_loss_weight` | `1.0` |
+| `policy.fast_loss_weight` | `1.0` |
+| `policy.flow_loss_weight` | `1.0` |
+| `policy.keyframe_sampling_fraction` | `0.05` |
+| `policy.fast_token_count` | `2,048` |
+| `policy.optimizer_lr` | `3e-5` |
+| Learning-rate schedule | Constant `3e-5` after `2,000` warmup steps |
+| `batch_size` | `16` |
+| Training steps | `100,000` |
+| Mixed precision | BF16 |
+
+The no-KI run starts again from the same SmolVLA initialization rather than resuming the KI
+checkpoint. Its output identifier ends in `_no_ki`, preventing either experiment from being
+overwritten.
+
+#### Evaluation Plan
+
+After training, the no-KI checkpoint will use the same prompts, scene layouts, initial robot pose,
+RTC settings, and stage-level metrics as the original AFV2.3 evaluation. The comparison will first
+check Plan accuracy, source/destination selection, grasp success, and complete-task success. Training
+metrics will also show whether Flow supervision improves SmolVLM grounding or instead interferes
+with Plan, Box, and FAST learning.

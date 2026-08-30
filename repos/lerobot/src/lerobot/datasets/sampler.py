@@ -24,6 +24,50 @@ import torch
 logger = logging.getLogger(__name__)
 
 
+def get_episode_frame_bounds(
+    dataset_from_indices: list[int],
+    dataset_to_indices: list[int],
+    episode_indices: list[int] | None = None,
+) -> tuple[list[int], list[int]]:
+    """Return sampler bounds relative to the rows loaded by a dataset.
+
+    Dataset metadata stores absolute frame offsets for the complete dataset. When
+    ``LeRobotDataset`` loads an episode subset, however, its rows are concatenated
+    into a new zero-based table. Rebase the selected episode lengths so a sampler
+    produces valid indices for that filtered table.
+    """
+
+    from_indices = np.asarray(dataset_from_indices, dtype=np.int64)
+    to_indices = np.asarray(dataset_to_indices, dtype=np.int64)
+    if from_indices.shape != to_indices.shape:
+        raise ValueError(
+            "dataset_from_indices and dataset_to_indices must have the same length, "
+            f"got {len(from_indices)} and {len(to_indices)}"
+        )
+    if episode_indices is None:
+        return from_indices.tolist(), to_indices.tolist()
+
+    selected = np.asarray(episode_indices, dtype=np.int64)
+    if selected.ndim != 1:
+        raise ValueError("episode_indices must be one-dimensional.")
+    if selected.size == 0:
+        raise ValueError("episode_indices must not be empty.")
+    if np.unique(selected).size != selected.size:
+        raise ValueError("episode_indices must not contain duplicates.")
+    if selected.min() < 0 or selected.max() >= len(from_indices):
+        raise IndexError("episode_indices contains an episode outside the metadata bounds.")
+
+    # Filtered HF rows retain dataset order, irrespective of the order in which
+    # episode IDs were supplied by the caller.
+    selected.sort()
+    lengths = to_indices[selected] - from_indices[selected]
+    if np.any(lengths <= 0):
+        raise ValueError("Selected episodes must contain at least one frame.")
+    rebased_to = np.cumsum(lengths)
+    rebased_from = np.concatenate(([0], rebased_to[:-1]))
+    return rebased_from.tolist(), rebased_to.tolist()
+
+
 class EpisodeAwareSampler:
     """Sampler over episode frames that stores only per-episode boundaries.
 
@@ -232,7 +276,7 @@ def get_feature_indices(dataset, feature_name: str) -> np.ndarray:
 
     if feature_name not in dataset.features:
         raise KeyError(f"Dataset does not contain keyframe feature {feature_name!r}.")
-    if feature_name == "planning.box_keyframe":
+    if feature_name == "planning.box_keyframe" and dataset.episodes is None:
         sidecar = Path(dataset.root) / "annotations/stage_keyframes/keyframes.parquet"
         if sidecar.is_file():
             import pyarrow.parquet as pq

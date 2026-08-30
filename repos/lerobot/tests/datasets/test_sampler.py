@@ -25,7 +25,7 @@ from datasets import Dataset  # noqa: E402
 from lerobot.datasets.io_utils import (
     hf_transform_to_torch,
 )
-from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.sampler import EpisodeAwareSampler, get_episode_frame_bounds
 
 
 def calculate_episode_data_index(hf_dataset: Dataset) -> dict[str, torch.Tensor]:
@@ -92,6 +92,20 @@ def test_episode_indices_to_use():
     assert sampler.indices == [0, 1, 3, 4, 5]
     assert len(sampler) == 5
     assert list(sampler) == [0, 1, 3, 4, 5]
+
+
+def test_get_episode_frame_bounds_rebases_filtered_episodes():
+    starts, ends = get_episode_frame_bounds(
+        [0, 10, 30, 35],
+        [10, 30, 35, 50],
+        episode_indices=[3, 1],
+    )
+
+    assert starts == [0, 20]
+    assert ends == [20, 35]
+    sampler = EpisodeAwareSampler(starts, ends)
+    assert len(sampler) == 35
+    assert sampler.indices == list(range(35))
 
 
 def test_shuffle():

@@ -401,6 +401,20 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     AFV23_VLM_MODEL_NAME="${AFV23_VLM_MODEL_NAME:-HuggingFaceTB/SmolVLM2-500M-Video-Instruct}"
     AFV23_NUM_VLM_LAYERS="${AFV23_NUM_VLM_LAYERS:-16}"
     AFV23_RUN_SUFFIX="${AFV23_RUN_SUFFIX:-}"
+    AFV23_KNOWLEDGE_INSULATION="${AFV23_KNOWLEDGE_INSULATION:-true}"
+    AFV23_DETACH_EXPERT_PREFIX_KV="${AFV23_DETACH_EXPERT_PREFIX_KV:-$AFV23_KNOWLEDGE_INSULATION}"
+    if [ "$AFV23_KNOWLEDGE_INSULATION" = "true" ]; then
+        KI_TAG=""
+    elif [ "$AFV23_KNOWLEDGE_INSULATION" = "false" ]; then
+        KI_TAG="_no_ki"
+    else
+        echo "AFV23_KNOWLEDGE_INSULATION must be true or false." >&2
+        exit 1
+    fi
+    if [ "$AFV23_DETACH_EXPERT_PREFIX_KV" != "true" ] && [ "$AFV23_DETACH_EXPERT_PREFIX_KV" != "false" ]; then
+        echo "AFV23_DETACH_EXPERT_PREFIX_KV must be true or false." >&2
+        exit 1
+    fi
     SMOLVLA_PRETRAINED_PATH="${SMOLVLA_PRETRAINED_PATH:-}"
     AFV23_SMOLVLA_INIT_ARGS=()
     SMOLVLA_INIT_TAG="smolvla_uninit"
@@ -408,7 +422,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
         AFV23_SMOLVLA_INIT_ARGS+=(--policy.smolvla_pretrained_path="$SMOLVLA_PRETRAINED_PATH")
         SMOLVLA_INIT_TAG="smolvla_init"
     fi
-    TRAINING_ID="rm65_action_flow_v23_plan_conditioned_segment_aware_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_${KEYFRAME_SAMPLING_FRACTION}${AFV23_RUN_SUFFIX:+_${AFV23_RUN_SUFFIX}}"
+    TRAINING_ID="rm65_action_flow_v23_plan_conditioned_segment_aware_episodes_${TASK_EPISODES}_steps_${STEPS}_batch_${PER_DEVICE_BATCH_SIZE}_chunk_${CHUNK_SIZE}_${KEYFRAME_SAMPLING_FRACTION}${AFV23_RUN_SUFFIX:+_${AFV23_RUN_SUFFIX}}${KI_TAG}"
     ACCELERATE_ARGS=(--num_processes=$NUM_GPUS --mixed_precision=$TRAIN_MIXED_PRECISION)
     if [ "$NUM_GPUS" -gt 1 ]; then
         ACCELERATE_ARGS=(--multi_gpu "${ACCELERATE_ARGS[@]}")
@@ -427,6 +441,8 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
     echo "num_vlm_layers: $AFV23_NUM_VLM_LAYERS"
     echo "tokenizer_artifact: $AFV23_TOKENIZER_ARTIFACT"
     echo "smolvla_pretrained_path: ${SMOLVLA_PRETRAINED_PATH:-disabled}"
+    echo "knowledge_insulation: $AFV23_KNOWLEDGE_INSULATION"
+    echo "detach_expert_prefix_kv: $AFV23_DETACH_EXPERT_PREFIX_KV"
     echo "=========================================="
 
     CUDA_VISIBLE_DEVICES=$GPU_IDS accelerate launch \
@@ -451,8 +467,8 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
       --policy.train_expert_only=false \
       --policy.train_state_proj=true \
       --policy.load_vlm_weights=true \
-      --policy.knowledge_insulation=true \
-      --policy.detach_expert_prefix_kv=true \
+      --policy.knowledge_insulation="$AFV23_KNOWLEDGE_INSULATION" \
+      --policy.detach_expert_prefix_kv="$AFV23_DETACH_EXPERT_PREFIX_KV" \
       --policy.segment_aware_action_loss=true \
       --policy.keyframe_sampling_fraction="$KEYFRAME_SAMPLING_FRACTION" \
       --policy.plan_loss_weight="$PLAN_LOSS_WEIGHT" \

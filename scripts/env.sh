@@ -26,8 +26,8 @@ export TORCH_HOME="$STORAGE_ROOT/.cache/torch"
 export HF_HOME="$STORAGE_ROOT/.cache/huggingface"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export HF_LEROBOT_HOME="$STORAGE_ROOT/.cache/lerobot"
-# export HF_ENDPOINT="https://hf-mirror.com"
-export HF_ENDPOINT="https://huggingface.co"
+export HF_ENDPOINT="https://hf-mirror.com"
+# export HF_ENDPOINT="https://huggingface.co"
 
 export YOLOE_CACHE_DIR="$STORAGE_ROOT/.cache/yoloe"
 export YOLOE_WEIGHT_DIR="$YOLOE_CACHE_DIR/weights"
@@ -55,10 +55,10 @@ export TASK_EPISODES=442
 export TASK_FPS=30
 
 # ===== Training common settings =====
-export POLICY_ID="rm65_action_flow_v24_pi05_plan_boxes_fast_episodes_442_steps_80000_global_batch_8_chunk_30"
-export POLICY_TYPE="action_flow_v2_4"
-export STEPS=80000
-export PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-8}"
+export POLICY_ID="rm65_action_flow_v23_plan_conditioned_segment_aware_episodes_442_steps_100000_batch_16_chunk_30_0.05_smolvlm500m_smolvla_init_fast_vocab_restricted_constant_lr_no_ki"
+export POLICY_TYPE="action_flow_v2_3"
+export STEPS=100000
+export PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-16}"
 export SAVE_FREQ=20000
 export LOG_FREQ=100
 export CHUNK_SIZES=(30)
@@ -68,8 +68,8 @@ export NUM_GPUS="${NUM_GPUS:-1}"
 # ===== Resume settings =====
 # Resume keeps using POLICY_ID's existing output directory and extends the
 # saved training target without changing the fixed post-warmup learning rate.
-export RESUME_STEPS=100000
-export RESUME_SAVE_FREQ=20000
+export RESUME_STEPS=10000
+export RESUME_SAVE_FREQ=2000
 
 # ===== Action Flow V2.3 settings =====
 export PLAN_LOSS_WEIGHT=1.0
@@ -85,6 +85,8 @@ export SCHEDULER_DECAY_LR="$OPTIMIZER_LR"
 export RESTRICT_FAST_VOCABULARY=true
 export AFV23_FAST_TOKEN_COUNT=2048
 export TRAIN_MIXED_PRECISION=bf16
+export AFV23_KNOWLEDGE_INSULATION=false
+export AFV23_DETACH_EXPERT_PREFIX_KV=false
 
 # Controlled 500M experiment matching the FAST vocabulary A/B test.
 export AFV23_VLM_MODEL_NAME="HuggingFaceTB/SmolVLM2-500M-Video-Instruct"

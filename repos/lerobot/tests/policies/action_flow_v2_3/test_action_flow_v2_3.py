@@ -210,6 +210,18 @@ def test_architecture_contract_records_plan_conditioning_and_segment_masks():
     assert contract["restrict_fast_vocabulary"] is True
 
 
+def test_architecture_contract_records_disabled_knowledge_insulation():
+    contract = ActionFlowV23Config(
+        device="cpu",
+        knowledge_insulation=False,
+        detach_expert_prefix_kv=False,
+    ).architecture_contract()
+
+    assert contract["knowledge_insulation"] is False
+    assert contract["detach_expert_prefix_kv"] is False
+    assert contract["expert_context"] == "trainable_prefix_and_plan_kv"
+
+
 def test_rollout_passes_predicted_plan_to_flow_context():
     predicted_plan = torch.tensor([[101, 102, 103]])
     predicted_mask = torch.tensor([[True, True, True]])

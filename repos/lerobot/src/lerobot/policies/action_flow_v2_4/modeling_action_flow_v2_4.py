@@ -304,7 +304,7 @@ class ActionFlowV24Model(PI05Pytorch):
         attention, positions = build_action_flow_v2_4_attention_mask(
             shared_mask, plan_mask, box_mask, fast_mask, suffix_mask
         )
-        additive_attention = self._prepare_attention_masks_4d(attention)
+        additive_attention = self._prepare_attention_masks_4d(attention).to(prefix_embs.dtype)
         (prefix_out, suffix_out), _ = self.paligemma_with_expert.forward(
             attention_mask=additive_attention,
             position_ids=positions,
@@ -453,7 +453,7 @@ class ActionFlowV24Model(PI05Pytorch):
             context_embs = torch.cat([shared_embs, plan_embs], dim=1)
             attention, positions = self._context_attention(shared_mask, plan_mask)
             (context_out, _), _ = self.paligemma_with_expert.forward(
-                attention_mask=self._prepare_attention_masks_4d(attention),
+                attention_mask=self._prepare_attention_masks_4d(attention).to(context_embs.dtype),
                 position_ids=positions,
                 past_key_values=None,
                 inputs_embeds=[context_embs, None],
@@ -498,7 +498,7 @@ class ActionFlowV24Model(PI05Pytorch):
         attention, positions = self._context_attention(shared_mask, plan_mask)
         self.paligemma_with_expert.paligemma.model.language_model.config._attn_implementation = "eager"  # noqa: SLF001
         _, cache = self.paligemma_with_expert.forward(
-            attention_mask=self._prepare_attention_masks_4d(attention),
+            attention_mask=self._prepare_attention_masks_4d(attention).to(context_embs.dtype),
             position_ids=positions,
             past_key_values=None,
             inputs_embeds=[context_embs, None],
@@ -525,7 +525,7 @@ class ActionFlowV24Model(PI05Pytorch):
             embeddings = torch.cat([context_embs, box_embs], dim=1)
             attention, positions = self._context_attention(shared_mask, plan_mask, box_mask)
             (output, _), _ = self.paligemma_with_expert.forward(
-                attention_mask=self._prepare_attention_masks_4d(attention),
+                attention_mask=self._prepare_attention_masks_4d(attention).to(embeddings.dtype),
                 position_ids=positions,
                 past_key_values=None,
                 inputs_embeds=[embeddings, None],

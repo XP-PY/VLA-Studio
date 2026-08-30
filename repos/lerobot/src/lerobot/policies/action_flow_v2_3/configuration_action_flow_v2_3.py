@@ -128,7 +128,11 @@ class ActionFlowV23Config(ActionFlowV22Config):
             {
                 "autoregressive_targets": ["next_step_plan", "target_boxes", "fast_actions"],
                 "autoregressive_attention": "plan_then_parallel_grounding_and_fast_branches",
-                "expert_context": "detached_prefix_and_plan_kv",
+                "expert_context": (
+                    "detached_prefix_and_plan_kv"
+                    if self.detach_expert_prefix_kv
+                    else "trainable_prefix_and_plan_kv"
+                ),
                 "segment_aware_action_loss": self.segment_aware_action_loss,
                 "restrict_fast_vocabulary": self.restrict_fast_vocabulary,
             }

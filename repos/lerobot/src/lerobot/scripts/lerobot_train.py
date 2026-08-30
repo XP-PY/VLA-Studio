@@ -51,6 +51,7 @@ from lerobot.datasets import (
     EpisodeAwareSampler,
     KeyframeAwareSampler,
     compute_sampler_state,
+    get_episode_frame_bounds,
     get_feature_indices,
     make_dataset,
 )
@@ -422,8 +423,12 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
         # without needing a `generator` attribute to synchronize an RNG, and resume is sample-exact.
         shuffle = False     # Turn off DataLoader shuffle
         keyframe_fraction = getattr(active_cfg, "keyframe_sampling_fraction", 0.0)
+        episode_from_indices, episode_to_indices = get_episode_frame_bounds(
+            dataset.meta.episodes["dataset_from_index"],
+            dataset.meta.episodes["dataset_to_index"],
+            dataset.episodes,
+        )
         sampler_kwargs = {
-            "episode_indices_to_use": dataset.episodes,
             "drop_n_last_frames": getattr(active_cfg, "drop_n_last_frames", 0),
             "seed": cfg.seed if cfg.seed is not None else 0,
         }
@@ -433,8 +438,8 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
             )
             keyframe_indices = get_feature_indices(dataset, keyframe_feature)
             sampler = KeyframeAwareSampler(
-                dataset.meta.episodes["dataset_from_index"],
-                dataset.meta.episodes["dataset_to_index"],
+                episode_from_indices,
+                episode_to_indices,
                 keyframe_indices,
                 keyframe_fraction=keyframe_fraction,
                 **sampler_kwargs,
@@ -448,8 +453,8 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
                 )
         else:
             sampler = EpisodeAwareSampler(
-                dataset.meta.episodes["dataset_from_index"],
-                dataset.meta.episodes["dataset_to_index"],
+                episode_from_indices,
+                episode_to_indices,
                 shuffle=True,
                 **sampler_kwargs,
             )
