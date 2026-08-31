@@ -12,7 +12,7 @@ without downloading model weights.
 Usage example:
 python examples/inspect_smolvla_forward_shapes.py \
     --batch-size 2 \
-    2>&1 | tee ./examples/inspect_smolvla_forward_shapes.log
+    2>&1 | tee ./logs/inspect_smolvla_forward_shapes.log
 """
 
 from __future__ import annotations

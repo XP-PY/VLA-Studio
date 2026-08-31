@@ -1,6 +1,12 @@
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
 from torchvision.utils import save_image
+
+
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "runs" / "inspection"
+
 
 def resize_with_pad(img, width, height, pad_value=-1):
     # assume no-op when width height fits already
@@ -16,7 +22,7 @@ def resize_with_pad(img, width, height, pad_value=-1):
     resized_img = F.interpolate(
         img, size=(resized_height, resized_width), mode="bilinear", align_corners=False
     )
-    save_image(resized_img, "./examples/inspect_smolvlm_image_resize_temp.png")
+    save_image(resized_img, OUTPUT_DIR / "inspect_smolvlm_image_resize_temp.png")
 
     pad_height = max(0, int(height - resized_height))
     pad_width = max(0, int(width - resized_width))
@@ -26,7 +32,9 @@ def resize_with_pad(img, width, height, pad_value=-1):
     padded_img = F.pad(resized_img, (pad_width, 0, pad_height, 0), value=pad_value)
     return padded_img
 
+
 def main():
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     # Pseudo RGB image in BCHW format: batch=1, channels=3, height=4, width=8.
     # It is wider than the target square, so resize_with_pad should pad on top.
     img = torch.zeros(1, 3, 480, 640)
@@ -40,8 +48,9 @@ def main():
     print("[INFO] output shape:", tuple(out.shape))
 
     # Save normalized previews. The padded value -1 is mapped to 0 for visualization.
-    save_image(img, "./examples/inspect_smolvlm_image_resize_input.png")
-    save_image(out, "./examples/inspect_smolvlm_image_resize_output.png")
+    save_image(img, OUTPUT_DIR / "inspect_smolvlm_image_resize_input.png")
+    save_image(out, OUTPUT_DIR / "inspect_smolvlm_image_resize_output.png")
+
 
 if __name__=='__main__':
     main()

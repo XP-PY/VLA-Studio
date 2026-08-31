@@ -1,0 +1,139 @@
+schema_version: 1
+rollout_root: runs/rollout_dataset
+offline_evaluation_root: runs/evaluation
+
+retention_states:
+  keep_official: Evidence used by the current cross-policy comparison.
+  keep_historical: Evidence for a completed training log or exploratory rollout.
+
+rollout_groups:
+  smolvla_afv23_afv24_comparison_smolvla:
+    policy: smolvla
+    status: official
+    retention: keep_official
+    patterns:
+      - rollout_rm65_smolvla_baseline_*_20260828_*
+    documented_in: docs/evaluation.md
+    recorded_metrics:
+      trials: 15
+      object_cycles: 15
+      complete_tasks: 1
+    purpose: SmolVLA baseline in the paired table-preparation and bussing comparison.
+
+  smolvla_afv23_afv24_comparison_afv23:
+    policy: action_flow_v2_3
+    status: official
+    retention: keep_official
+    patterns:
+      - rollout_rm65_action_flow_v23_plan_conditioned_segment_aware_*_20260828_*
+    documented_in: docs/evaluation.md
+    recorded_metrics:
+      trials: 15
+      object_cycles: 15
+      complete_tasks: 0
+    purpose: Best evaluated AFV2.3 run in the paired policy comparison.
+
+  smolvla_afv23_afv24_comparison_afv24:
+    policy: action_flow_v2_4
+    status: official
+    retention: keep_official
+    patterns:
+      - rollout_rm65_action_flow_v24_*_20260830_*
+    documented_in: docs/evaluation.md
+    recorded_metrics:
+      trials: 18
+      object_cycles: 18
+      complete_tasks: 16
+    purpose: AFV2.4 run in the paired policy comparison and recovery analysis.
+
+  act_bimanual_assembly:
+    policy: act
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_act_bimanual_assembly_*
+    documented_in: docs/act.md
+    purpose: ACT chunk-size evaluation for bimanual assembly-part transfer.
+
+  action_flow_v1_bimanual_assembly:
+    policy: action_flow_v1
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v1_bimanual_assembly_*
+    documented_in: docs/action_flow.md
+    purpose: Action Flow V1 chunk-size and RTC evaluation on the assembly task.
+
+  action_flow_v2_relevance:
+    policy: action_flow_v2
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v2_single_table_*
+    documented_in: docs/action_flow.md
+    purpose: Sparse relevance-loss comparison for the first Action Flow V2 policy.
+
+  action_flow_v21_dense_segmentation:
+    policy: action_flow_v2_1
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v21_*
+    documented_in: docs/action_flow.md
+    purpose: Dense relevance-mask rollout and heatmap evaluation.
+
+  action_flow_v22_boxes:
+    policy: action_flow_v2_2
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v22_*
+    documented_in: docs/action_flow.md
+    purpose: Structured box-token, initialization, and image-resizing experiments.
+
+  action_flow_v23_initial_planning:
+    policy: action_flow_v2_3
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v23_planning_boxes_*
+    documented_in: docs/action_flow.md
+    purpose: Initial planning-conditioned AFV2.3 rollout experiments.
+
+  action_flow_v23_plan_conditioned_development:
+    policy: action_flow_v2_3
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_action_flow_v23_plan_conditioned_segment_aware_*_20260821_*
+      - rollout_rm65_action_flow_v23_plan_conditioned_segment_aware_*_20260825_*
+    documented_in: docs/action_flow.md
+    purpose: Plan-conditioned, stage-aware rollout and FAST-loss development before the paired evaluation.
+
+  pi0_single_table:
+    policy: pi0
+    status: historical
+    retention: keep_historical
+    patterns:
+      - rollout_rm65_pi0_*
+    documented_in: docs/pi_0.md
+    purpose: PI0 rollout tuning and table-task failure analysis.
+
+offline_evaluation_groups:
+  action_flow_v22_box_prediction:
+    policy: action_flow_v2_2
+    status: historical
+    retention: keep_historical
+    patterns:
+      - action_flow_v2_2_boxes*
+    documented_in: docs/action_flow.md
+    purpose: Quantitative and visual structured-box prediction evaluations across initialization and resizing variants.
+
+  action_flow_v23_fast_balanced:
+    policy: action_flow_v2_3
+    status: historical
+    retention: keep_historical
+    patterns:
+      - action_flow_v2_3_fast_balanced
+    documented_in: docs/action_flow.md
+    purpose: FAST-token class-balance and convergence diagnostic.

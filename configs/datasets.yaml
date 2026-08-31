@@ -1,0 +1,412 @@
+schema_version: 1
+dataset_root: runs/dataset
+
+roles:
+  standalone_source: Independently recorded dataset that is not assembled from local subsets.
+  source_subset: Directly recorded task subset used to rebuild a canonical merged dataset.
+  canonical_merge: Canonical robot dataset produced by merging source subsets.
+  annotation_intermediate: Frame-aligned annotations that are not a standard robot-training dataset.
+  derived_training: Robot dataset augmented with policy-specific supervision.
+
+retention_states:
+  keep_active: Required by current recording, training, or evaluation work.
+  keep_source: Required to rebuild or extend a canonical dataset.
+  keep_historical: Retained to reproduce a completed experiment.
+
+datasets:
+  rm65_aloha_pick_screwdriver_to_fixed_box_closer_front:
+    path: rm65_aloha_pick_screwdriver_to_fixed_box_closer_front
+    format: lerobot_v3
+    role: standalone_source
+    lifecycle: historical
+    retention: keep_historical
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 250
+      frames: 48106
+      tasks: 1
+      fps: 30
+      cameras: [wrist, front]
+    task_family: screwdriver_to_fixed_box
+    used_by: [act]
+    notes: Historical single-arm screwdriver dataset.
+
+  rm65_bimanual_bottle_left_to_center_box:
+    path: rm65_bimanual_bottle_multitask_subsets/rm65_bimanual_bottle_left_to_center_box
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 30
+      frames: 8818
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bottle_left_to_center_box
+
+  rm65_bimanual_bottle_left_to_right_box_handover:
+    path: rm65_bimanual_bottle_multitask_subsets/rm65_bimanual_bottle_left_to_right_box_handover
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 50
+      frames: 34694
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bottle_left_to_right_handover
+
+  rm65_bimanual_bottle_right_to_center_box:
+    path: rm65_bimanual_bottle_multitask_subsets/rm65_bimanual_bottle_right_to_center_box
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 30
+      frames: 8688
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bottle_right_to_center_box
+
+  rm65_bimanual_bottle_right_to_left_box_handover:
+    path: rm65_bimanual_bottle_multitask_subsets/rm65_bimanual_bottle_right_to_left_box_handover
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 50
+      frames: 34641
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bottle_right_to_left_handover
+
+  rm65_bimanual_bottle_multitask:
+    path: rm65_bimanual_bottle_multitask
+    format: lerobot_v3
+    role: canonical_merge
+    lifecycle: historical
+    retention: keep_historical
+    parents:
+      - rm65_bimanual_bottle_left_to_center_box
+      - rm65_bimanual_bottle_left_to_right_box_handover
+      - rm65_bimanual_bottle_right_to_center_box
+      - rm65_bimanual_bottle_right_to_left_box_handover
+    build:
+      method: concatenate
+      tool: scripts/dataset_concatenation.sh
+    metadata:
+      episodes: 160
+      frames: 86841
+      tasks: 4
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bimanual_bottle_multitask
+    used_by: [smolvla]
+
+  rm65_bimanual_assembly_delete_situation_1:
+    path: rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subsets/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_delete_situation_1
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 40
+      frames: 13095
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: assembly_parts_delete_situation_1
+
+  rm65_bimanual_assembly_delete_situation_2:
+    path: rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subsets/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_delete_situation_2
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 60
+      frames: 34977
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: assembly_parts_delete_situation_2
+
+  rm65_bimanual_assembly_delete_situation_3:
+    path: rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subsets/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_delete_situation_3
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 80
+      frames: 67884
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: assembly_parts_delete_situation_3
+
+  rm65_bimanual_assembly_delete_situation_4:
+    path: rm65_bimanual_farthest_to_closest_assembly_parts_to_center_subsets/rm65_bimanual_farthest_to_closest_assembly_parts_to_center_delete_situation_4
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: historical
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 60
+      frames: 32852
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: assembly_parts_delete_situation_4
+
+  rm65_bimanual_farthest_to_closest_assembly_parts_to_center:
+    path: rm65_bimanual_farthest_to_closest_assembly_parts_to_center
+    format: lerobot_v3
+    role: canonical_merge
+    lifecycle: historical
+    retention: keep_historical
+    parents:
+      - rm65_bimanual_assembly_delete_situation_1
+      - rm65_bimanual_assembly_delete_situation_2
+      - rm65_bimanual_assembly_delete_situation_3
+      - rm65_bimanual_assembly_delete_situation_4
+    build:
+      method: concatenate
+      tool: scripts/dataset_concatenation.sh
+    metadata:
+      episodes: 240
+      frames: 148808
+      tasks: 1
+      fps: 30
+      cameras: [left_wrist, right_wrist, front, top]
+    task_family: bimanual_assembly_parts_to_center
+    used_by: [act, action_flow_v1]
+
+  rm65_single_table_arrange_two_vegetables:
+    path: rm65_single_table_preparation_and_bussing_subsets/rm65_single_table_preparation_and_bussing_arrange_two_vegetables
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: active
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 143
+      frames: 93866
+      tasks: 36
+      fps: 30
+      cameras: [wrist, top]
+    task_family: arrange_two_vegetables
+
+  rm65_single_table_bus_the_table:
+    path: rm65_single_table_preparation_and_bussing_subsets/rm65_single_table_preparation_and_bussing_bus_the_table
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: active
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 71
+      frames: 66194
+      tasks: 1
+      fps: 30
+      cameras: [wrist, top]
+    task_family: bus_the_table
+
+  rm65_single_table_clear_a_specified_plate:
+    path: rm65_single_table_preparation_and_bussing_subsets/rm65_single_table_preparation_and_bussing_clear_a_specified_plate
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: active
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 108
+      frames: 34956
+      tasks: 3
+      fps: 30
+      cameras: [wrist, top]
+    task_family: clear_a_specified_plate
+
+  rm65_single_table_place_one_vegetable:
+    path: rm65_single_table_preparation_and_bussing_subsets/rm65_single_table_preparation_and_bussing_place_one_vegetable
+    format: lerobot_v3
+    role: source_subset
+    lifecycle: active
+    retention: keep_source
+    build:
+      method: passive_record
+      tool: repos/lerobot/examples/rm65/passive_record.py
+    metadata:
+      episodes: 120
+      frames: 44625
+      tasks: 12
+      fps: 30
+      cameras: [wrist, top]
+    task_family: place_one_vegetable
+
+  rm65_single_table_preparation_and_bussing:
+    path: rm65_single_table_preparation_and_bussing
+    format: lerobot_v3
+    role: canonical_merge
+    lifecycle: active
+    retention: keep_active
+    parents:
+      - rm65_single_table_arrange_two_vegetables
+      - rm65_single_table_bus_the_table
+      - rm65_single_table_clear_a_specified_plate
+      - rm65_single_table_place_one_vegetable
+    build:
+      method: concatenate
+      tool: scripts/dataset_concatenation.sh
+    metadata:
+      episodes: 442
+      frames: 239641
+      tasks: 52
+      fps: 30
+      cameras: [wrist, top]
+    task_family: single_table_preparation_and_bussing
+    used_by: [smolvla_baseline]
+    source_for: [action_flow_v2_1, action_flow_v2_2, action_flow_v2_3, action_flow_v2_4]
+    notes: Canonical robot-only dataset for current single-arm experiments.
+
+  rm65_single_table_preparation_and_bussing_afv2_yoloe:
+    path: rm65_single_table_preparation_and_bussing_afv2_yoloe
+    format: afv2_mask_annotation_v1
+    role: annotation_intermediate
+    lifecycle: superseded
+    retention: keep_historical
+    parents: [rm65_single_table_preparation_and_bussing]
+    annotation_sources:
+      - runs/yoloe/rm65_single_table_preparation_and_bussing
+      - runs/sam/rm65_single_table_preparation_and_bussing_yoloe
+    build:
+      method: sam2_tracking_from_reviewed_yoloe_points
+      tool: examples/action_flow_v2/annotate_sam2.py
+    metadata:
+      episodes: 203
+      frames: 92545
+      annotation_rows: 185090
+      tasks: 52
+      fps: 30
+      cameras: [top, wrist]
+    task_family: single_table_preparation_and_bussing
+    notes: Historical SAM2/YOLOE per-camera mask store used to build AFV2.1 and AFV2.2 supervision; not a directly trainable LeRobot dataset.
+
+  rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation:
+    path: rm65_single_table_preparation_and_bussing_afv2_yoloe_dense_segmentation
+    format: lerobot_v3
+    role: derived_training
+    lifecycle: superseded
+    retention: keep_historical
+    parents:
+      - rm65_single_table_preparation_and_bussing
+      - rm65_single_table_preparation_and_bussing_afv2_yoloe
+    build:
+      method: merge_dense_segmentation
+      tool: examples/action_flow_v2/merge_segmentation_dataset.py
+    metadata:
+      episodes: 203
+      frames: 92545
+      tasks: 52
+      fps: 30
+      cameras: [wrist, top]
+    added_features:
+      - observation.relevance_mask
+      - observation.relevance_loss_weight
+    used_by: [action_flow_v2_1]
+    notes: Historical dense relevance-mask training dataset for Action Flow V2.1; later experiments switched to sparse, manually reviewed stage-keyframe grounding.
+
+  rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes:
+    path: rm65_single_table_preparation_and_bussing_afv2_2_yoloe_boxes
+    format: lerobot_v3
+    role: derived_training
+    lifecycle: superseded
+    retention: keep_historical
+    parents:
+      - rm65_single_table_preparation_and_bussing
+      - rm65_single_table_preparation_and_bussing_afv2_yoloe
+    build:
+      method: masks_to_entity_boxes
+      tool: examples/action_flow_v2/build_action_flow_v2_2_box_dataset.py
+    metadata:
+      episodes: 203
+      frames: 92545
+      tasks: 52
+      fps: 30
+      cameras: [wrist, top]
+    added_features:
+      - observation.target_boxes
+      - observation.target_box_bins
+      - observation.target_box_visibility
+      - observation.target_box_loss_weight
+      - observation.target_entity_ids
+      - observation.target_entity_roles
+      - observation.target_entity_valid
+    used_by: [action_flow_v2_2]
+    notes: Historical entity-box training dataset for Action Flow V2.2; later experiments switched to stage-specific, manually verified keyframe boxes.
+
+  rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes:
+    path: rm65_single_table_preparation_and_bussing_afv2_2_planning_boxes
+    format: lerobot_v3
+    role: derived_training
+    lifecycle: active
+    retention: keep_active
+    parents: [rm65_single_table_preparation_and_bussing]
+    annotation_sources:
+      - runs/planning/rm65_single_table_preparation_and_bussing
+      - runs/sam/rm65_single_table_preparation_and_bussing_stage_keyframes
+    build:
+      method: merge_planning_and_reviewed_stage_keyframe_boxes
+      tool: examples/action_flow_v2/build_planning_box_dataset.py
+    metadata:
+      episodes: 442
+      frames: 239641
+      tasks: 52
+      fps: 30
+      cameras: [wrist, top]
+    added_feature_groups:
+      - per_frame_planning_stage_and_target
+      - planning_segment_boundaries
+      - sparse_reviewed_target_boxes
+      - relative_action_statistics
+    used_by: [action_flow_v2_3, action_flow_v2_4]
+    notes: Current canonical Action Flow training dataset.

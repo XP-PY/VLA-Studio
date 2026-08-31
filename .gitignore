@@ -14,6 +14,9 @@ artifacts/huggingface/
 temp.sh
 temp.py
 annotations
+examples/*.jpg
+examples/*.log
+examples/*.png
 repos/*
 !repos/lerobot/
 !repos/mojoco_studio/

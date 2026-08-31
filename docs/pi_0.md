@@ -12,8 +12,8 @@
 Before training, download the base PI0 policy and the paligemma model used by the policy:
 
 ```bash
-./scripts/model_download.sh lerobot/pi0_base
-./scripts/model_download.sh google/paligemma-3b-pt-224
+./scripts/hf_download.sh lerobot/pi0_base
+./scripts/hf_download.sh google/paligemma-3b-pt-224
 ```
 
 The local paths used in the training command are:

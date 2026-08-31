@@ -7,11 +7,11 @@ It does not instantiate the full PaliGemma model or run its expensive forward pa
 
 Example:
 python examples/inspect_pi0_fast_forward_shapes.py \
-    2>&1 | tee examples/inspect_pi0_fast_forward_shapes.log
+    2>&1 | tee logs/inspect_pi0_fast_forward_shapes.log
 
 or:
 python examples/inspect_pi0_fast_forward_shapes.py --seed 42 \
-    2>&1 | tee examples/inspect_pi0_fast_forward_shapes.log
+    2>&1 | tee logs/inspect_pi0_fast_forward_shapes.log
 """
 
 from __future__ import annotations

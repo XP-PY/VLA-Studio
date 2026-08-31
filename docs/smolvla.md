@@ -9,8 +9,8 @@
 Before training, download the base SmolVLA policy and the SmolVLM model used by the policy:
 
 ```bash
-./scripts/model_download.sh lerobot/smolvla_base
-./scripts/model_download.sh HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+./scripts/hf_download.sh lerobot/smolvla_base
+./scripts/hf_download.sh HuggingFaceTB/SmolVLM2-500M-Video-Instruct
 ```
 
 The local paths used in the training command are:

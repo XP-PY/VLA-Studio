@@ -22,7 +22,7 @@ python examples/inspect_smolvlm_data_process.py \
     --padding max_length \
     --padding-side right \
     --device cuda \
-    2>&1 | tee ./examples/inspect_smolvlm_data_process.log
+    2>&1 | tee ./logs/inspect_smolvlm_data_process.log
 """
 
 from __future__ import annotations

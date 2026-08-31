@@ -95,6 +95,11 @@ The scene setup, prompt set, initial robot pose, and rollout settings are kept c
 policies. Conditional stage rates and unconditional end-to-end rates are both reported so an early
 grasp failure cannot be mistaken for a placement failure.
 
+The rollout artifact groups supporting this comparison are registered in
+`configs/evaluations.yaml`. Some interactive evaluation directories contain camera videos but show
+zero finalized episodes in LeRobot metadata, so the manually adjudicated trial counts in this
+document are authoritative and must not be replaced by `meta/info.json` totals.
+
 ## Evaluation Results
 
 The SmolVLA and AFV2.3 evaluations contain `15` trials and `15` evaluated object cycles. AFV2.4 was

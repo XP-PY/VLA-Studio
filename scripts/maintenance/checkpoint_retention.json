@@ -1,0 +1,9 @@
+{
+  "default_mode": "model_only_latest",
+  "runs": {
+    "rm65_smolvla_baseline_episodes_442_steps_100000_batch_16_chunk_30": "full_latest",
+    "rm65_action_flow_v23_plan_conditioned_segment_aware_episodes_442_steps_100000_batch_16_chunk_30_0.05": "full_latest",
+    "rm65_action_flow_v23_plan_conditioned_segment_aware_episodes_442_steps_100000_batch_16_chunk_30_0.05_smolvlm500m_smolvla_init_fast_vocab_restricted_constant_lr_no_ki": "full_latest",
+    "rm65_action_flow_v24_pi05_plan_boxes_fast_episodes_442_steps_100000_global_batch_16_chunk_30": "full_latest"
+  }
+}

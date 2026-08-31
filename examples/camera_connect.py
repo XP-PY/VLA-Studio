@@ -25,7 +25,12 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--fourcc", default="MJPG", help="Optional OpenCV FOURCC, e.g. MJPG or YUYV.")
     parser.add_argument("--display", action="store_true", help="Show frames with cv2.imshow if GUI is available.")
-    parser.add_argument("--save-frame", type=Path, default='examples/camera_connect_opencv_capture.jpg', help="Path to save the frame.")
+    parser.add_argument(
+        "--save-frame",
+        type=Path,
+        default=Path("runs/inspection/camera_connect_opencv_capture.jpg"),
+        help="Path to save the frame.",
+    )
     parser.add_argument("--max-frames", type=int, default=0, help="Stop after this many frames. 0 means run forever.")
     args = parser.parse_args()
 

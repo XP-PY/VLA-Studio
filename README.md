@@ -1,6 +1,6 @@
 # VLA Studio
 
-## What I add in Lerobot
+## LeRobot Extensions
 
 ### RM65
 
@@ -21,7 +21,8 @@ configs/rm65_left_right_wrist_front_top.yaml
 
 #### Action Flow
 
-Detailed information about `Action Flow` policy can be found in its [doc](docs/action_flow.md)
+Detailed information about the Action Flow policies is available in the
+[Action Flow training log](docs/action_flow.md).
 
 ### Dataset record
 
@@ -38,6 +39,27 @@ Note: this project uses passive dataset recording instead of the standard `lerob
 ## Documentation
 
 - [VLA training logs](docs/README.md)
+- [Policy comparison](docs/evaluation.md)
+- [Project structure and storage maintenance](docs/project_structure.md)
+
+## Project Layout
+
+```text
+configs/                 RM65 configurations and the curated dataset registry
+configs/experiments/     reproducible policy training profiles
+configs/recordings/      direct source-dataset recording profiles
+docs/                    experiment logs, evaluations, and project notes
+examples/                inspection tools and data-annotation programs
+artifacts/               portable tokenizer and policy artifacts
+repos/lerobot/           the modified LeRobot source tree
+scripts/                 stable recording, training, and evaluation entry points
+scripts/maintenance/     inventory and checkpoint-retention tools
+runs/                    datasets, checkpoints, rollouts, and generated inspection files
+logs/                    runtime and training logs
+```
+
+`runs`, `logs`, and `.cache` may be symbolic links to the external storage disk. Generated outputs
+belong in those directories rather than in `examples` or the repository root.
 
 ---
 
@@ -87,10 +109,24 @@ pip install -e ".[all]"
 ./scripts/record.sh
 ```
 
+The default adds one `place_one_vegetable` episode. Select another source subset independently of
+the training profile:
+
+```bash
+RECORD_CONFIG=configs/recordings/single_table_bus_table.env ./scripts/record.sh
+```
+
 ### Training Model
 
 ```bash
 ./scripts/train.sh
+```
+
+The default profile is AFV2.3 without knowledge insulation. Select another reproducible profile
+without editing `env.sh` or `train.sh`:
+
+```bash
+EXPERIMENT_CONFIG=configs/experiments/smolvla_baseline.env ./scripts/train.sh
 ```
 
 ### Resume Training Model
@@ -105,16 +141,39 @@ pip install -e ".[all]"
 ./scripts/rollout.sh
 ```
 
-### Model Download
+The rollout command automatically selects the policy's supported inference-step field and the
+robot configuration's single or bimanual mode. Inspect the resolved command without hardware:
 
 ```bash
-./scripts/model_download.sh <MODEL_ID>
+ROLLOUT_DRY_RUN=true ./scripts/rollout.sh
+```
+
+### Hugging Face Download
+
+```bash
+./scripts/hf_download.sh <MODEL_ID>
 ```
 
 ### Concatenate Multiple datasets
 
 ```bash
 ./scripts/dataset_concatenation.sh
+```
+
+### Inspect Stored Assets
+
+```bash
+python scripts/maintenance/validate_datasets.py
+python scripts/maintenance/validate_evaluations.py
+./scripts/maintenance/validate_experiment_profiles.sh
+./scripts/maintenance/validate_recording_profiles.sh
+python scripts/maintenance/inventory_runs.py
+```
+
+The generated inventory is written to `runs/manifests`. Checkpoint cleanup is dry-run by default:
+
+```bash
+python scripts/maintenance/prune_checkpoints.py
 ```
 
 ---

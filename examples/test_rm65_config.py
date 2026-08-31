@@ -10,19 +10,19 @@ Usage for single-arm config, connect + capture cameras only:
 
 python examples/test_rm65_config.py \
 --config-path configs/rm65_wrist_front.yaml \
---output examples/test_rm65_config_single_test.jpg
+--output runs/inspection/test_rm65_config_single_test.jpg
 
 Usage for bimanual config:
 
 python examples/test_rm65_config.py \
 --config-path configs/rm65_left_right_wrist_front_top.yaml \
---output examples/test_rm65_config_bimanual_test.jpg
+--output runs/inspection/test_rm65_config_bimanual_test.jpg
 
 To also do a small move and return:
 
 python examples/test_rm65_config.py \
 --config-path configs/rm65_left_right_wrist_front_top.yaml \
---output examples/test_rm65_config_bimanual_test.jpg \
+--output runs/inspection/test_rm65_config_bimanual_test.jpg \
 --move \
 --joint joint_6 \
 --delta-deg 20.0 \
@@ -236,7 +236,7 @@ def run_test(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test an RM65 single-arm or bimanual config.")
     parser.add_argument("--config-path", default="configs/rm65_wrist_front.yaml")
-    parser.add_argument("--output", type=Path, default=Path("examples/rm65_config_test.jpg"))
+    parser.add_argument("--output", type=Path, default=Path("runs/inspection/rm65_config_test.jpg"))
     parser.add_argument("--cols", type=int, default=2, help="Number of columns in the combined camera image.")
     parser.add_argument("--tile-width", type=int, default=640, help="Width of each camera tile in pixels.")
     parser.add_argument("--move", action="store_true", help="Perform a small joint move and return.")

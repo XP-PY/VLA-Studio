@@ -5,6 +5,12 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
+echo "Experiment profile: $EXPERIMENT_NAME"
+echo "Config: $EXPERIMENT_CONFIG"
+echo "Policy: $POLICY_TYPE"
+echo "Dataset: $TASK_ROOT"
+echo "Steps: $STEPS | per-device batch: $PER_DEVICE_BATCH_SIZE | chunks: ${CHUNK_SIZES[*]}"
+
 # ========================== ACT ==========================
 if [ "$POLICY_TYPE" = "act" ]; then
 for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
@@ -61,7 +67,7 @@ for CHUNK_SIZE in "${CHUNK_SIZES[@]}"; do
         --eval_freq=0 \
         --save_freq=$SAVE_FREQ \
         --log_freq=$LOG_FREQ \
-        --output_dir="./runs/train/$TRAINING_ID" \
+        --output_dir="$STORAGE_ROOT/runs/train/$TRAINING_ID" \
         --wandb.enable=$WANDB_ENABLE \
         --wandb.project="lerobot_action_flow_rm65" \
         --wandb.disable_artifact=true \

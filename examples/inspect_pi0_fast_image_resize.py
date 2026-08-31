@@ -8,7 +8,8 @@ from torchvision.utils import save_image
 from lerobot.policies.pi0_fast.modeling_pi0_fast import resize_with_pad_torch
 
 
-OUTPUT_DIR = Path(__file__).resolve().parent
+WORKSPACE = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = WORKSPACE / "runs" / "inspection"
 TARGET_HEIGHT = 224
 TARGET_WIDTH = 224
 
@@ -48,6 +49,7 @@ def print_tensor(name: str, tensor: torch.Tensor) -> None:
 
 
 def main() -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     input_bhwc = make_pseudo_image()
     input_bchw = input_bhwc.permute(0, 3, 1, 2)
 
