@@ -113,22 +113,22 @@ cumulative: for example, `Transported` means that the correct object was grasped
 until reaching the destination. Assign exactly one primary failure stage to each unsuccessful
 object cycle, using the earliest stage that prevents completion.
 
-| Type | Metric | SmolVLA baseline | AFV2.3 | AFV2.3 $\Delta$ | AFV2.4 | AFV2.4 $\Delta$ |
-|---|---|---:|---:|---:|---:|---:|
-| Sample size | Trials | `15` | `15` | - | `18` | - |
-| Sample size | Evaluated object cycles | `15` | `15` | - | `18` | - |
-| Success | Correct source object and destination selected | `2/15 (13.3%)` | `2/15 (13.3%)` | `0.0` | `18/18 (100.0%)` | `+86.7` |
-| Success | Correct object grasped | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` | `18/18 (100.0%)` | `+86.7` |
-| Success | Object transported without dropping | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` | `16/18 (88.9%)` | `+75.6` |
-| Success | Object placed at the requested destination | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` | `16/18 (88.9%)` | `+82.2` |
-| Success | Complete task | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` | `16/18 (88.9%)` | `+82.2` |
-| Primary failure | Wrong object or destination selected | `13/15 (86.7%)` | `6/15 (40.0%)` | `-46.7` | `0/18 (0.0%)` | `-86.7` |
-| Primary failure | Failed to align with or close on the object | `0/15 (0.0%)` | `2/15 (13.3%)` | `+13.3` | `0/18 (0.0%)` | `0.0` |
-| Primary failure | Object dropped during transport | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` | `2/18 (11.1%)` | `+11.1` |
-| Primary failure | Failed to place or release the object | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` | `0/18 (0.0%)` | `0.0` |
-| Primary failure | Incorrect stage transition, timeout, or no meaningful action | `1/15 (6.7%)` | `7/15 (46.7%)` | `+40.0` | `0/18 (0.0%)` | `-6.7` |
-| Recovery | Plan returned to `grasp` after a detected drop | Not observed | Not observed | - | `2/2 (100.0%)` | - |
-| Recovery | Valid recovery completed after a drop | Not observed | Not observed | - | `0/2 (0.0%)` | - |
+| Type | Metric | SmolVLA baseline | AFV2.3 | AFV2.3 $\Delta$ | AFV2.4 | AFV2.4 $\Delta$ | Pi0.5 Baseline |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Sample size | Trials | `15` | `15` | - | `18` | - | `45` |
+| Sample size | Evaluated object cycles | `15` | `15` | - | `18` | - | `18` |
+| Success | Correct source object and destination selected | `2/15 (13.3%)` | `2/15 (13.3%)` | `0.0` | `18/18 (100.0%)` | `+86.7` | `18` |
+| Success | Correct object grasped | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` | `18/18 (100.0%)` | `+86.7` | `18` |
+| Success | Object transported without dropping | `2/15 (13.3%)` | `0/15 (0.0%)` | `-13.3` | `16/18 (88.9%)` | `+75.6` | `17` |
+| Success | Object placed at the requested destination | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` | `16/18 (88.9%)` | `+82.2` | `17` |
+| Success | Complete task | `1/15 (6.7%)` | `0/15 (0.0%)` | `-6.7` | `16/18 (88.9%)` | `+82.2` | `17` |
+| Primary failure | Wrong object or destination selected | `13/15 (86.7%)` | `6/15 (40.0%)` | `-46.7` | `0/18 (0.0%)` | `-86.7` | `0` |
+| Primary failure | Failed to align with or close on the object | `0/15 (0.0%)` | `2/15 (13.3%)` | `+13.3` | `0/18 (0.0%)` | `0.0` | `0` |
+| Primary failure | Object dropped during transport | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` | `2/18 (11.1%)` | `+11.1` | `1` |
+| Primary failure | Failed to place or release the object | `0/15 (0.0%)` | `0/15 (0.0%)` | `0.0` | `0/18 (0.0%)` | `0.0` | `0` |
+| Primary failure | Incorrect stage transition, timeout, or no meaningful action | `1/15 (6.7%)` | `7/15 (46.7%)` | `+40.0` | `0/18 (0.0%)` | `-6.7` | `0` |
+| Recovery | Plan returned to `grasp` after a detected drop | Not observed | Not observed | - | `2/2 (100.0%)` | - | - |
+| Recovery | Valid recovery completed after a drop | Not observed | Not observed | - | `0/2 (0.0%)` | - | `0/1` |
 
 Success and primary-failure metrics use evaluated object cycles as their denominator; recovery rates
 are conditional on a transport drop. Each $\Delta$ is the Action Flow result minus the SmolVLA

@@ -14,7 +14,7 @@ and workflows do not break.
 | `train.sh` | Train the policy selected by an experiment profile. |
 | `resume.sh` | Resume a saved training run. |
 | `rollout.sh` | Run a policy-aware single- or bimanual rollout. |
-| `evaluate_pi0.sh` | Interactive multi-prompt evaluation for supported policies. |
+| `evaluator_multi_prompts.sh` | Interactive multi-prompt evaluation for supported policies. |
 
 ## Dataset and Media
 

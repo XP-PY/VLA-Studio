@@ -3,7 +3,7 @@
 #
 # By default, settings come from scripts/env.sh. To evaluate another policy
 # without editing that file:
-#   EVAL_POLICY_ID=<training-output-name> ./scripts/evaluate_pi0.sh
+#   EVAL_POLICY_ID=<training-output-name> ./scripts/evaluator_multi_prompts.sh
 #
 # EVAL_POLICY_PATH may instead point directly to a pretrained_model directory.
 set -eo pipefail
