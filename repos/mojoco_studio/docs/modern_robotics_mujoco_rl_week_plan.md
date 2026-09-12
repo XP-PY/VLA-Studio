@@ -468,6 +468,11 @@ Use Gridworld.
 
 Also compare your own Jacobian against MuJoCo for random robot configurations.
 
+Implementation and learning walkthrough:
+[`week5_jacobians_and_dp.md`](week5_jacobians_and_dp.md).
+Run `gridworld_dp` for all three DP algorithms and `jacobians` for Jacobian,
+velocity, singularity, and static force-mapping checks on the Week 4 arm.
+
 ---
 
 ## Week 6: Inverse Kinematics and Cartesian Control
@@ -527,6 +532,12 @@ Build a Cartesian reaching controller and compare:
 - Damped pseudoinverse
 - Different gain values
 - Targets near singularities
+
+Implementation and learning walkthrough:
+[`week6_inverse_kinematics_and_cartesian_control.md`](week6_inverse_kinematics_and_cartesian_control.md).
+Run `inverse_kinematics` for numerical IK and `cartesian_reaching` for standard
+and damped pseudoinverse controllers, gain comparisons, reachability checks,
+joint-limit handling, and ideal-versus-dynamic execution.
 
 ---
 

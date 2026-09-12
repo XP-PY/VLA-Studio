@@ -1,5 +1,35 @@
 # MoJoCo Studio
 
+## Week 6 inverse kinematics and Cartesian reaching
+
+```bash
+./build.sh inverse_kinematics
+./build/inverse_kinematics
+./build.sh cartesian_reaching
+./build/cartesian_reaching
+```
+
+Read [`docs/week6_inverse_kinematics_and_cartesian_control.md`](docs/week6_inverse_kinematics_and_cartesian_control.md)
+for the implementation walkthrough, standard/damped pseudoinverse comparison,
+gain experiments, reachability and joint-limit handling, and the RL milestone.
+The controller runs both ideal kinematics and MuJoCo velocity-servo dynamics.
+Optional plots and a trajectory animation use `scripts/plot_week6.py --animate`.
+
+## Week 5 Jacobians and dynamic programming
+
+```bash
+./build.sh gridworld_dp
+./build/gridworld_dp
+./build.sh jacobians
+./build/jacobians
+```
+
+Start with [`docs/week5_jacobians_and_dp.md`](docs/week5_jacobians_and_dp.md).
+It walks through Gridworld policy evaluation, policy iteration, value iteration,
+and analytical/MuJoCo Jacobian comparisons, including tip velocity, singularities,
+and force-to-torque mapping. Both programs check their results and save CSVs and
+reports under `build/`. Optional plots use `scripts/plot_week5.py` with Matplotlib.
+
 ## Week 4 forward kinematics and finite MDP
 
 Run fixed-policy Bellman evaluation and compare analytical two-link forward

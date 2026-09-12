@@ -1,0 +1,36 @@
+<mujoco model="week 6 Cartesian reaching with velocity servos">
+  <compiler angle="radian" fusestatic="false"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <default>
+    <joint type="hinge" axis="0 0 1" limited="true" damping="0.04" armature="0.01"/>
+    <geom type="capsule" size="0.03" contype="0" conaffinity="0"/>
+  </default>
+  <worldbody>
+    <light pos="0 -2 3" dir="0 1 -1"/>
+    <geom name="floor" type="plane" size="2 2 0.1" rgba="0.18 0.20 0.22 1"/>
+    <!-- Same geometry and frames as the week 4/5 arm. -->
+    <body name="base" pos="0.20 -0.10 0.80" euler="0 0 0.30">
+      <geom type="cylinder" pos="0 0 -0.40" size="0.11 0.40" rgba="0.3 0.34 0.4 1"/>
+      <body name="link_1">
+        <joint name="shoulder" range="-1.5 1.5"/>
+        <geom fromto="0 0 0 0.45 0 0" mass="0.7" rgba="0.18 0.55 0.92 1"/>
+        <body name="link_2" pos="0.45 0 0">
+          <joint name="elbow" range="-1.7 1.7"/>
+          <geom fromto="0 0 0 0.35 0 0" mass="0.5" rgba="0.30 0.80 0.55 1"/>
+          <site name="end_effector" type="sphere" pos="0.35 0 0" size="0.035" rgba="1 0.35 0.15 1"/>
+        </body>
+      </body>
+    </body>
+    <body name="target" mocap="true" pos="0.7 0.2 0.8">
+      <geom type="sphere" size="0.025" rgba="1 0.85 0.1 0.7"/>
+    </body>
+  </worldbody>
+  <!-- ctrl is desired joint velocity (rad/s), NOT torque or position.
+       The servos produce bounded torque kv*(ctrl-qvel); gear defaults to 1. -->
+  <actuator>
+    <velocity name="shoulder_velocity" joint="shoulder" kv="8"
+              ctrlrange="-1.5 1.5" forcerange="-12 12"/>
+    <velocity name="elbow_velocity" joint="elbow" kv="8"
+              ctrlrange="-1.5 1.5" forcerange="-12 12"/>
+  </actuator>
+</mujoco>
