@@ -25,7 +25,21 @@ def read_csv(path):
 
 
 def verify_inverse():
-    """A library SVD provides an independent check of the hand-coded inverse."""
+    """Check the C++ local inverse map against NumPy linear algebra.
+
+    Review: Modern Robotics notes 6.5, the minimum-norm pseudoinverse.
+    For each exported 3x2 point Jacobian J and desired task velocity v:
+
+        lambda = 0: dq = pinv(J) @ v, dropping sigma <= 1e-8 * sigma_max.
+        lambda > 0: (J.T @ J + lambda**2 * I) @ dq = J.T @ v.
+
+    The second formula minimizes ||J dq - v||^2 + lambda^2 ||dq||^2;
+    damping is the week 6 regularized extension. J and v share task axes.
+    Units are m/rad for J, m/s for v and rad/s for dq. Compare singular
+    values as well as dq, including exported rank-loss cases. The C++ absolute
+    cutoff of 1e-12 is below its relative cutoff for these arm Jacobians.
+    A failed tolerance raises AssertionError; the function returns no estimate.
+    """
     maximum = 0.0
     for row in read_csv(BUILD / "inverse_velocity_audit.csv"):
         j = np.array([[float(row[f"j{r}{c}"]) for c in range(2)] for r in range(3)])
@@ -143,6 +157,18 @@ def paths(runs):
 
 
 def animate(runs):
+    """Reconstruct the planar arm from logged joint angles using forward kinematics.
+
+    The Chapter 4/6 planar 2R position equations are
+        elbow = L1 * [cos(q1), sin(q1)]
+        tip = elbow + L2 * [cos(q1+q2), sin(q1+q2)].
+
+    Here L1=0.45 m, L2=0.35 m, q is in radians, and coordinates use the
+    robot base frame. Read the measured q from each MuJoCo trajectory, draw
+    both links, and hold the final pose after a run ends. This is FK playback
+    for reviewing branch/posture changes, not another IK or dynamics solver.
+    Writes a GIF and returns no computed robot state.
+    """
     cases = ("regular", "near_extension", "near_singular_start", "exact_singular_start")
     fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
     drawings = []

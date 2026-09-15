@@ -22,6 +22,13 @@ constexpr double kMaximumSpeed = 1.5;
 void require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
 }
+/**
+ * @brief Assemble a rigid pose T_WF = [R_WF p_WF; 0 1] from MuJoCo arrays.
+ * R is a row-major 3x3 rotation; p is the frame origin in world metres.
+ * T_WF maps a point from frame F to world: x_W = R_WF x_F + p_WF.
+ * Role: recover the fixed base pose for the Chapter 3 frame transformations
+ * used when comparing base-frame targets with world-frame site measurements.
+ */
 Matrix4 pose(const mjtNum* p, const mjtNum* r) {
   return make_transform({r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]}, {p[0],p[1],p[2]});
 }
@@ -73,13 +80,39 @@ struct Robot {
     mj_forward(m,d);
     world_base = pose(d->xpos+3*base,d->xmat+9*base);
   }
+  /** @brief Read q = [q_shoulder, q_elbow] in radians using joint qpos addresses. */
   Joints q() const { return {data->qpos[qa[0]],data->qpos[qa[1]]}; }
+  /** @brief Read measured q_dot in rad/s using DOF addresses, not actuator inputs. */
   Joints dq() const { return {data->qvel[va[0]],data->qvel[va[1]]}; }
+  /**
+   * @brief Read the tip-origin position p_WE in world metres.
+   * This is the point differentiated by the point-position Jacobian. Call
+   * mj_forward after changing/integrating state so the derived site pose is fresh.
+   */
   Vector3 tip_world() const {
     const auto* p = data->site_xpos+3*site;
     return {p[0],p[1],p[2]};
   }
+  /**
+   * @brief Express the measured tip position in the fixed robot base frame.
+   *
+   *      T_BW = T_WB^(-1); p_BE = R_WB^T (p_WE - p_WB).
+   *
+   * All positions are in metres. Unlike rotating an ordinary direction vector,
+   * changing the coordinates of a POINT requires subtracting the base origin.
+   * Role: compare simulator measurements with base-frame FK and log task paths.
+   */
   Vector3 tip_base() const { return transform_point(inverse_transform(world_base),tip_world()); }
+  /**
+   * @brief Initialize the trial and transform its target into world coordinates.
+   *
+   *      x_target^W = R_WB x_target^B + p_WB.
+   *
+   * The scenario supplies base-frame metres and initial joint angles in radians.
+   * Reset measured velocities to zero, position the visualization marker, and
+   * verify ||p_BE^MuJoCo - f(q)||_2 < 1e-12 m. This is initialization and a
+   * geometry check; the target marker does not exert a reaching force.
+   */
   void reset(const Scenario& scenario) {
     require(inside(scenario.initial,safe),"Initial configuration is outside guarded joint limits");
     mj_resetData(model.get(),data.get());
@@ -89,6 +122,22 @@ struct Robot {
     mj_forward(model.get(),data.get());
     require(norm(error(tip_base(),position(q()))) < 1e-12,"MJCF and analytical geometry disagree");
   }
+  /**
+   * @brief Obtain the world-oriented point Jacobian used for Cartesian feedback.
+   *
+   * The Chapter 5 differential relation and fixed-base change of axes are
+   *      p_dot_WE = J_p^W(q) q_dot
+   *      J_p^W(q) = R_WB J_p^B(q).
+   *
+   * mj_jacSite writes a row-major 3 x nv matrix. Extract the shoulder and elbow
+   * DOF columns into this project's two-column representation, in m/rad, and
+   * check them against the rotated analytical derivatives at the current q.
+   * State-dependent site quantities must already be refreshed by mj_forward.
+   *
+   * The base translation is constant, so its time derivative is zero. It does
+   * not enter this POINT-velocity conversion. A space-twist Jacobian would
+   * require the full adjoint and is not interchangeable with J_p here.
+   */
   PointJacobian jacobian() const {
     std::array<mjtNum,6> jacp{};
     mj_jacSite(model.get(),data.get(),jacp.data(),nullptr,site);
@@ -110,6 +159,51 @@ struct Metrics {
   int speed_limited = 0, limit_limited = 0;
 };
 
+/**
+ * @brief Execute and measure a resolved-rate position-reaching feedback policy.
+ *
+ * Review: Modern Robotics notes 6.8, inverse velocity kinematics. The feedback,
+ * damping, guards and stopping rules below are the week 6 control experiment.
+ * At every controller tick, use the MEASURED state to compute
+ *
+ *      e_W = x_target^W - p_WE(q)
+ *      v_desired^W = K e_W
+ *      q_dot_raw = J_p^W(q)^dagger v_desired^W           (standard)
+ *      q_dot_raw = J^T (J J^T + lambda^2 I)^(-1) K e_W  (damped)
+ *      q_dot_cmd = limit_velocity(q_dot_raw, q, ...).
+ *
+ * Here K=gain in s^(-1), error is in m, task velocity is in m/s, and joint
+ * rates are in rad/s. The Jacobian and error use the same WORLD axes and tip
+ * reference point. For ideal tracking without guards at a regular posture,
+ *      e_dot = -K J J^dagger e = -K e
+ * when e belongs to the attainable task plane. At a singularity, J J^dagger
+ * is a projection onto a smaller space; a radial error can remain stationary.
+ * Damping also changes the decay rate and does not create a missing direction.
+ *
+ * Execution models:
+ *   kinematic: q_next = q + dt*q_dot_cmd, assuming perfect velocity tracking.
+ *   dynamics:  hold ctrl = q_dot_cmd over five MuJoCo physics steps; the
+ *              unit-gear velocity servos generate bounded torque, approximately
+ *              tau = clip(8*(q_dot_cmd-q_dot), -12, 12) N m in this MJCF.
+ *              q and q_dot evolve through mj_step, including inertia and damping.
+ * This separates a kinematic control law from the actual transition dynamics.
+ *
+ * Reachability is checked before execution; no analytical IK branch commands
+ * the arm. Success requires position error <1 mm and measured ||q_dot||_2
+ * <0.02 rad/s across observations spanning 0.25 s. A nonzero residual with
+ * negligible raw correction is local_stationary; an 8 s cutoff is time_limit.
+ * Neither local failure establishes geometric unreachability.
+ *
+ * @param robot Loaded model/data with a fixed base and two velocity actuators.
+ * @param scenario Base-frame target (m) and initial joint configuration (rad).
+ * @param mode Either kinematic or dynamics.
+ * @param damping Nonnegative lambda in Jacobian singular-value units.
+ * @param gain Positive scalar K in s^(-1).
+ * @param id Filename identifier for the trajectory CSV.
+ * @return Status and measured metrics. integrated_error approximates
+ *         integral_0^end ||e(t)||_2 dt by sum_k ||e_k||_2 dt (m s); it is
+ *         an experiment metric, not a Bellman value function or learned return.
+ */
 Metrics reach(Robot& robot, const Scenario& scenario, const std::string& mode,
               double damping, double gain, const std::string& id) {
   robot.reset(scenario);
@@ -145,14 +239,14 @@ Metrics reach(Robot& robot, const Scenario& scenario, const std::string& mode,
   for (int tick = 0; tick <= maximum_ticks; ++tick) {
     // mj_step's derived poses can belong to its pre-integration state.
     // Refresh before measuring the new state and calculating feedback.
-    mj_forward(m,d);
-    monitor();
-    const auto q = robot.q(), dq = robot.dq();
-    const auto current = robot.tip_base();
-    const auto e_world = error(target_world,robot.tip_world());
-    const auto j = robot.jacobian();
-    const auto desired_velocity = scale(e_world,gain);
-    const auto inverse = inverse_velocity(j,desired_velocity,damping);
+    mj_forward(m,d);    // Refresh derived quantity
+    monitor();          // Record peak values, check limit switches.
+    const auto q = robot.q(), dq = robot.dq();    // Read joint angles and joint velocity
+    const auto current = robot.tip_base();        // 
+    const auto e_world = error(target_world,robot.tip_world()); // Error in World
+    const auto j = robot.jacobian();              // Point Jacobian in World
+    const auto desired_velocity = scale(e_world,gain);          // v_desired = K * e
+    const auto inverse = inverse_velocity(j,desired_velocity,damping);  // Pesudoinverse/DLS
     require(std::isfinite(inverse.dq[0]) && std::isfinite(inverse.dq[1]),"Nonfinite inverse output");
     const auto limited = limit_velocity(inverse.dq,q,robot.safe,kMaximumSpeed,robot.dt);
     stats.elapsed = tick*robot.dt;

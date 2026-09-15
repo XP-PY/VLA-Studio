@@ -12,6 +12,25 @@ using namespace cartesian;
 void require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
 }
+/**
+ * @brief Check the inverse solver against independently known linear identities.
+ *
+ * The Chapter 6 minimum-norm rule has a simple rank-one example at q=(0,0):
+ *      J = [0 0; 0.8 0.35; 0 0],
+ *      J^dagger [0,1,0]^T = [0.8,0.35]^T / (0.8^2 + 0.35^2).
+ * A purely radial desired velocity is orthogonal to the columns and must yield
+ * zero. The zero-Jacobian and numerical-rank-cutoff checks cover related cases.
+ *
+ * The regularized least-squares objective adds two independent checks:
+ *      J^T (desired - J dq) = lambda^2 dq       (normal equations)
+ *      ||dq||_2 <= ||desired||_2 / (2 lambda)   (lambda > 0).
+ * The bound follows from max_sigma sigma/(sigma^2+lambda^2) = 1/(2 lambda).
+ * These validate damping's mathematical role, not just agreement between two
+ * controller runs. Also verify a known distance-to-limit rate bound.
+ *
+ * Task velocities are m/s, joint rates rad/s, and J is m/rad. Failed identities
+ * throw so the executable cannot silently report an invalid inverse as a pass.
+ */
 void check_inverse_solver() {
   const auto straight = point_jacobian(0,0);
   const auto tangent = inverse_velocity(straight,{0,1,0},0);
@@ -61,6 +80,9 @@ int main() {
            "reachability,branch_count,status,iterations,final_q1,final_q2,error_m\n";
     audit << std::setprecision(17) << "q1,q2,lambda,j00,j01,j10,j11,j20,j21,"
              "desired_x,desired_y,desired_z,dq1,dq2,sigma_max,sigma_min\n";
+
+    // Export J, desired and dq = inverse(J)*desired for an independent NumPy
+    // SVD/normal-equation comparison; exporting alone does not validate them.
     const auto write_audit = [&](const Joints& q, double damping) {
       const auto j = point_jacobian(q[0],q[1]);
       const Vector3 desired = {0.3,-0.2,0.1};
@@ -70,6 +92,10 @@ int main() {
       for (double x : desired) audit << ',' << x;
       audit << ',' << inv.dq[0] << ',' << inv.dq[1] << ',' << inv.sigma[0] << ',' << inv.sigma[1] << '\n';
     };
+
+    // Validate IK via the original nonlinear task: ||target - f(q_solution)||.
+    // The geometric branches check feasibility; the numerical solver still
+    // starts at seed, so this test can reveal branch dependence and local stalls.
     const auto solve = [&](const std::string& name, const Vector3& target, const Joints& seed,
                            double damping, bool expect_success) {
       const auto oracle = geometric_ik(target,kPhysicalLimits);
@@ -91,6 +117,7 @@ int main() {
           << result.iterations << ',' << result.q[0] << ',' << result.q[1] << ',' << result.final_error << '\n';
       return result;
     };
+    
     report << "Week 6: numerical position IK (not full-pose IK)\n"
            << "Tolerance 1e-6 m; at most 300 iterations; max joint correction 0.2 rad; backtracking.\n"
            << "Geometric IK validates reachability but never supplies numerical iterates.\n\n";

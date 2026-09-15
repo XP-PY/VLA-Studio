@@ -67,12 +67,15 @@ SingularValues singular_values(double q1, double q2) {
 
 int main() {
   try {
+    // Load the MuJoCo robot
     char error[1024]{};
     std::unique_ptr<mjModel, decltype(&mj_deleteModel)> model(
         mj_loadXML("assets/two_link_arm.xml", nullptr, error, sizeof(error)), mj_deleteModel);
     require(model != nullptr, std::string("Cannot load arm: ")+error);
     std::unique_ptr<mjData, decltype(&mj_deleteData)> data(mj_makeData(model.get()), mj_deleteData);
     require(data != nullptr, "Cannot allocate mjData");
+
+    // Find the robot parts by name
     auto* m = model.get(); auto* d = data.get();
     const int base = mj_name2id(m, mjOBJ_BODY, "base");
     const int site = mj_name2id(m, mjOBJ_SITE, "end_effector");
@@ -89,6 +92,7 @@ int main() {
       mj_forward(m,d);  // refresh both position AND velocity-dependent quantities
     };
 
+    // Generate test configurations
     std::filesystem::create_directories("build");
     std::ofstream csv("build/jacobian_comparison.csv"), entries("build/jacobian_entries.csv"),
                   singular("build/jacobian_singularities.csv"), report("build/jacobian_report.txt");
@@ -107,48 +111,73 @@ int main() {
     std::vector<std::array<double,2>> configurations = {
         {0,0}, {0.4,0}, {0.4,1e-6}, {0.4,-1e-6}, {1.5,-1.7}, {-1.5,1.7}};
     for (int i = 0; i < kRandomCount; ++i) configurations.push_back({q1dist(rng),q2dist(rng)});
+
+    // Test loop
     std::array<double,6> maxima{};
     for (std::size_t sample = 0; sample < configurations.size(); ++sample) {
+      // Sample posture and velocity
       const auto q = configurations[sample];
       const std::array<double,2> dq = {vdist(rng),vdist(rng)};
       set_state(q,dq);
-      const Matrix4 twb = pose(d->xpos+3*base,d->xmat+9*base);
-      const Matrix4 twe = site_pose(d,site);
-      const auto rwb = rotation_of(twb), rew = transpose(rotation_of(twe));
-      const auto p = translation_of(twe);
+
+      // Extract matrixs
+      const Matrix4 twb = pose(d->xpos+3*base,d->xmat+9*base);              // T_{wb}: base pose in world frame
+      const Matrix4 twe = site_pose(d,site);                                // T_{we}: end-effector pose in world frame
+      const auto rwb = rotation_of(twb), rew = transpose(rotation_of(twe)); // R_{wb}, R_{ew}: rotation matrixs
+      const auto p = translation_of(twe);                                   // p_{we}: end-effector world position
+      
+      // Calculate the analytical Jacobians
       const auto jp_base = point_jacobian(q[0],q[1]);
       const auto js_base = space_jacobian(q[0]);
       const auto js_world = transform_jacobian(twb,js_base);
       const auto jb = body_jacobian(q[0],q[1]);
       check(max_abs_difference(multiply_transform(twb,forward_kinematics(q[0],q[1])), twe),
             1e-12, "Model geometry/FK");
-      std::vector<mjtNum> jacp(3*m->nv), jacr(3*m->nv);
+
+      // Ask MuJoCo for its Jacobian
+      // jacp: Jacobian of the site point position, 
+      //      Partial derivative of end-effector position with respect to joint velocity
+      // jacr: maps joint velocity to the site's angular velocity, 
+      //      Partial derivative of the end-effector angular velocity with respect to the joint velocities
+      std::vector<mjtNum> jacp(3*m->nv), jacr(3*m->nv); 
       mj_jacSite(m,d,jacp.data(),jacr.data(),site);
+
+      // Loop through each Jacobian column
       PointJacobian jp_world{}, jp_mj{};
       Jacobian geometric_world{};
       double jac_error = 0, fd_error = 0;
       for (int col = 0; col < 2; ++col) {
-        jp_world[col] = rotate(rwb,jp_base[col]);
-        const auto omega = rotate(rwb,js_base[col].omega);
-        geometric_world[col] = {omega,jp_world[col]};
+        // Convert analytical point Jacobian into world coordinates
+        jp_world[col] = rotate(rwb, jp_base[col]);
+        const auto omega = rotate(rwb, js_base[col].omega);
+        geometric_world[col] = {omega, jp_world[col]};  // geometric Jacobian at the end-effector point
+
+        // Read MuJoCo's corresponding column
         Vector3 omega_mj{};
         for (int row = 0; row < 3; ++row) {
           jp_mj[col][row] = jacp[row*m->nv+va[col]];
           omega_mj[row] = jacr[row*m->nv+va[col]];
         }
+
         // Convert MuJoCo's point velocity to a space twist about WORLD origin.
         const auto vs_mj = add(jp_mj[col],scale(cross(omega_mj,p),-1));
         const auto vb_mj = rotate(rew,jp_mj[col]);
-        jac_error = std::max({jac_error, difference(jp_world[col],jp_mj[col]),
-            difference(omega,omega_mj), difference(js_world[col].v,vs_mj),
-            difference(js_world[col].omega,omega_mj), difference(jb[col].v,vb_mj),
-            difference(jb[col].omega,rotate(rew,omega_mj))});
+        jac_error = std::max({jac_error, 
+            difference(jp_world[col],jp_mj[col]),
+            difference(omega,omega_mj), 
+            difference(js_world[col].v,vs_mj),
+            difference(js_world[col].omega,omega_mj), 
+            difference(jb[col].v,vb_mj),
+            difference(jb[col].omega,rotate(rew,omega_mj))
+        });
+
         // Independent closed-form body Jacobian, derived from body screw axes.
         const Vector3 closed_body = col == 0
             ? Vector3{kL1*std::sin(q[1]),kL1*std::cos(q[1])+kL2,0}
             : Vector3{0,kL2,0};
-        jac_error = std::max(jac_error,difference(jb[col].v,closed_body));
+        jac_error = std::max(jac_error, difference(jb[col].v,closed_body));
 
+        // Finite-difference test of one Jacobian column
         auto perturbed = q;
         perturbed[col] += kH; set_state(perturbed,dq); const auto plus = site_pose(d,site);
         perturbed[col] -= 2*kH; set_state(perturbed,dq); const auto minus = site_pose(d,site);
@@ -161,10 +190,14 @@ int main() {
                   << ',' << omega_mj[row] << ',' << fd_omega[row] << ',' << js_world[col].v[row]
                   << ',' << vs_mj[row] << ',' << jb[col].v[row] << ',' << vb_mj[row] << '\n';
       }
-      set_state(q,dq);  // restore after perturbations before querying velocity/force
+
+      // restore after perturbations before querying velocity/force
+      set_state(q,dq);
+
+      // Test V=J*q_dot
       mjtNum world_velocity[6]{}, body_velocity[6]{};
-      mj_objectVelocity(m,d,mjOBJ_SITE,site,world_velocity,0);
-      mj_objectVelocity(m,d,mjOBJ_SITE,site,body_velocity,1);
+      mj_objectVelocity(m,d,mjOBJ_SITE,site,world_velocity,0);  // Ask MuJoCo for the end-effector site's velocity expressed in the world frame
+      mj_objectVelocity(m,d,mjOBJ_SITE,site,body_velocity,1);   // Ask for the same physical velocity expressed in the site/body frame
       const auto predicted = velocity(geometric_world,dq), predicted_body = velocity(jb,dq);
       double velocity_error = 0;
       for (int row = 0; row < 3; ++row)
@@ -183,21 +216,34 @@ int main() {
       const auto fd_v = scale(add(translation_of(plus),scale(translation_of(minus),-1)),1/(2*kH));
       const double fd_velocity_error = std::max(difference(fd_v,predicted.v),
                                                difference(angular_difference(plus,minus,twe),predicted.omega));
+
+      // Apply a wrench at the end effector
       set_state(q,dq);
       const Vector3 force = {1.2,-0.7,0.4}, moment = {0.1,0.2,0.3};  // world, at tip
       const Vector3 world_origin_moment = add(moment,cross(p,force));
       const auto body_force = rotate(rew,force), body_moment = rotate(rew,moment);
       std::vector<mjtNum> applied(m->nv,0);  // mj_applyFT ADDS into this buffer
       mj_applyFT(m,d,force.data(),moment.data(),p.data(),m->site_bodyid[site],applied.data());
+
+      // Calculate torque = J^T F in three analytical ways
       std::array<double,2> tau{};
       double torque_error = 0;
       for (int col = 0; col < 2; ++col) {
+        // Use the geometric point Jacobian
         tau[col] = dot(jp_world[col],force)+dot(geometric_world[col].omega,moment);
+        // Use the Modern Robotics space Jacobian
         const double tau_space = dot(js_world[col].omega,world_origin_moment)+dot(js_world[col].v,force);
+        // Use the Modern Robotics body Jacobian
         const double tau_body = dot(jb[col].omega,body_moment)+dot(jb[col].v,body_force);
-        torque_error = std::max({torque_error,std::abs(tau[col]-applied[va[col]]),
-                                 std::abs(tau[col]-tau_space),std::abs(tau[col]-tau_body)});
+
+        torque_error = std::max({torque_error,
+                              std::abs(tau[col]-applied[va[col]]),
+                              std::abs(tau[col]-tau_space),
+                              std::abs(tau[col]-tau_body)
+                          });
       }
+
+      // Check conservation of power
       const double power_error = std::abs(tau[0]*dq[0]+tau[1]*dq[1]
                                           -dot(force,predicted.v)-dot(moment,predicted.omega));
       const std::array<double,6> errors = {jac_error,fd_error,velocity_error,fd_velocity_error,torque_error,power_error};

@@ -57,6 +57,13 @@ before plotting the full comparison; the plotter selects runs from the summary.
 
 ## Read the implementation in this order
 
+The mathematical functions now have source-level review comments in the style
+of `two_link_kinematics.h`: role, equations, derivation, frames/units, parameters
+and limitations. Start with the comments above `inverse_velocity`,
+`geometric_ik`, `numerical_ik`, `limit_velocity` and `reach`, then trace their
+code. Chapter 6 section references in those comments refer to your book notes;
+damping, backtracking and limit guards are identified as implementation choices.
+
 | File or function | What it teaches |
 |---|---|
 | `src/two_link_kinematics.h` | Week 5 FK, point Jacobian, frame utilities |

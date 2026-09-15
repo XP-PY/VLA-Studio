@@ -134,6 +134,16 @@ $$
 
 Do not study the three tracks as unrelated courses.
 
+## Implementation documentation requirement (Week 6 onward)
+
+Every mathematical robotics or RL function must include a source-level
+docstring explaining its role, defining formulas, parameter/output meaning,
+and relevant frames, units, assumptions and numerical limitations. Nontrivial
+functions should connect the derivation to the implementation for book review.
+Use the comments in `src/two_link_kinematics.h` and `src/cartesian_control.h` as
+examples. Distinguish book equations from practical implementation choices.
+See [`../AGENTS.md`](../AGENTS.md) for the standing project instructions.
+
 ---
 
 # Weekly Time Allocation
