@@ -466,6 +466,24 @@ def get_wallx_normal_text(
 
     Returns:
         Tuple of (formatted_prompt_text, is_subtask_generation)
+
+    Example:
+        instruction_info = {"instruction": "pick up the red cup"}
+        action_chunk_size = 32
+        -> formatted_prompt_text:
+            <|im_start|>system
+            You are a helpful assistant.<|im_end|>
+
+            <|im_start|>user
+            Observation: front view: <|vision_start|><|image_pad|><|vision_end|>
+            Instruction: pick up the red cup.
+            Predict the next action in robot action.
+            Proprioception: <|propri|>
+            <|im_end|>
+
+            <|im_start|>assistant
+            <|action_fast|><|im_end|>
+            <|action|><|action|> ... 32 times ...
     """
     # Special tokens for formatting
     role_start_symbol = "<|im_start|>"
@@ -610,6 +628,23 @@ def replace_action_token(
 
     Returns:
         List of text strings with action tokens replaced
+
+    Example:
+        Input text include:
+            <|im_start|>assistant
+            <|action_fast|><|im_end|>
+            <|action|><|action|> ... 32 times ...
+
+        FAST mode:
+            Return:
+                <|im_start|>assistant
+                <|action_token_125|><|action_token_83|><|action_token_410|> ... <|im_end|>
+
+        flow/diffusion mode:
+            Return:
+                <|im_start|>assistant
+                <|action|><|action|><|action|> ... 32 times ...
+
     """
     if action_tokenizer is not None and norm_action is not None:
         # Extract actions based on chunk sizes and DOF masks

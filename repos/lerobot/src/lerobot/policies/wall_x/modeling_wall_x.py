@@ -1818,6 +1818,7 @@ class WallXPolicy(PreTrainedPolicy):
                     else:
                         new_height = target_size
                         new_width = int(target_size * orig_width / orig_height)
+                    # The first resize makes the image's longest side = 256 while keeping the aspect ratio
                     img_pil = img_pil.resize((new_width, new_height))
 
                 current_width, current_height = img_pil.size
@@ -1828,6 +1829,7 @@ class WallXPolicy(PreTrainedPolicy):
                     min_pixels=MIN_PIXELS,
                     max_pixels=MAX_PIXELS,
                 )
+                # The second resize makes the image's dimensions compatible with its visual patch/grid structure
                 resized_img = img_pil.resize((resized_width, resized_height))
                 processed_frames.append(resized_img)
 

@@ -1,5 +1,33 @@
 # MoJoCo Studio
 
+## Week 7 dynamics and Monte Carlo learning
+
+```bash
+./build.sh robot_dynamics
+./build/robot_dynamics
+./build.sh blackjack_mc
+./build/blackjack_mc
+build/week5_plots/bin/python scripts/plot_week7.py  # optional plots
+```
+
+Start with [`docs/week7_dynamics_and_monte_carlo.md`](docs/week7_dynamics_and_monte_carlo.md).
+It derives the two-link dynamics, compares six actuator/control modes plus two
+additional gravity-compensation cases, and walks through Blackjack prediction,
+exploring-starts control, epsilon-soft control and importance sampling.
+Mathematical functions include review comments tied to the book notes.
+Both programs check their results and write CSVs under `build/`.
+
+View all eight dynamics experiments live in MuJoCo:
+
+```bash
+./build.sh robot_dynamics_viewer
+./build/robot_dynamics_viewer
+```
+
+Press **1–8** to focus on a mode, **0** for all eight, **Space** to pause,
+**R** to replay, and **[ / ]** to change playback speed. Green outlines show
+the desired pose in servo modes. See the week 7 walkthrough for all controls.
+
 ## Week 6 inverse kinematics and Cartesian reaching
 
 ```bash

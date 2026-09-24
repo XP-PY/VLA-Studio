@@ -1,0 +1,30 @@
+<mujoco model="week7_vertical_two_link">
+  <compiler angle="radian"/>
+  <option timestep="0.001" integrator="RK4" gravity="0 0 -9.81"/>
+  <default>
+    <joint type="hinge" axis="0 0 1" damping="0" armature="0" limited="false"/>
+    <geom type="box" contype="0" conaffinity="0" rgba="0.2 0.55 0.85 1"/>
+  </default>
+  <worldbody>
+    <light pos="0 -2 3"/>
+    <geom type="plane" size="2 2 .1" rgba=".8 .8 .8 1"/>
+    <!-- Base x-y plane is world x-z; positive joint angles raise the links. -->
+    <body name="link1" pos="0 0 1" euler="1.5707963267948966 0 0">
+      <joint name="shoulder"/>
+      <inertial pos=".225 0 0" mass=".7" diaginertia=".000105 .011865 .011865"/>
+      <geom pos=".225 0 0" size=".225 .015 .015"/>
+      <body name="link2" pos=".45 0 0">
+        <joint name="elbow"/>
+        <inertial pos=".175 0 0" mass=".5" diaginertia=".000075 .005141666666666667 .005141666666666667"/>
+        <geom pos=".175 0 0" size=".175 .015 .015" rgba=".85 .45 .2 1"/>
+        <site name="tip" pos=".35 0 0" size=".02"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="shoulder_torque" joint="shoulder" group="0" gear="1" ctrllimited="true" ctrlrange="-12 12"/>
+    <motor name="elbow_torque" joint="elbow" group="0" gear="1" ctrllimited="true" ctrlrange="-12 12"/>
+    <position name="shoulder_position" joint="shoulder" group="1" kp="25" kv="5" forcelimited="true" forcerange="-12 12"/>
+    <position name="elbow_position" joint="elbow" group="1" kp="15" kv="3" forcelimited="true" forcerange="-12 12"/>
+  </actuator>
+</mujoco>

@@ -555,6 +555,9 @@ joint-limit handling, and ideal-versus-dynamic execution.
 
 ## Week 7: Robot Dynamics and Monte Carlo Learning
 
+Implementation and measured comparisons:
+[`week7_dynamics_and_monte_carlo.md`](week7_dynamics_and_monte_carlo.md).
+
 ### Modern Robotics
 
 Study the first half of Chapter 8:
