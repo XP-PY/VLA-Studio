@@ -10,7 +10,7 @@ mkdir -p build
 # SDL2; prefer its development package when available, otherwise use the Linux
 # runtime soname. Existing headless exercises keep their original dependencies.
 EXTRA_FLAGS=()
-if [[ "$PROGRAM_NAME" == "robot_dynamics_viewer" ]]; then
+if [[ "$PROGRAM_NAME" == "robot_dynamics_viewer" || "$PROGRAM_NAME" == "trajectory_viewer" || "$PROGRAM_NAME" == "classical_reaching_viewer" ]]; then
     if pkg-config --exists sdl2 2>/dev/null; then
         read -r -a EXTRA_FLAGS <<< "$(pkg-config --cflags --libs sdl2)"
     else

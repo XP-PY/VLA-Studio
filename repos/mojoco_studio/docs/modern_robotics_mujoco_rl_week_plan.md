@@ -614,6 +614,9 @@ Write a short comparison of:
 
 ## Week 8: Trajectory Generation and TD Learning
 
+Implementation, playback and measured comparisons:
+[`week8_trajectories_and_td.md`](week8_trajectories_and_td.md).
+
 ### Modern Robotics
 
 Study Chapter 9:
@@ -661,6 +664,9 @@ Compare cubic and quintic trajectory smoothness in MuJoCo.
 ---
 
 ## Week 9: PD Control and the Complete Classical Pipeline
+
+Implementation, measured comparisons and live playback:
+[`week9_classical_reaching.md`](week9_classical_reaching.md).
 
 ### Modern Robotics
 

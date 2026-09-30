@@ -1,5 +1,39 @@
 # MoJoCo Studio
 
+## Week 9 classical reaching and PD control
+
+```bash
+./build.sh classical_reaching
+./build/classical_reaching
+build/week5_plots/bin/python scripts/plot_week9.py
+./build.sh classical_reaching_viewer
+./build/classical_reaching_viewer
+```
+
+The [week 9 walkthrough](docs/week9_classical_reaching.md) connects Cartesian
+targets, IK, quintic trajectories and sampled torque control. Fifteen cases
+compare gains, target jumps, saturation, control frequency, noisy sensing and
+feedforward laws. The viewer shows baseline versus a selected case; **N/B**
+cycle cases, **Space** pauses, and **R** replays. Use `--help` for custom targets.
+
+## Week 8 trajectories and TD learning
+
+```bash
+./build.sh trajectory_tracking
+./build/trajectory_tracking
+./build.sh cliff_walking
+./build/cliff_walking
+build/week5_plots/bin/python scripts/plot_week8.py
+./build.sh trajectory_viewer
+./build/trajectory_viewer  # optional live cubic/quintic comparison
+```
+
+Read [`docs/week8_trajectories_and_td.md`](docs/week8_trajectories_and_td.md)
+for polynomial derivations, desired/actual velocity and acceleration comparisons,
+and Cliff Walking TD(0), SARSA, Q-learning and Expected SARSA. The viewer supports
+pause, replay, 1 ms stepping and speed controls. RL comparisons use 30 seeds and
+report evaluation completion separately from completed-game returns.
+
 ## Week 7 dynamics and Monte Carlo learning
 
 ```bash
