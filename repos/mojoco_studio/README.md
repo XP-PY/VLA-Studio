@@ -1,5 +1,33 @@
 # MoJoCo Studio
 
+## Week 10 continuous-state value approximation
+
+```bash
+uv run --locked python scripts/week10_value_prediction.py
+uv run --locked python scripts/plot_week10.py
+uv run --locked python scripts/view_week10.py
+```
+
+The [week 10 walkthrough](docs/week10_value_approximation.md) connects your
+Chapter 7/9 RL notes and robotics review to fixed-policy pendulum prediction.
+Compare one-step/eight-step semi-gradient TD with affine/RBF features using
+mjlab GPU physics, held-out complete-return evaluation, and three training seeds.
+Use `--backend native` for CPU MuJoCo. The viewer overlays predicted values and
+returns on recorded motion; **N/P** select episodes, **M** switches predictors,
+**Space** pauses, and **R** replays. Outputs are written to `build/week10/`.
+
+## Python environment for week 10 and later
+
+```bash
+uv sync --locked
+uv run --locked python scripts/check_python_env.py
+```
+
+The local `.venv/` provides MuJoCo and mjlab with GPU support. The check steps
+the existing pendulum on CPU and in two GPU environments without opening a
+window. See the [Python setup guide](docs/python_environment.md) for dependency
+versions, a CPU-only check, and how this environment relates to the C++ SDK.
+
 ## Week 9 classical reaching and PD control
 
 ```bash

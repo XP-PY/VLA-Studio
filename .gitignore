@@ -21,8 +21,3 @@ repos/*
 !repos/lerobot/
 !repos/mojoco_studio/
 !repos/chassis_sdk/
-repos/mojoco_studio/build
-repos/mojoco_studio/mujoco-*
-repos/mojoco_studio/MJDATA.TXT
-repos/mojoco_studio/MUJOCO_LOG.TXT
-repos/mojoco_studio/temp

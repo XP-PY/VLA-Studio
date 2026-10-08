@@ -1,0 +1,37 @@
+[project]
+name = "mojoco-studio"
+version = "0.1.0"
+description = "Python simulation and reinforcement learning exercises for MoJoCo Studio"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "matplotlib>=3.10,<4",
+    "mjlab==1.6.0",
+    "mujoco~=3.11.0",
+    "numpy>=2,<3",
+    "torch>=2.7.0,<3",
+    # RSL-RL imports torchvision; use the same CUDA wheel family as torch.
+    "torchvision>=0.22,<1",
+    "warp-lang>=1.14.0,<2",
+]
+
+[tool.uv]
+# Run scripts directly; the existing src/ directory contains C++ code.
+package = false
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com/"
+explicit = true
+
+[tool.uv.sources]
+# Dependency projects' tool.uv settings are not inherited. Select the GPU
+# wheels here explicitly, following mjlab's upstream CUDA 12.8 configuration.
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+warp-lang = { index = "nvidia" }
