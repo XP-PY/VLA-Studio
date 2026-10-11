@@ -1,5 +1,37 @@
 # MoJoCo Studio
 
+## Week 12 Gaussian policy gradients
+
+```bash
+uv run --locked python scripts/week12_policy_gradient.py
+uv run --locked python scripts/plot_week12.py
+uv run --locked python scripts/view_week12.py
+```
+
+The [week 12 walkthrough](docs/week12_policy_gradients.md) connects your Chapter
+13 notes to REINFORCE, a frozen value baseline, one-step actor-critic, and a
+continuing average-reward experiment. Continuous Gaussian torque policies run
+in mjlab, with raw-sample scoring, explicit motor clipping, three-seed evaluation,
+and paired baseline-variance diagnostics. In the viewer, **M** changes method,
+**D** switches sampled/mean actions, **C** selects scenario, **N/P** selects
+initial state, **Space** pauses, and **R** replays. Outputs go to `build/week12/`.
+
+## Week 11 approximate control and action interfaces
+
+```bash
+uv run --locked python scripts/week11_action_control.py
+uv run --locked python scripts/plot_week11.py
+uv run --locked python scripts/view_week11.py
+```
+
+The [week 11 walkthrough](docs/week11_action_control.md) connects your Chapter
+10/12 RL notes and robotics control review to semi-gradient SARSA, eligibility
+traces, and differential SARSA. Compare joint targets, Cartesian deltas, direct
+torques, and PD baselines using mjlab physics, paired robustness evaluations,
+and three seeds. The viewer uses **M** for controller, **C** for scenario,
+**N/P** for initial state, **Space** to pause, and **R** to restart.
+Results and plots are written to `build/week11/`; use `--backend native` for CPU.
+
 ## Week 10 continuous-state value approximation
 
 ```bash

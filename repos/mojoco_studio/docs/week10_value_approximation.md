@@ -48,14 +48,14 @@ policy. At the true terminal state the overlay explicitly displays zero value.
 The viewer uses a desktop OpenGL display; training and plots work without one.
 The old orange reaching marker is hidden because the PD target here is downward.
 
-## Read the source together with your notes
+## Read the source together with book notes
 
 The references below were checked against your local files:
 
-- `/home/yuel/workspace/llm-prep-2026/docs/Books/Reinforcement_Learning/Reinforcement_Learning_An_Introduction.md`
-- `/home/yuel/workspace/llm-prep-2026/docs/Books/Robotics/Modern_Robotics.md`
+- `llm-prep-2026/docs/Books/Reinforcement_Learning/Reinforcement_Learning_An_Introduction.md`
+- `llm-prep-2026/docs/Books/Robotics/Modern_Robotics.md`
 
-Section labels in this table refer to **your notes**; especially the Chapter 5
+Section labels in this table refer to **book notes**; especially the Chapter 5
 robotics headings are not a claim about the textbook's subsection numbering.
 
 | Source to read | Relevant notes | What to reconstruct |
@@ -77,10 +77,10 @@ in its docstring. This guide explains how those functions fit together.
 The XML's hinge rotates about world **+y**, at `(0,0,1)` metres. Zero angle hangs
 down, so the 0.6 m tip position and its point Jacobian are
 
-\[
+$$
 p(q)=(-0.6\sin q,\;0,\;1-0.6\cos q),\qquad
 J_p(q)=(-0.6\cos q,\;0,\;0.6\sin q)^T.
-\]
+$$
 
 Thus `v_tip = J_p * qdot`. This 3×1 Jacobian maps to **tip linear velocity**,
 not the six-dimensional spatial twist. A test compares both the position and
@@ -93,9 +93,9 @@ the existing XML and C++ exercises retain their original settings.
 
 Every 20 ms, the fixed policy chooses
 
-\[
+$$
 \tau_t=\operatorname{clip}(-2q_t-0.6\dot q_t,-3,3)\quad\text{N m}.
-\]
+$$
 
 The torque is held for ten physics steps. Unlike the horizontal-angle example
 in MR notes 11.4.1, gravity torque is zero at our downward target. The gains are
@@ -105,9 +105,9 @@ a small regulation task, not upright balancing or swing-up.
 The reset distribution is `q ~ Uniform[-1.2,1.2]` rad and
 `qdot ~ Uniform[-1,1]` rad/s. The transition reward is defined as
 
-\[
+$$
 R_{t+1}=-0.02\left(q_t^2+0.1\dot q_t^2+0.01\tau_t^2\right).
-\]
+$$
 
 It uses the state/action **before** integration. Unit reference scales are
 1 rad, 1 rad/s and 1 N m; the coefficients define a project-specific cost.
@@ -119,9 +119,9 @@ an improving controller: only the value estimator learns.
 
 Each task episode lasts `T=100` decisions (2 seconds by default). Its state is
 
-\[
+$$
 S_t=(q_t,\dot q_t,h_t),\qquad h_t=(T-t)/T.
-\]
+$$
 
 Two equal `(q,qdot)` pairs with different remaining time can have different
 returns. Including `h` avoids hiding that distinction from the predictor.
@@ -138,9 +138,9 @@ an error; it is never silently converted into a terminal transition.
 
 Fixed normalization gives
 
-\[
+$$
 z=(q/1.5,\dot q/4,2h-1).
-\]
+$$
 
 No observation clipping or running statistics are used. The two predictors are
 both `Vhat(s,w) = x(s)^T w`:
@@ -152,17 +152,17 @@ both `Vhat(s,w) = x(s)^T w`:
 
 For RBF center `c_i` and coordinate widths `sigma_j`,
 
-\[
+$$
 b_i(z)=\exp\left[-\frac12\sum_j((z_j-c_{ij})/\sigma_j)^2\right].
-\]
+$$
 
 Normalization of the final RBF vector is a project choice to control step-size
 scale. For one frozen-target update,
 
-\[
+$$
 \Delta\hat V(s)=\alpha\delta\|x(s)\|^2,\qquad
 \Delta\hat V(s')=\alpha\delta x(s')^Tx(s).
-\]
+$$
 
 The second identity explains `generalization.png`. RBF overlap concentrates
 the change near the updated state, while the constant basis adds a global
@@ -179,16 +179,16 @@ features” deliverable. Tile coding remains a useful comparison exercise.
 Unroll `G_t = R_{t+1} + gamma*G_{t+1}` for `n` transitions. At update time, with
 `j=min(t+n,T)`, substitute the current predictor only if the endpoint continues:
 
-\[
+$$
 U_t=\sum_{k=t}^{j-1}\gamma^{k-t}R_{k+1}
  +\mathbf1\{j<T\}\gamma^{j-t}x(S_j)^Tw.
-\]
+$$
 
 Then use `grad_w Vhat = x(S_t)`:
 
-\[
+$$
 w\leftarrow w+\alpha[U_t-x(S_t)^Tw]x(S_t).
-\]
+$$
 
 The target is treated as constant during this update. Differentiating the
 bootstrap too would add a successor-feature term and implement another
@@ -208,9 +208,9 @@ commands are still recomputed every 20 ms. Backup horizon is not action duration
 
 For B simultaneous worlds the implementation uses
 
-\[
+$$
 w\leftarrow w+\frac{\alpha}{B}X^T(U-Xw).
-\]
+$$
 
 All worlds read the same pre-update weights. This mean-batch extension is not
 B sequential updates. The default step size is 0.1 and gamma is 0.98. Constant
